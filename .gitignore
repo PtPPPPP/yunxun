@@ -1,0 +1,28 @@
+.env
+.env.local
+.env.*.local
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.db
+*.log
+*.tsbuildinfo
+node_modules/
+dist/
+build/
+frontend/.env
+qa-*.png
+# Python
+*.pyc
+*.pyo
+*.pyd
+env/
+.env
+# Node
+# Logs
+# System
+.DS_Store
+Thumbs.db
+# VS Code
+.vscode/
