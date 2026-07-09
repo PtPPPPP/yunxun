@@ -8,9 +8,9 @@
 [![SQLite](https://img.shields.io/badge/db-SQLite-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![Doubao Ark](https://img.shields.io/badge/AI-Doubao%20Ark-5b4cff)](https://www.volcengine.com/product/doubao)
 
-> 面向农业场景的本地 / 内网 AI 工作台：提供**农技问答、田间图片初步诊断、今日农活建议**三大能力。
+> 面向农业场景的本地 / 内网 AI 工作台，集成农技问答、田间图片初步诊断和今日农活建议，适合小团队快速试用和演示。
 
-云寻 AI 定位为「本地 / 内网可试用的商业 MVP」。它适合小团队、合作社、农场或基层农技人员在 Windows 电脑和局域网内小规模试用。未配置真实豆包 / Ark Key 时，系统会自动进入**本地演示模式**，无需外部 AI 服务也能打开页面、登录并查看演示回复。
+云寻 AI 定位为「本地 / 内网可试用的农业 AI 工作台」。它适合合作社、农场、农业服务队或基层农技人员在 Windows 电脑和局域网内小规模试用。未配置真实豆包 / Ark Key 时，系统会自动进入**本地演示模式**，无需外部 AI 服务也能跑通登录、会话、图片诊断和农活建议等核心流程。
 
 ## ✨ 核心特性
 
@@ -20,8 +20,8 @@
 - 🔐 **开箱即用的登录体系**：用户注册、登录、访客登录、退出。
 - 🛡️ **安全会话存储**：前端持有原始登录 token，数据库只保存不可直接复用的 token 哈希。
 - 🧪 **本地演示模式**：无 Key 也能完整跑通前端流程，零成本预演。
-- 🩺 **健康检查**：通过 `/api/health` 一目了然查看服务状态和 AI 配置状态。
-- ✅ **基础 CI**：后端语法检查、单元测试和前端构建由 GitHub Actions 自动执行。
+- 🩺 **健康检查**：支持 `/api/health`、`/health/live`、`/health/ready`，便于本地调试和部署探活。
+- ✅ **工程校验**：CI 覆盖后端编译、单元测试、前端 lint、构建、依赖审计和源码行数统计。
 
 ## 目录
 
@@ -40,6 +40,7 @@
 - [演示模式说明](#演示模式说明)
 - [线上部署（GitHub Pages + Render）](#线上部署github-pages--render)
 - [最小验证流程](#最小验证流程)
+- [代码行统计](#代码行统计)
 - [常见问题](#常见问题)
 - [商用 MVP 边界](#商用-mvp-边界)
 - [后续升级建议](#后续升级建议)
@@ -57,8 +58,10 @@
 - 农技问答：按会话保存问题和回复，支持历史会话查看。
 - 田间图片初步诊断：上传作物图片并填写描述，返回初步观察和建议。
 - 今日农活建议：根据天气、地块情况和作物阶段生成当天作业建议。
-- 健康检查：通过 `/api/health` 查看服务状态和 AI 配置状态。
+- 健康检查：通过 `/api/health`、`/health/live`、`/health/ready` 查看服务状态、存活状态和就绪状态。
 - 本地演示模式：未配置真实豆包 / Ark Key 时，仍可打开前端、登录、创建会话并查看固定演示回复。
+- 图片上传校验：前后端同时检查图片大小、MIME 类型和 Base64 数据，减少无效请求。
+- 依赖安全检查：前端依赖通过 `npm audit` 检查，CI 会阻止中高风险问题进入主分支。
 
 ## 技术架构
 
@@ -76,7 +79,7 @@ yunxun/
 ├── backend/
 │   ├── app/
 │   │   ├── api/                 # 路由与接口定义
-│   │   ├── core/                # 配置、依赖等核心模块
+│   │   ├── core/                # 配置、限流、安全、上传校验等核心模块
 │   │   ├── services/            # 业务与 AI 服务
 │   │   ├── main.py              # FastAPI 应用入口
 │   │   ├── repositories.py      # 数据访问层
@@ -93,6 +96,7 @@ yunxun/
 │   ├── ci.yml                   # 后端检查、单元测试、前端构建
 │   └── deploy-frontend.yml      # GitHub Pages 自动部署工作流
 ├── docs/                        # 项目文档
+├── scripts/                     # 工程辅助脚本
 ├── .env.example                 # 后端环境变量模板
 ├── AGENTS.md
 └── README.md
@@ -244,6 +248,13 @@ New-NetFirewallRule -DisplayName "Yunxun Frontend 5173" -Direction Inbound -Prot
 | `YUNXUN_CORS_HEADERS` | `Authorization,Content-Type` | 允许的 CORS 请求头。 |
 | `YUNXUN_MAX_MESSAGE_LENGTH` | `3000` | 单条消息最大长度。 |
 | `YUNXUN_REQUESTS_PER_MINUTE` | `20` | 简单请求频率限制。 |
+| `YUNXUN_UPLOAD_MAX_BYTES` | `5242880` | 单张图片最大上传字节数。 |
+| `YUNXUN_REQUEST_TIMEOUT_SECONDS` | `45` | 普通请求超时时间。 |
+| `YUNXUN_AI_TIMEOUT_SECONDS` | `45` | AI 上游请求超时时间。 |
+| `YUNXUN_AI_MAX_RETRIES` | `1` | AI 上游请求失败后的有限重试次数。 |
+| `YUNXUN_LOG_LEVEL` | `INFO` | 后端日志等级。 |
+| `YUNXUN_DEFAULT_PAGE_SIZE` | `20` | 默认分页大小。 |
+| `YUNXUN_MAX_PAGE_SIZE` | `100` | 最大分页大小。 |
 | `DOUBAO_API_KEY` | `your-doubao-api-key` | 豆包 / Ark API Key；为空或占位值时进入演示模式。 |
 | `DOUBAO_BASE_URL` | `https://ark.cn-beijing.volces.com/api/v3` | 豆包 / Ark OpenAI 兼容 API 地址。 |
 | `DOUBAO_CHAT_ENDPOINT` | `doubao-seed-1-6-250615` | 聊天模型 Endpoint。 |
@@ -372,11 +383,14 @@ python -m compileall backend
 python -m unittest
 Set-Location frontend
 npm ci
+npm run lint
 npm run build
+npm audit
 Set-Location ..
+python scripts\count_source_lines.py
 ```
 
-GitHub Actions 会在推送和 Pull Request 时执行同等的后端、前端基础检查。
+GitHub Actions 会在推送和 Pull Request 时执行同等的后端、前端和安全检查。
 
 **本地冒烟流程：**
 
@@ -388,6 +402,22 @@ GitHub Actions 会在推送和 Pull Request 时执行同等的后端、前端基
 6. 打开 <http://127.0.0.1:5173>，注册或访客登录。
 7. 创建一个会话，发送一条农技问题，确认有回复。
 8. 进入图片诊断或今日农活建议流程，确认页面可提交并返回结果。
+
+## 代码行统计
+
+项目内置源码行数统计脚本，用于分别统计后端和前端的有效代码行：
+
+```powershell
+python scripts\count_source_lines.py
+```
+
+统计口径：
+
+- 后端统计 `backend` 下的 `.py` 文件。
+- 前端统计 `frontend/src` 下的 `.ts`、`.tsx`、`.js`、`.jsx`、`.css` 文件。
+- 自动排除空行、纯注释行、依赖目录、构建产物、缓存和虚拟环境。
+
+脚本会输出每个文件的有效行数、前后端汇总行数，以及是否超过目标行数。
 
 ## 常见问题
 
@@ -447,7 +477,7 @@ VITE_YUNXUN_API_BASE_URL=http://127.0.0.1:8011
 
 ## 商用 MVP 边界
 
-当前版本适合本地 / 内网小规模试用和商业 MVP 演示，**不适合**作为公开互联网 SaaS 直接上线。
+当前版本适合本地 / 内网小规模试用和商业 MVP 演示，**不适合**不经加固就作为公开互联网 SaaS 直接上线。
 
 > ⚠️ AI 诊断只提供初步建议，**不能**作为病虫害定性、处方用药或安全生产的唯一依据。涉及农药、肥料、剂量、安全间隔期和采收要求时，必须以当地农技站、产品标签、监管要求和专业人员意见为准。
 
