@@ -103,20 +103,20 @@ def update_user_profile(user_id: str, display_name: str, preferred_model: str) -
     return dict(row)
 
 
-def create_auth_token(user_id: str, token: str, expires_at: str) -> None:
+def create_auth_token(user_id: str, token_hash: str, expires_at: str) -> None:
     with get_connection() as conn:
         conn.execute(
             """
-            INSERT INTO auth_tokens (token, user_id, expires_at, created_at)
+            INSERT INTO auth_tokens (token_hash, user_id, expires_at, created_at)
             VALUES (?, ?, ?, ?)
             """,
-            (token, user_id, expires_at, now_iso()),
+            (token_hash, user_id, expires_at, now_iso()),
         )
 
 
-def delete_auth_token(token: str) -> None:
+def delete_auth_token(token_hash: str) -> None:
     with get_connection() as conn:
-        conn.execute("DELETE FROM auth_tokens WHERE token = ?", (token,))
+        conn.execute("DELETE FROM auth_tokens WHERE token_hash = ?", (token_hash,))
 
 
 def cleanup_expired_tokens() -> None:
@@ -124,9 +124,12 @@ def cleanup_expired_tokens() -> None:
         conn.execute("DELETE FROM auth_tokens WHERE expires_at < ?", (now_iso(),))
 
 
-def get_user_by_token(token: str) -> dict[str, Any] | None:
+def get_user_by_token_hash(token_hash: str) -> dict[str, Any] | None:
     with get_connection() as conn:
-        token_row = conn.execute("SELECT * FROM auth_tokens WHERE token = ?", (token,)).fetchone()
+        token_row = conn.execute(
+            "SELECT * FROM auth_tokens WHERE token_hash = ? AND expires_at >= ?",
+            (token_hash, now_iso()),
+        ).fetchone()
         if not token_row:
             return None
         user_row = conn.execute("SELECT * FROM users WHERE id = ?", (token_row["user_id"],)).fetchone()

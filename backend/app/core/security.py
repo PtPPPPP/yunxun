@@ -1,5 +1,8 @@
 import hashlib
+import hmac
 import secrets
+
+from backend.app.core.config import get_settings
 
 
 def hash_password(password: str, salt: str | None = None) -> str:
@@ -15,3 +18,8 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def create_token() -> str:
     return secrets.token_urlsafe(32)
+
+
+def hash_auth_token(raw_token: str) -> str:
+    secret = get_settings().jwt_secret.encode("utf-8")
+    return hmac.new(secret, raw_token.encode("utf-8"), hashlib.sha256).hexdigest()

@@ -8,7 +8,7 @@ from fastapi import HTTPException
 
 from backend.app.core.audit import log_event
 from backend.app.core.config import get_settings
-from backend.app.core.security import create_token, hash_password, verify_password
+from backend.app.core.security import create_token, hash_auth_token, hash_password, verify_password
 from backend.app.repositories import (
     choose_model,
     cleanup_expired_tokens,
@@ -16,7 +16,7 @@ from backend.app.repositories import (
     create_user,
     delete_auth_token,
     get_user_by_id,
-    get_user_by_token,
+    get_user_by_token_hash,
     get_user_by_username,
     now_utc,
     public_user,
@@ -74,17 +74,17 @@ def issue_auth_token(user_id: str) -> str:
     settings = get_settings()
     token = create_token()
     expires_at = (now_utc() + timedelta(hours=settings.token_hours)).isoformat(timespec="seconds")
-    create_auth_token(user_id, token, expires_at)
+    cleanup_expired_tokens()
+    create_auth_token(user_id, hash_auth_token(token), expires_at)
     return token
 
 
 def get_current_user_from_header(authorization: str | None) -> dict[str, str]:
-    cleanup_expired_tokens()
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="请先登录。")
 
     token = authorization.split(" ", 1)[1].strip()
-    user_record = get_user_by_token(token)
+    user_record = get_user_by_token_hash(hash_auth_token(token))
     if not user_record:
         raise HTTPException(status_code=401, detail="登录状态已失效，请重新登录。")
     return user_record
@@ -95,7 +95,7 @@ def logout_user(authorization: str | None, user_id: str | None = None) -> None:
         return
 
     token = authorization.split(" ", 1)[1].strip()
-    delete_auth_token(token)
+    delete_auth_token(hash_auth_token(token))
     log_event(logger, "auth_logout", user_id=user_id or "unknown")
 
 

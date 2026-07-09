@@ -1,6 +1,8 @@
 import logging
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 from fastapi import HTTPException
 
@@ -18,11 +20,50 @@ def ensure_parent_dir() -> None:
     get_db_path().parent.mkdir(parents=True, exist_ok=True)
 
 
-def get_connection() -> sqlite3.Connection:
+@contextmanager
+def get_connection() -> Iterator[sqlite3.Connection]:
     ensure_parent_dir()
     connection = sqlite3.connect(get_db_path(), check_same_thread=False)
     connection.row_factory = sqlite3.Row
-    return connection
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def _table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return {row["name"] for row in rows}
+
+
+def _create_auth_tokens_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS auth_tokens (
+            token_hash TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+
+
+def _ensure_auth_tokens_schema(conn: sqlite3.Connection) -> None:
+    columns = _table_columns(conn, "auth_tokens")
+    if not columns:
+        _create_auth_tokens_table(conn)
+        return
+
+    if "token_hash" not in columns:
+        logger.warning("Invalidating legacy plaintext auth tokens during schema migration.")
+        conn.execute("DROP TABLE auth_tokens")
+        _create_auth_tokens_table(conn)
 
 
 def init_db() -> None:
@@ -39,14 +80,6 @@ def init_db() -> None:
                     preferred_model TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS auth_tokens (
-                    token TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    expires_at TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY(user_id) REFERENCES users(id)
                 );
 
                 CREATE TABLE IF NOT EXISTS chat_sessions (
@@ -70,6 +103,7 @@ def init_db() -> None:
                 );
                 """
             )
+            _ensure_auth_tokens_schema(conn)
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"数据库路径不可写：{db_path}") from exc
     except sqlite3.Error as exc:

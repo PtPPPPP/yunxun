@@ -1,5 +1,6 @@
 # 云寻 AI
 
+[![CI](https://github.com/PtPPPPP/yunxun/actions/workflows/ci.yml/badge.svg)](https://github.com/PtPPPPP/yunxun/actions/workflows/ci.yml)
 [![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/frontend-React-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/build-Vite-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -9,7 +10,7 @@
 
 > 面向农业场景的本地 / 内网 AI 工作台：提供**农技问答、田间图片初步诊断、今日农活建议**三大能力。
 
-云寻 AI 定位为「本地 / 内网可试用的商业 MVP」，适合小团队、合作社、农场或基层农技人员，在 Windows 电脑和局域网内小规模试用。未配置真实豆包 / Ark Key 时，会自动进入**本地演示模式**，无需任何外部依赖即可打开页面、登录并查看固定演示回复。
+云寻 AI 定位为「本地 / 内网可试用的商业 MVP」。它适合小团队、合作社、农场或基层农技人员在 Windows 电脑和局域网内小规模试用。未配置真实豆包 / Ark Key 时，系统会自动进入**本地演示模式**，无需外部 AI 服务也能打开页面、登录并查看演示回复。
 
 ## ✨ 核心特性
 
@@ -17,8 +18,10 @@
 - 📷 **田间图片初步诊断**：上传作物图片并填写描述，返回初步观察和建议。
 - 📅 **今日农活建议**：综合天气、地块情况和作物阶段，生成当天作业建议。
 - 🔐 **开箱即用的登录体系**：用户注册、登录、访客登录、退出。
+- 🛡️ **安全会话存储**：前端持有原始登录 token，数据库只保存不可直接复用的 token 哈希。
 - 🧪 **本地演示模式**：无 Key 也能完整跑通前端流程，零成本预演。
 - 🩺 **健康检查**：通过 `/api/health` 一目了然查看服务状态和 AI 配置状态。
+- ✅ **基础 CI**：后端语法检查、单元测试和前端构建由 GitHub Actions 自动执行。
 
 ## 目录
 
@@ -32,6 +35,7 @@
 - [局域网访问](#局域网访问)
 - [环境变量说明](#环境变量说明)
 - [SQLite 数据库](#sqlite-数据库)
+- [安全与会话](#安全与会话)
 - [豆包 / Ark 配置](#豆包--ark-配置)
 - [演示模式说明](#演示模式说明)
 - [线上部署（GitHub Pages + Render）](#线上部署github-pages--render)
@@ -86,6 +90,7 @@ yunxun/
 │   ├── package.json
 │   └── vite.config.ts           # 构建配置（base: /yunxun/）
 ├── .github/workflows/
+│   ├── ci.yml                   # 后端检查、单元测试、前端构建
 │   └── deploy-frontend.yml      # GitHub Pages 自动部署工作流
 ├── docs/                        # 项目文档
 ├── .env.example                 # 后端环境变量模板
@@ -284,6 +289,20 @@ Remove-Item backend\yunxun.db
 python backend\main.py
 ```
 
+## 安全与会话
+
+登录、注册和访客登录成功后，后端会生成一个原始 token 返回给前端。前端继续按原有方式在请求头中携带：
+
+```http
+Authorization: Bearer <token>
+```
+
+数据库不会保存这个原始 token，只保存基于 `YUNXUN_JWT_SECRET` 计算出的 HMAC-SHA256 哈希。后端收到请求后，会对前端传来的 token 重新计算哈希，再查询数据库。这样即使数据库文件被误复制，里面的 token 也不能直接拿来登录。
+
+如果项目从旧版本升级，后端启动初始化数据库时会识别旧的明文 token 表，并重建为哈希 token 表。旧登录态会失效，用户重新登录即可。
+
+过期 token 的清理不会在每次接口鉴权时全表执行。当前策略是在签发新 token 时顺带清理过期记录，普通接口请求只检查当前 token 是否存在且未过期。
+
 ## 豆包 / Ark 配置
 
 根目录 `.env` 示例：
@@ -350,11 +369,14 @@ Invoke-RestMethod http://127.0.0.1:8001/api/health
 
 ```powershell
 python -m compileall backend
-python -m unittest backend.tests.test_audit backend.tests.test_config_runtime backend.tests.test_system_service backend.tests.test_decision_service
+python -m unittest
 Set-Location frontend
+npm ci
 npm run build
 Set-Location ..
 ```
+
+GitHub Actions 会在推送和 Pull Request 时执行同等的后端、前端基础检查。
 
 **本地冒烟流程：**
 
@@ -399,6 +421,12 @@ VITE_YUNXUN_API_BASE_URL=http://127.0.0.1:8011
 ```
 
 然后重启后端和前端。
+
+### 登录后仍提示“请先登录”
+
+- 确认浏览器请求头里带有 `Authorization: Bearer <token>`。
+- 确认前端连接的是当前正在运行的后端地址，而不是旧端口或旧服务。
+- 如果刚从旧版本升级，旧登录态会因为 token 表安全迁移而失效，重新登录或使用访客登录即可。
 
 ### 局域网无法访问
 
