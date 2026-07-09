@@ -38,7 +38,7 @@ class ChatSessionRenameRequest(BaseModel):
 
 
 class VisionRequest(BaseModel):
-    image_base64: str = Field(..., min_length=32, max_length=12_000_000)
+    image_base64: str = Field(..., min_length=32, max_length=settings.upload_max_base64_length)
     crop: str = Field("", max_length=32)
     symptom: str = Field("", max_length=300)
 

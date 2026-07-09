@@ -545,6 +545,40 @@ button {
   color: var(--text-muted);
 }
 
+.upload-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.upload-summary div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.upload-summary strong {
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.upload-summary__clear {
+  flex: 0 0 auto;
+}
+
+.form-error {
+  min-height: 22px;
+  color: #9b2c2c;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
 .field-grid,
 .field-stack {
   display: grid;

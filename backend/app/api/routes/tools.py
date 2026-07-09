@@ -16,7 +16,7 @@ async def vision_api(
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:
     client_host = http_request.client.host if http_request.client else "local"
-    payload = create_vision_analysis(
+    payload = await create_vision_analysis(
         user_id=user["id"],
         client_host=client_host,
         image_base64=request.image_base64,

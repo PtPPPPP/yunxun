@@ -67,7 +67,7 @@ async def create_chat_message_api(
     http_request: Request,
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:
-    payload = create_session_message(
+    payload = await create_session_message(
         session_id=session_id,
         user=user,
         message_text=request.message,

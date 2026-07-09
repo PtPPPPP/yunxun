@@ -5,9 +5,10 @@ import { ChatWorkspace } from "./components/ChatWorkspace";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { api, getErrorMessage, setAuthToken } from "./lib/api";
+import { fileToBase64, formatFileSize, imageAcceptValue, validateImageFile } from "./lib/imageUpload";
+import { clearStoredAuthToken, persistAuthToken, readStoredAuthToken } from "./lib/tokenStorage";
 import { FeatureKey, HealthPayload, MessageItem, SessionItem, User } from "./types";
 
-const TOKEN_STORAGE_KEY = "yunxun.auth.token";
 const DEFAULT_SESSION_TITLE = "新会话";
 const VisionWorkspace = lazy(() =>
   import("./components/VisionWorkspace").then((module) => ({ default: module.VisionWorkspace })),
@@ -16,33 +17,8 @@ const DecisionWorkspace = lazy(() =>
   import("./components/DecisionWorkspace").then((module) => ({ default: module.DecisionWorkspace })),
 );
 
-function readStoredToken(): string {
-  return window.localStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
-}
-
-function persistToken(token: string): void {
-  if (!token) {
-    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-    return;
-  }
-
-  window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
-}
-
 function upsertSession(sessions: SessionItem[], nextSession: SessionItem): SessionItem[] {
   return [nextSession, ...sessions.filter((session) => session.id !== nextSession.id)];
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      resolve(result.split(",")[1] ?? "");
-    };
-    reader.onerror = () => reject(new Error("图片读取失败。"));
-    reader.readAsDataURL(file);
-  });
 }
 
 export default function App() {
@@ -51,7 +27,7 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [token, setToken] = useState(readStoredToken());
+  const [token, setToken] = useState(readStoredAuthToken());
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authForm, setAuthForm] = useState({ username: "", password: "", displayName: "" });
   const [user, setUser] = useState<User | null>(null);
@@ -65,6 +41,7 @@ export default function App() {
   const [chatDraft, setChatDraft] = useState("");
   const [visionFile, setVisionFile] = useState<File | null>(null);
   const [visionPreview, setVisionPreview] = useState<string | null>(null);
+  const [visionUploadError, setVisionUploadError] = useState("");
   const [visionCrop, setVisionCrop] = useState("玉米");
   const [visionSymptom, setVisionSymptom] = useState("");
   const [visionResult, setVisionResult] = useState("");
@@ -131,7 +108,11 @@ export default function App() {
 
   useEffect(() => {
     setAuthToken(token || null);
-    persistToken(token);
+    try {
+      persistAuthToken(token);
+    } catch (storageError) {
+      setError(getErrorMessage(storageError));
+    }
   }, [token]);
 
   useEffect(() => {
@@ -271,6 +252,7 @@ export default function App() {
     }
 
     setAuthToken(null);
+    clearStoredAuthToken();
     setToken("");
     setUser(null);
     setSessions([]);
@@ -346,9 +328,42 @@ export default function App() {
     }
   }
 
+  const handleVisionFileChange = useCallback((file: File | null) => {
+    if (!file) {
+      setVisionFile(null);
+      setVisionUploadError("");
+      return;
+    }
+
+    const validation = validateImageFile(file, health?.upload_max_bytes);
+    if (!validation.ok) {
+      setVisionFile(null);
+      setVisionUploadError(validation.message);
+      setError(validation.message);
+      return;
+    }
+
+    setVisionFile(file);
+    setVisionUploadError("");
+    setError("");
+  }, [health?.upload_max_bytes]);
+
+  const handleClearVisionFile = useCallback(() => {
+    setVisionFile(null);
+    setVisionPreview(null);
+    setVisionUploadError("");
+  }, []);
+
   async function handleVisionSubmit() {
     if (!visionFile) {
       setError("请先选择一张图片。");
+      return;
+    }
+
+    const validation = validateImageFile(visionFile, health?.upload_max_bytes);
+    if (!validation.ok) {
+      setVisionUploadError(validation.message);
+      setError(validation.message);
       return;
     }
 
@@ -509,12 +524,18 @@ export default function App() {
           <Suspense fallback={<div className="panel panel--loading">正在加载田间诊断模块...</div>}>
             <VisionWorkspace
               previewUrl={visionPreview}
+              fileName={visionFile?.name ?? ""}
+              fileSizeText={visionFile ? formatFileSize(visionFile.size) : ""}
+              maxSizeText={formatFileSize(health.upload_max_bytes)}
+              uploadError={visionUploadError}
+              accept={imageAcceptValue()}
               crop={visionCrop}
               symptom={visionSymptom}
               result={visionResult}
               modelMode={health.mode}
               aiConfigured={health.ai_configured}
-              onFileChange={setVisionFile}
+              onFileChange={handleVisionFileChange}
+              onClearFile={handleClearVisionFile}
               onCropChange={setVisionCrop}
               onSymptomChange={setVisionSymptom}
               onSubmit={handleVisionSubmitAction}

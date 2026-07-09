@@ -35,6 +35,9 @@ def build_runtime_status(settings: Settings) -> dict[str, Any]:
         "max_message_length": settings.max_message_length,
         "requests_per_minute": settings.requests_per_minute,
         "token_hours": settings.token_hours,
+        "upload_max_bytes": settings.upload_max_bytes,
+        "request_timeout_seconds": settings.request_timeout_seconds,
+        "ai_timeout_seconds": settings.ai_timeout_seconds,
         "warnings": build_runtime_warnings(settings),
     }
 

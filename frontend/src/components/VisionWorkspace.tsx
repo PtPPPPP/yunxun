@@ -1,13 +1,19 @@
-import { ImagePlus, ScanSearch } from "lucide-react";
+import { ImagePlus, ScanSearch, X } from "lucide-react";
 
 interface VisionWorkspaceProps {
   previewUrl: string | null;
+  fileName: string;
+  fileSizeText: string;
+  maxSizeText: string;
+  uploadError: string;
+  accept: string;
   crop: string;
   symptom: string;
   result: string;
   modelMode: string;
   aiConfigured: boolean;
   onFileChange: (file: File | null) => void;
+  onClearFile: () => void;
   onCropChange: (value: string) => void;
   onSymptomChange: (value: string) => void;
   onSubmit: () => void;
@@ -18,12 +24,18 @@ const crops = ["玉米", "水稻", "小麦", "大豆", "番茄", "黄瓜", "辣�
 export function VisionWorkspace(props: VisionWorkspaceProps) {
   const {
     previewUrl,
+    fileName,
+    fileSizeText,
+    maxSizeText,
+    uploadError,
+    accept,
     crop,
     symptom,
     result,
     modelMode,
     aiConfigured,
     onFileChange,
+    onClearFile,
     onCropChange,
     onSymptomChange,
     onSubmit,
@@ -42,7 +54,7 @@ export function VisionWorkspace(props: VisionWorkspaceProps) {
         <label className="upload-zone">
           <input
             type="file"
-            accept="image/png,image/jpeg,image/jpg"
+            accept={accept}
             onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
           />
           {previewUrl ? (
@@ -50,10 +62,28 @@ export function VisionWorkspace(props: VisionWorkspaceProps) {
           ) : (
             <div className="upload-zone__empty">
               <ImagePlus size={24} />
-              <span>拖拽或选择 JPG / PNG 图片</span>
+              <span>拖拽或选择 JPG / PNG / WebP 图片</span>
             </div>
           )}
         </label>
+
+        <div className="upload-summary">
+          {fileName ? (
+            <>
+              <div>
+                <strong>{fileName}</strong>
+                <span>{fileSizeText}</span>
+              </div>
+              <button className="ghost-button upload-summary__clear" type="button" onClick={onClearFile}>
+                <X size={15} />
+                清除
+              </button>
+            </>
+          ) : (
+            <span>单张图片最大 {maxSizeText}，浏览器会先检查格式和大小。</span>
+          )}
+        </div>
+        {uploadError && <div className="form-error">{uploadError}</div>}
       </div>
 
       <div className="panel">

@@ -48,6 +48,41 @@ class SystemServiceTestCase(unittest.TestCase):
         self.assertEqual(payload["allowed_origins"], ["http://192.168.1.10:5173"])
         self.assertNotIn("api_key", payload)
 
+    def test_liveness_payload_is_minimal_and_safe(self) -> None:
+        settings = make_settings()
+        with patch.object(system_service, "get_settings", return_value=settings):
+            payload = system_service.build_liveness_payload()
+
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["service"], "云寻 AI")
+        self.assertNotIn("api_key", str(payload))
+        self.assertNotIn("local-secret", str(payload))
+
+    def test_readiness_payload_reports_database_and_ai_state(self) -> None:
+        settings = make_settings(api_key="sk-real-example-value")
+        with (
+            patch.object(system_service, "get_settings", return_value=settings),
+            patch.object(system_service, "check_database_ready", return_value=True),
+        ):
+            payload = system_service.build_readiness_payload()
+
+        self.assertEqual(payload["status"], "ready")
+        self.assertTrue(payload["checks"]["database"])
+        self.assertTrue(payload["checks"]["ai_configured"])
+        self.assertNotIn("sk-real-example-value", str(payload))
+
+    def test_readiness_payload_is_degraded_when_database_is_unavailable(self) -> None:
+        settings = make_settings()
+        with (
+            patch.object(system_service, "get_settings", return_value=settings),
+            patch.object(system_service, "check_database_ready", return_value=False),
+        ):
+            payload = system_service.build_readiness_payload()
+
+        self.assertEqual(payload["status"], "degraded")
+        self.assertFalse(payload["checks"]["database"])
+        self.assertFalse(payload["checks"]["ai_configured"])
+
 
 if __name__ == "__main__":
     unittest.main()

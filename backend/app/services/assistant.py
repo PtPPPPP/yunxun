@@ -1,9 +1,16 @@
+import logging
 from functools import lru_cache
+from typing import Callable, TypeVar
 
+from fastapi.concurrency import run_in_threadpool
 from fastapi import HTTPException
 from openai import OpenAI
 
 from backend.app.core.config import CHAT_SYSTEM_PROMPT, VISION_SYSTEM_PROMPT, get_settings
+
+
+logger = logging.getLogger("yunxun.backend.assistant")
+T = TypeVar("T")
 
 
 def build_local_chat_reply(question: str) -> str:
@@ -49,48 +56,112 @@ def get_client() -> OpenAI:
     settings = get_settings()
     if not settings.ai_configured:
         raise HTTPException(status_code=503, detail="AI 服务未配置，请先设置 DOUBAO_API_KEY。")
-    return OpenAI(api_key=settings.api_key, base_url=settings.base_url, timeout=45)
+    return OpenAI(api_key=settings.api_key, base_url=settings.base_url, timeout=settings.ai_timeout_seconds)
 
 
-def create_chat_reply(history: list[dict[str, str]], model_name: str) -> str:
-    response = get_client().chat.completions.create(
-        model=model_name,
-        messages=[{"role": "system", "content": CHAT_SYSTEM_PROMPT}, *history],
-        temperature=0.35,
+async def create_chat_reply(history: list[dict[str, str]], model_name: str) -> str:
+    _validate_history(history)
+    model = _validate_model_name(model_name)
+    return await run_in_threadpool(_create_chat_reply_sync, history, model)
+
+
+def _create_chat_reply_sync(history: list[dict[str, str]], model_name: str) -> str:
+    response = _run_with_retries(
+        lambda: get_client().chat.completions.create(
+            model=model_name,
+            messages=[{"role": "system", "content": CHAT_SYSTEM_PROMPT}, *history],
+            temperature=0.35,
+        )
     )
-    reply = (response.choices[0].message.content or "").strip()
-    if not reply:
-        raise HTTPException(status_code=502, detail="这次没有生成有效内容，请换一种说法再试。")
-    return reply
+    return _extract_text_reply(response, empty_message="这次没有生成有效内容，请换一种说法再试。")
 
 
-def create_vision_reply(image_base64: str, crop: str, symptom: str) -> str:
+async def create_vision_reply(image_base64: str, crop: str, symptom: str) -> str:
+    if not image_base64.strip():
+        raise HTTPException(status_code=400, detail="图片内容不能为空。")
+    return await run_in_threadpool(_create_vision_reply_sync, image_base64, crop, symptom)
+
+
+def _create_vision_reply_sync(image_base64: str, crop: str, symptom: str) -> str:
     settings = get_settings()
-    response = get_client().chat.completions.create(
-        model=settings.vision_endpoint,
-        messages=[
-            {"role": "system", "content": VISION_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": (
-                            f"作物：{crop or '未填写'}\n"
-                            f"农户描述：{symptom or '未填写'}\n"
-                            "请分析这张作物照片，给出初步诊断和处理建议。"
-                        ),
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"},
-                    },
-                ],
-            },
-        ],
-        temperature=0.2,
+    response = _run_with_retries(
+        lambda: get_client().chat.completions.create(
+            model=settings.vision_endpoint,
+            messages=[
+                {"role": "system", "content": VISION_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                f"作物：{crop or '未填写'}\n"
+                                f"农户描述：{symptom or '未填写'}\n"
+                                "请分析这张作物照片，给出初步诊断和处理建议。"
+                            ),
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"},
+                        },
+                    ],
+                },
+            ],
+            temperature=0.2,
+        )
     )
-    reply = (response.choices[0].message.content or "").strip()
+    return _extract_text_reply(response, empty_message="视觉模型没有返回有效内容。")
+
+
+def _run_with_retries(operation: Callable[[], T]) -> T:
+    settings = get_settings()
+    attempts = settings.ai_max_retries + 1
+    last_error: Exception | None = None
+
+    for attempt in range(1, attempts + 1):
+        try:
+            return operation()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            last_error = exc
+            logger.warning("AI request failed on attempt %s/%s: %s", attempt, attempts, type(exc).__name__)
+
+    raise HTTPException(status_code=502, detail="模型服务暂时不可用，请稍后重试。") from last_error
+
+
+def _validate_history(history: list[dict[str, str]]) -> None:
+    if not history:
+        raise HTTPException(status_code=400, detail="对话历史不能为空。")
+    for item in history:
+        role = item.get("role", "")
+        content = item.get("content", "")
+        if role not in {"user", "assistant", "system"}:
+            raise HTTPException(status_code=400, detail="对话角色格式不正确。")
+        if not content.strip():
+            raise HTTPException(status_code=400, detail="对话内容不能为空。")
+
+
+def _validate_model_name(model_name: str) -> str:
+    normalized = model_name.strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="模型名称不能为空。")
+    if len(normalized) > 128:
+        raise HTTPException(status_code=400, detail="模型名称过长。")
+    return normalized
+
+
+def _extract_text_reply(response: object, *, empty_message: str) -> str:
+    try:
+        choices = getattr(response, "choices")
+        first_choice = choices[0]
+        message = getattr(first_choice, "message")
+        content = getattr(message, "content")
+    except (AttributeError, IndexError, TypeError) as exc:
+        logger.warning("Invalid AI response shape: %s", type(response).__name__)
+        raise HTTPException(status_code=502, detail="模型返回格式不正确。") from exc
+
+    reply = (content or "").strip()
     if not reply:
-        raise HTTPException(status_code=502, detail="视觉模型没有返回有效内容。")
+        raise HTTPException(status_code=502, detail=empty_message)
     return reply

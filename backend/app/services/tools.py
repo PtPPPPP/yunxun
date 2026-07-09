@@ -4,6 +4,7 @@ from fastapi import HTTPException
 
 from backend.app.core.audit import log_event
 from backend.app.core.config import get_settings
+from backend.app.core.upload import ImageUploadPolicy, validate_image_payload
 from backend.app.services.assistant import build_vision_demo_reply, create_vision_reply
 from backend.app.services.chat import rate_limiter
 from backend.app.services.decision import build_decision_reply
@@ -12,18 +13,21 @@ from backend.app.services.decision import build_decision_reply
 logger = logging.getLogger("yunxun.backend.tools")
 
 
-def create_vision_analysis(user_id: str, client_host: str, image_base64: str, crop: str, symptom: str) -> dict[str, str]:
+async def create_vision_analysis(user_id: str, client_host: str, image_base64: str, crop: str, symptom: str) -> dict[str, str]:
     settings = get_settings()
     rate_limiter.check(f"vision:{user_id}:{client_host}", settings.requests_per_minute)
+    image = validate_image_payload(image_base64, ImageUploadPolicy(max_bytes=settings.upload_max_bytes))
 
     normalized_crop = crop.strip() or "当前作物"
+    normalized_symptom = symptom.strip()
     log_event(
         logger,
         "vision_request",
         user_id=user_id,
         client_host=client_host,
         crop=normalized_crop,
-        image_length=len(image_base64),
+        image_size=image.size_bytes,
+        image_mime=image.mime_type,
         ai_configured=settings.ai_configured,
     )
     if not settings.ai_configured:
@@ -31,7 +35,7 @@ def create_vision_analysis(user_id: str, client_host: str, image_base64: str, cr
         return {"reply": build_vision_demo_reply(normalized_crop), "mode": "demo"}
 
     try:
-        reply = create_vision_reply(image_base64, crop, symptom)
+        reply = await create_vision_reply(image.base64_data, normalized_crop, normalized_symptom)
     except HTTPException:
         raise
     except Exception as exc:

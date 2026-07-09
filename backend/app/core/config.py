@@ -29,18 +29,96 @@ VISION_SYSTEM_PROMPT = """
 """.strip()
 
 
-def _parse_bool(value: str | None, default: bool = False) -> bool:
+def _getenv(name: str, default: str | None = None) -> str | None:
+    value = os.getenv(name)
     if value is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return value.strip()
 
 
-def _parse_csv(value: str | None, fallback: list[str]) -> list[str]:
+def _format_bounds(minimum: int | float | None, maximum: int | float | None) -> str:
+    parts: list[str] = []
+    if minimum is not None:
+        parts.append(f"不能小于 {minimum}")
+    if maximum is not None:
+        parts.append(f"不能大于 {maximum}")
+    return "，".join(parts)
+
+
+def _parse_int(
+    name: str,
+    value: str | None,
+    *,
+    default: int,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int:
+    if value is None:
+        return default
+    try:
+        parsed = int(value.strip())
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} 必须是整数，当前值为 {value!r}。") from exc
+    if minimum is not None and parsed < minimum:
+        raise ValueError(f"{name} 配置无效：{parsed}，{_format_bounds(minimum, maximum)}。")
+    if maximum is not None and parsed > maximum:
+        raise ValueError(f"{name} 配置无效：{parsed}，{_format_bounds(minimum, maximum)}。")
+    return parsed
+
+
+def _parse_float(
+    name: str,
+    value: str | None,
+    *,
+    default: float,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> float:
+    if value is None:
+        return default
+    try:
+        parsed = float(value.strip())
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} 必须是数字，当前值为 {value!r}。") from exc
+    if minimum is not None and parsed < minimum:
+        raise ValueError(f"{name} 配置无效：{parsed}，{_format_bounds(minimum, maximum)}。")
+    if maximum is not None and parsed > maximum:
+        raise ValueError(f"{name} 配置无效：{parsed}，{_format_bounds(minimum, maximum)}。")
+    return parsed
+
+
+def _parse_bool(name: str, value: str | None, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    truthy = {"1", "true", "yes", "y", "on"}
+    falsy = {"0", "false", "no", "n", "off"}
+    if normalized in truthy:
+        return True
+    if normalized in falsy:
+        return False
+    raise ValueError(f"{name} 必须是布尔值，可用 true/false、yes/no、1/0，当前值为 {value!r}。")
+
+
+def _parse_csv(name: str, value: str | None, fallback: list[str] | None = None) -> list[str]:
+    fallback = fallback or []
     if value is None:
         return fallback
     items = [item.strip() for item in value.split(",")]
-    normalized = [item for item in items if item]
+    normalized: list[str] = []
+    for item in items:
+        if item and item not in normalized:
+            normalized.append(item)
     return normalized or fallback
+
+
+def _parse_optional_str(name: str, value: str | None, *, default: str = "") -> str:
+    if value is None:
+        return default
+    cleaned = value.strip()
+    if "\x00" in cleaned:
+        raise ValueError(f"{name} 不能包含空字符。")
+    return cleaned
 
 
 def _normalize_example_key(value: str) -> str:
@@ -108,14 +186,23 @@ class Settings:
     max_message_length: int
     requests_per_minute: int
     token_hours: int
+    upload_max_bytes: int = 5 * 1024 * 1024
+    upload_max_base64_length: int = 8_000_000
+    request_timeout_seconds: float = 45.0
+    ai_timeout_seconds: float = 45.0
+    ai_max_retries: int = 1
+    log_level: str = "INFO"
+    default_page_size: int = 20
+    max_page_size: int = 100
 
     @property
     def available_models(self) -> list[str]:
-        return _parse_csv(self.available_models_raw, [self.chat_endpoint])
+        return _parse_csv("DOUBAO_AVAILABLE_MODELS", self.available_models_raw, [self.chat_endpoint])
 
     @property
     def allowed_origins(self) -> list[str]:
         return _parse_csv(
+            "YUNXUN_ALLOWED_ORIGINS",
             self.allowed_origins_raw,
             [
                 "http://localhost:5173",
@@ -131,11 +218,12 @@ class Settings:
 
     @property
     def cors_methods(self) -> list[str]:
-        return _parse_csv(self.cors_methods_raw, ["GET", "POST", "PATCH", "DELETE", "OPTIONS"])
+        methods = _parse_csv("YUNXUN_CORS_METHODS", self.cors_methods_raw, ["GET", "POST", "PATCH", "DELETE", "OPTIONS"])
+        return [method.upper() for method in methods]
 
     @property
     def cors_headers(self) -> list[str]:
-        return _parse_csv(self.cors_headers_raw, ["Authorization", "Content-Type"])
+        return _parse_csv("YUNXUN_CORS_HEADERS", self.cors_headers_raw, ["Authorization", "Content-Type"])
 
     @property
     def ai_configured(self) -> bool:
@@ -145,38 +233,69 @@ class Settings:
     def docs_enabled(self) -> bool:
         return self.debug or self.environment != "production"
 
+    @property
+    def upload_max_megabytes(self) -> float:
+        return round(self.upload_max_bytes / 1024 / 1024, 2)
+
+    @property
+    def normalized_log_level(self) -> str:
+        level = self.log_level.strip().upper()
+        allowed = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        if level not in allowed:
+            raise ValueError(f"YUNXUN_LOG_LEVEL 只能是 {', '.join(sorted(allowed))}，当前值为 {self.log_level!r}。")
+        return level
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     default_database_path = PROJECT_ROOT / "backend" / "yunxun.db"
-    database_url = os.getenv("YUNXUN_DATABASE_URL", f"sqlite:///{default_database_path}")
+    port = _parse_int("YUNXUN_PORT", _getenv("YUNXUN_PORT", _getenv("PORT", "8001")), default=8001, minimum=1, maximum=65535)
+    token_hours = _parse_int("YUNXUN_TOKEN_EXPIRE_HOURS", _getenv("YUNXUN_TOKEN_EXPIRE_HOURS"), default=168, minimum=1, maximum=24 * 365)
+    upload_max_bytes = _parse_int(
+        "YUNXUN_UPLOAD_MAX_BYTES",
+        _getenv("YUNXUN_UPLOAD_MAX_BYTES"),
+        default=5 * 1024 * 1024,
+        minimum=1,
+        maximum=20 * 1024 * 1024,
+    )
+    database_url = _getenv("YUNXUN_DATABASE_URL", f"sqlite:///{default_database_path}") or f"sqlite:///{default_database_path}"
 
     return Settings(
-        app_name=os.getenv("YUNXUN_APP_NAME", "云寻 AI"),
-        app_version=os.getenv("YUNXUN_APP_VERSION", "4.0.0"),
-        environment=os.getenv("YUNXUN_ENV", "development"),
-        debug=_parse_bool(os.getenv("YUNXUN_DEBUG"), default=False),
-        host=os.getenv("YUNXUN_HOST", "0.0.0.0"),
-        port=int(os.getenv("YUNXUN_PORT", os.getenv("PORT", "8001"))),
-        backend_url=os.getenv("YUNXUN_BACKEND_URL", f"http://127.0.0.1:{os.getenv('YUNXUN_PORT', os.getenv('PORT', '8001'))}"),
-        jwt_secret=os.getenv("YUNXUN_JWT_SECRET", "change-me-in-production"),
-        api_key=os.getenv("DOUBAO_API_KEY", ""),
-        base_url=os.getenv("DOUBAO_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
-        chat_endpoint=os.getenv("DOUBAO_CHAT_ENDPOINT", "doubao-seed-1-6-250615"),
-        vision_endpoint=os.getenv(
+        app_name=_parse_optional_str("YUNXUN_APP_NAME", _getenv("YUNXUN_APP_NAME"), default="云寻 AI"),
+        app_version=_parse_optional_str("YUNXUN_APP_VERSION", _getenv("YUNXUN_APP_VERSION"), default="4.0.0"),
+        environment=_parse_optional_str("YUNXUN_ENV", _getenv("YUNXUN_ENV"), default="development"),
+        debug=_parse_bool("YUNXUN_DEBUG", _getenv("YUNXUN_DEBUG"), default=False),
+        host=_parse_optional_str("YUNXUN_HOST", _getenv("YUNXUN_HOST"), default="0.0.0.0"),
+        port=port,
+        backend_url=_parse_optional_str("YUNXUN_BACKEND_URL", _getenv("YUNXUN_BACKEND_URL"), default=f"http://127.0.0.1:{port}"),
+        jwt_secret=_parse_optional_str("YUNXUN_JWT_SECRET", _getenv("YUNXUN_JWT_SECRET"), default="change-me-in-production"),
+        api_key=_parse_optional_str("DOUBAO_API_KEY", _getenv("DOUBAO_API_KEY"), default=""),
+        base_url=_parse_optional_str("DOUBAO_BASE_URL", _getenv("DOUBAO_BASE_URL"), default="https://ark.cn-beijing.volces.com/api/v3"),
+        chat_endpoint=_parse_optional_str("DOUBAO_CHAT_ENDPOINT", _getenv("DOUBAO_CHAT_ENDPOINT"), default="doubao-seed-1-6-250615"),
+        vision_endpoint=_parse_optional_str(
             "DOUBAO_VISION_ENDPOINT",
-            os.getenv("DOUBAO_CHAT_ENDPOINT", "doubao-seed-1-6-250615"),
+            _getenv("DOUBAO_VISION_ENDPOINT"),
+            default=_getenv("DOUBAO_CHAT_ENDPOINT", "doubao-seed-1-6-250615") or "doubao-seed-1-6-250615",
         ),
-        available_models_raw=os.getenv(
+        available_models_raw=_parse_optional_str(
             "DOUBAO_AVAILABLE_MODELS",
-            os.getenv("DOUBAO_CHAT_ENDPOINT", "doubao-seed-1-6-250615"),
+            _getenv("DOUBAO_AVAILABLE_MODELS"),
+            default=_getenv("DOUBAO_CHAT_ENDPOINT", "doubao-seed-1-6-250615") or "doubao-seed-1-6-250615",
         ),
         database_url=database_url,
-        db_path=_resolve_database_path(os.getenv("YUNXUN_DB_PATH", database_url)),
-        allowed_origins_raw=os.getenv("YUNXUN_ALLOWED_ORIGINS", ""),
-        cors_methods_raw=os.getenv("YUNXUN_CORS_METHODS", "GET,POST,PATCH,DELETE,OPTIONS"),
-        cors_headers_raw=os.getenv("YUNXUN_CORS_HEADERS", "Authorization,Content-Type"),
-        max_message_length=int(os.getenv("YUNXUN_MAX_MESSAGE_LENGTH", "3000")),
-        requests_per_minute=int(os.getenv("YUNXUN_REQUESTS_PER_MINUTE", "20")),
-        token_hours=int(os.getenv("YUNXUN_TOKEN_EXPIRE_HOURS", "168")),
+        db_path=_resolve_database_path(_getenv("YUNXUN_DB_PATH", database_url) or database_url),
+        allowed_origins_raw=_getenv("YUNXUN_ALLOWED_ORIGINS", "") or "",
+        cors_methods_raw=_getenv("YUNXUN_CORS_METHODS", "GET,POST,PATCH,DELETE,OPTIONS") or "GET,POST,PATCH,DELETE,OPTIONS",
+        cors_headers_raw=_getenv("YUNXUN_CORS_HEADERS", "Authorization,Content-Type") or "Authorization,Content-Type",
+        max_message_length=_parse_int("YUNXUN_MAX_MESSAGE_LENGTH", _getenv("YUNXUN_MAX_MESSAGE_LENGTH"), default=3000, minimum=1, maximum=20_000),
+        requests_per_minute=_parse_int("YUNXUN_REQUESTS_PER_MINUTE", _getenv("YUNXUN_REQUESTS_PER_MINUTE"), default=20, minimum=1, maximum=600),
+        token_hours=token_hours,
+        upload_max_bytes=upload_max_bytes,
+        upload_max_base64_length=int(upload_max_bytes * 1.38) + 128,
+        request_timeout_seconds=_parse_float("YUNXUN_REQUEST_TIMEOUT_SECONDS", _getenv("YUNXUN_REQUEST_TIMEOUT_SECONDS"), default=45.0, minimum=1.0, maximum=180.0),
+        ai_timeout_seconds=_parse_float("YUNXUN_AI_TIMEOUT_SECONDS", _getenv("YUNXUN_AI_TIMEOUT_SECONDS"), default=45.0, minimum=1.0, maximum=180.0),
+        ai_max_retries=_parse_int("YUNXUN_AI_MAX_RETRIES", _getenv("YUNXUN_AI_MAX_RETRIES"), default=1, minimum=0, maximum=3),
+        log_level=_parse_optional_str("YUNXUN_LOG_LEVEL", _getenv("YUNXUN_LOG_LEVEL"), default="INFO"),
+        default_page_size=_parse_int("YUNXUN_DEFAULT_PAGE_SIZE", _getenv("YUNXUN_DEFAULT_PAGE_SIZE"), default=20, minimum=1, maximum=100),
+        max_page_size=_parse_int("YUNXUN_MAX_PAGE_SIZE", _getenv("YUNXUN_MAX_PAGE_SIZE"), default=100, minimum=1, maximum=500),
     )

@@ -30,6 +30,9 @@ jobs:
       - name: Run backend tests
         run: python -m unittest
 
+      - name: Count source lines
+        run: python scripts/count_source_lines.py
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -49,5 +52,11 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Lint frontend
+        run: npm run lint
+
       - name: Build frontend
         run: npm run build
+
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=moderate

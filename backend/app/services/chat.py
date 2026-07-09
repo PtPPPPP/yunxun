@@ -69,7 +69,7 @@ def build_history(session_id: str) -> list[dict[str, str]]:
     return [{"role": item["role"], "content": item["content"]} for item in history[-12:]]
 
 
-def create_session_message(
+async def create_session_message(
     session_id: str,
     user: dict[str, str],
     message_text: str,
@@ -101,7 +101,7 @@ def create_session_message(
     selected_model = choose_model(model_name or session_record["model_name"] or user["preferred_model"], settings.available_models, settings.chat_endpoint)
     if settings.ai_configured:
         try:
-            reply = create_chat_reply(build_history(session_id), selected_model)
+            reply = await create_chat_reply(build_history(session_id), selected_model)
         except HTTPException:
             raise
         except Exception as exc:

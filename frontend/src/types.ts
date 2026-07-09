@@ -10,6 +10,7 @@ export interface HealthPayload {
   available_models: string[];
   max_message_length: number;
   requests_per_minute: number;
+  upload_max_bytes: number;
   debug: boolean;
   database_path: string;
   allowed_origins: string[];
