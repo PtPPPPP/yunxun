@@ -5,6 +5,8 @@ from fastapi import HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from backend.app.core.errors import AppError
+
 
 logger = logging.getLogger("yunxun.backend")
 
@@ -13,13 +15,23 @@ def success_payload(**payload: Any) -> dict[str, Any]:
     return {"success": True, **payload}
 
 
-def error_response(message: str, status_code: int) -> JSONResponse:
-    return JSONResponse(status_code=status_code, content={"success": False, "error": message})
+def error_response(message: str, status_code: int, *, code: str | None = None) -> JSONResponse:
+    """构造统一的错误响应。
+
+    ``code`` 仅在 ``AppError``（或显式传入）时出现，普通错误载荷保持
+    ``{"success": False, "error": message}`` 的历史结构，确保向后兼容。
+    """
+    body: dict[str, Any] = {"success": False, "error": message}
+    if code:
+        body["code"] = code
+    return JSONResponse(status_code=status_code, content=body)
 
 
 async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
     detail = exc.detail if isinstance(exc.detail, str) else "请求处理失败。"
-    return error_response(detail, exc.status_code)
+    # AppError 是 HTTPException 的子类，统一在这里暴露稳定的 code 字段。
+    code = getattr(exc, "code", None)
+    return error_response(detail, exc.status_code, code=code)
 
 
 async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:

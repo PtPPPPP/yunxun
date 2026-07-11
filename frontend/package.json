@@ -1,12 +1,14 @@
 {
   "name": "yunxun-web",
   "private": true,
-  "version": "1.0.0",
+  "version": "4.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vite build",
     "lint": "eslint .",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -25,6 +27,7 @@
     "playwright": "^1.60.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.63.0",
-    "vite": "^7.1.12"
+    "vite": "^7.1.12",
+    "vitest": "^3.2.7"
   }
 }

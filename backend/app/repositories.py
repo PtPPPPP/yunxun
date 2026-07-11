@@ -1,6 +1,6 @@
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from backend.app.core.database import get_connection
@@ -182,21 +182,85 @@ def list_sessions(user_id: str, feature: str) -> list[dict[str, Any]]:
     return sessions
 
 
+def _session_list_query() -> str:
+    return """
+        SELECT
+            s.*,
+            (
+                SELECT content
+                FROM chat_messages m
+                WHERE m.session_id = s.id
+                ORDER BY m.created_at DESC, m.id DESC
+                LIMIT 1
+            ) AS last_message
+        FROM chat_sessions s
+        WHERE s.user_id = ? AND s.feature = ?
+        ORDER BY s.updated_at DESC, s.id DESC
+    """
+
+
+def list_sessions_page(user_id: str, feature: str, *, limit: int, offset: int) -> list[dict[str, Any]]:
+    """与 :func:`list_sessions` 相同的排序，但只取一页。"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            _session_list_query() + " LIMIT ? OFFSET ?",
+            (user_id, feature, limit, offset),
+        ).fetchall()
+    return [public_session(dict(row), dict(row).get("last_message") or "") for row in rows]
+
+
+def count_sessions(user_id: str, feature: str) -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS total FROM chat_sessions WHERE user_id = ? AND feature = ?",
+            (user_id, feature),
+        ).fetchone()
+    return int(row["total"]) if row else 0
+
+
+def count_all_sessions(user_id: str) -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS total FROM chat_sessions WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return int(row["total"]) if row else 0
+
+
+def count_messages_for_user(user_id: str) -> int:
+    """统计某用户的全部会话消息总数（跨功能）。"""
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM chat_messages m
+            JOIN chat_sessions s ON s.id = m.session_id
+            WHERE s.user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+    return int(row["total"]) if row else 0
+
+
+def count_sessions_by_feature(user_id: str) -> dict[str, int]:
+    """按功能维度统计该用户的会话数量。"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT feature, COUNT(*) AS total
+            FROM chat_sessions
+            WHERE user_id = ?
+            GROUP BY feature
+            """,
+            (user_id,),
+        ).fetchall()
+    return {str(row["feature"]): int(row["total"]) for row in rows}
+
+
 def rename_session(session_id: str, title: str) -> dict[str, Any]:
     updated_at = now_iso()
     with get_connection() as conn:
         conn.execute("UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?", (title, updated_at, session_id))
-        row = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
-    return dict(row)
-
-
-def update_session_model(session_id: str, model_name: str) -> dict[str, Any]:
-    updated_at = now_iso()
-    with get_connection() as conn:
-        conn.execute(
-            "UPDATE chat_sessions SET model_name = ?, updated_at = ? WHERE id = ?",
-            (model_name, updated_at, session_id),
-        )
         row = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
     return dict(row)
 
@@ -207,20 +271,59 @@ def delete_session(session_id: str) -> None:
         conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
 
 
-def save_message(session_id: str, role: str, content: str) -> dict[str, Any]:
-    message_id = uuid.uuid4().hex
-    created_at = now_iso()
+def save_chat_exchange(
+    session_id: str,
+    user_content: str,
+    assistant_content: str,
+    model_name: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """在一个事务中保存一轮完整对话并更新会话元数据。"""
+    exchange_time = now_utc()
+    user_created_at = exchange_time.isoformat(timespec="microseconds")
+    assistant_created_at = (exchange_time + timedelta(microseconds=1)).isoformat(timespec="microseconds")
+    user_message_id = uuid.uuid4().hex
+    assistant_message_id = uuid.uuid4().hex
+
     with get_connection() as conn:
-        conn.execute(
+        session_row = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
+        if session_row is None:
+            raise LookupError("chat session disappeared before message persistence")
+
+        user_message_count = conn.execute(
+            "SELECT COUNT(*) AS total FROM chat_messages WHERE session_id = ? AND role = 'user'",
+            (session_id,),
+        ).fetchone()["total"]
+        next_title = session_row["title"]
+        if next_title == "新会话" and int(user_message_count) == 0:
+            next_title = safe_text(user_content.replace("\n", " ")[:24], "新会话")
+
+        conn.executemany(
             """
             INSERT INTO chat_messages (id, session_id, role, content, created_at)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (message_id, session_id, role, content, created_at),
+            [
+                (user_message_id, session_id, "user", user_content, user_created_at),
+                (assistant_message_id, session_id, "assistant", assistant_content, assistant_created_at),
+            ],
         )
-        conn.execute("UPDATE chat_sessions SET updated_at = ? WHERE id = ?", (created_at, session_id))
-        row = conn.execute("SELECT * FROM chat_messages WHERE id = ?", (message_id,)).fetchone()
-    return public_message(dict(row))
+        conn.execute(
+            """
+            UPDATE chat_sessions
+            SET title = ?, model_name = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (next_title, model_name, assistant_created_at, session_id),
+        )
+        user_row = conn.execute("SELECT * FROM chat_messages WHERE id = ?", (user_message_id,)).fetchone()
+        assistant_row = conn.execute("SELECT * FROM chat_messages WHERE id = ?", (assistant_message_id,)).fetchone()
+        updated_session = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
+
+    return (
+        public_message(dict(user_row)),
+        public_message(dict(assistant_row)),
+        dict(updated_session),
+    )
 
 
 def list_messages(session_id: str) -> list[dict[str, Any]]:
@@ -237,20 +340,25 @@ def list_messages(session_id: str) -> list[dict[str, Any]]:
     return [public_message(dict(row)) for row in rows]
 
 
-def count_user_messages(session_id: str) -> int:
+def list_messages_page(
+    session_id: str,
+    *,
+    limit: int,
+    cursor: tuple[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
+    cursor_sql = ""
+    params: list[Any] = [session_id]
+    if cursor:
+        cursor_sql = " AND (created_at < ? OR (created_at = ? AND id < ?))"
+        params.extend([cursor[0], cursor[0], cursor[1]])
+    params.append(limit + 1)
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) AS total FROM chat_messages WHERE session_id = ? AND role = 'user'",
-            (session_id,),
-        ).fetchone()
-    return int(row["total"]) if row else 0
-
-
-def maybe_update_session_title(session_id: str, content: str) -> None:
-    session_record = get_session(session_id)
-    if not session_record or session_record["title"] != "新会话":
-        return
-    if count_user_messages(session_id) > 1:
-        return
-    title = safe_text(content.replace("\n", " ")[:24], "新会话")
-    rename_session(session_id, title)
+        rows = conn.execute(
+            "SELECT * FROM chat_messages WHERE session_id = ?" + cursor_sql
+            + " ORDER BY created_at DESC, id DESC LIMIT ?",
+            tuple(params),
+        ).fetchall()
+    has_more = len(rows) > limit
+    selected = rows[:limit]
+    selected.reverse()
+    return [public_message(dict(row)) for row in selected], has_more

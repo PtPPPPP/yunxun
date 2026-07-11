@@ -12,8 +12,8 @@ router = APIRouter(tags=["system"])
 
 
 @router.get("/")
-async def root_api() -> dict[str, str]:
-    return success_payload(message="云寻 AI 后端已启动。")
+async def root_api() -> dict[str, object]:
+    return success_payload(message="云寻智慧农业AI工作台软件后端已启动。")
 
 
 @router.get("/api/health")

@@ -1,0 +1,67 @@
+软件著作权源码材料清单
+========================================================================
+软件全称：云寻智慧农业AI工作台软件
+软件简称：云寻AI
+版本号：V4.0
+生成时间：2026-07-10T09:50:08+08:00
+纳入文件数量：38
+后端源码行数：1588
+前端源码行数（含样式）：2169
+样式代码行数（前端行数的子集）：727
+有效源码总行数：3757
+材料总页数：76
+分页规则：每页 50 行源码正文，页眉不计入正文行数，末页可不足 50 行。
+
+排除规则
+------------------------------------------------------------------------
+- 依赖与锁文件：node_modules、package-lock.json
+- 测试代码：tests、test、__tests__、test_*.py、*_test.py、*.test.*、*.spec.*
+- 构建与缓存：dist、build、coverage、__pycache__、pytest/mypy/ruff 缓存
+- 环境与工具：.git、虚拟环境、IDE 配置、日志、数据库、上传数据和大型静态资源
+- 自动生成与声明文件：*.d.ts、vite.config.js、vite.config.d.ts
+
+固定排序规则
+------------------------------------------------------------------------
+分类顺序：后端入口 → API → 业务逻辑 → 数据模型/访问 → 核心工具 → 前端入口 → 页面/组件 → 服务/工具 → 样式。
+同一分类内按相对路径字典序排列；相同仓库状态下重复运行顺序一致。
+
+实际纳入文件
+------------------------------------------------------------------------
+01. [后端入口] backend/main.py | 32 行 | 材料行 1-32
+02. [后端应用入口] backend/app/main.py | 43 行 | 材料行 33-75
+03. [后端 API] backend/app/api/deps.py | 4 行 | 材料行 76-79
+04. [后端 API] backend/app/api/routes/__init__.py | 2 行 | 材料行 80-81
+05. [后端 API] backend/app/api/routes/auth.py | 39 行 | 材料行 82-120
+06. [后端 API] backend/app/api/routes/chat.py | 62 行 | 材料行 121-182
+07. [后端 API] backend/app/api/routes/system.py | 33 行 | 材料行 183-215
+08. [后端 API] backend/app/api/routes/tools.py | 38 行 | 材料行 216-253
+09. [后端业务逻辑] backend/app/services/assistant.py | 138 行 | 材料行 254-391
+10. [后端业务逻辑] backend/app/services/auth.py | 94 行 | 材料行 392-485
+11. [后端业务逻辑] backend/app/services/chat.py | 103 行 | 材料行 486-588
+12. [后端业务逻辑] backend/app/services/decision.py | 32 行 | 材料行 589-620
+13. [后端业务逻辑] backend/app/services/system.py | 53 行 | 材料行 621-673
+14. [后端业务逻辑] backend/app/services/tools.py | 67 行 | 材料行 674-740
+15. [后端数据模型] backend/app/schemas.py | 32 行 | 材料行 741-772
+16. [后端数据访问] backend/app/repositories.py | 202 行 | 材料行 773-974
+17. [后端核心工具] backend/app/core/audit.py | 23 行 | 材料行 975-997
+18. [后端核心工具] backend/app/core/config.py | 260 行 | 材料行 998-1257
+19. [后端核心工具] backend/app/core/database.py | 90 行 | 材料行 1258-1347
+20. [后端核心工具] backend/app/core/exceptions.py | 21 行 | 材料行 1348-1368
+21. [后端核心工具] backend/app/core/rate_limit.py | 91 行 | 材料行 1369-1459
+22. [后端核心工具] backend/app/core/runtime_status.py | 49 行 | 材料行 1460-1508
+23. [后端核心工具] backend/app/core/security.py | 16 行 | 材料行 1509-1524
+24. [后端核心工具] backend/app/core/upload.py | 63 行 | 材料行 1525-1587
+25. [后端其他源码] backend/app/__init__.py | 1 行 | 材料行 1588-1588
+26. [前端入口] frontend/src/main.tsx | 9 行 | 材料行 1589-1597
+27. [前端主页面] frontend/src/App.tsx | 495 行 | 材料行 1598-2092
+28. [前端组件] frontend/src/components/AuthScreen.tsx | 144 行 | 材料行 2093-2236
+29. [前端组件] frontend/src/components/ChatWorkspace.tsx | 141 行 | 材料行 2237-2377
+30. [前端组件] frontend/src/components/DecisionWorkspace.tsx | 104 行 | 材料行 2378-2481
+31. [前端组件] frontend/src/components/Sidebar.tsx | 156 行 | 材料行 2482-2637
+32. [前端组件] frontend/src/components/TopBar.tsx | 73 行 | 材料行 2638-2710
+33. [前端组件] frontend/src/components/VisionWorkspace.tsx | 131 行 | 材料行 2711-2841
+34. [前端服务与 API] frontend/src/lib/api.ts | 70 行 | 材料行 2842-2911
+35. [前端工具] frontend/src/lib/imageUpload.ts | 50 行 | 材料行 2912-2961
+36. [前端工具] frontend/src/lib/tokenStorage.ts | 25 行 | 材料行 2962-2986
+37. [前端其他源码] frontend/src/types.ts | 44 行 | 材料行 2987-3030
+38. [前端核心样式] frontend/src/styles.css | 727 行 | 材料行 3031-3757

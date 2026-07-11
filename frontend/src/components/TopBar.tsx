@@ -1,4 +1,4 @@
-import { CloudSun, Gauge, LineChart, ShieldCheck } from "lucide-react";
+import { CloudSun, Gauge, LineChart, Menu, ShieldCheck } from "lucide-react";
 import { memo } from "react";
 
 import { FeatureKey, HealthPayload } from "../types";
@@ -21,9 +21,10 @@ const featureTitles: Record<FeatureKey, { title: string; subtitle: string }> = {
 interface TopBarProps {
   health: HealthPayload;
   activeFeature: FeatureKey;
+  onOpenNavigation: () => void;
 }
 
-export const TopBar = memo(function TopBar({ health, activeFeature }: TopBarProps) {
+export const TopBar = memo(function TopBar({ health, activeFeature, onOpenNavigation }: TopBarProps) {
   const today = new Intl.DateTimeFormat("zh-CN", {
     month: "long",
     day: "numeric",
@@ -33,10 +34,21 @@ export const TopBar = memo(function TopBar({ health, activeFeature }: TopBarProp
 
   return (
     <header className="topbar">
-      <div>
-        <div className="eyebrow">云寻 AI</div>
+      <div className="topbar__title">
+        <button
+          className="mobile-menu-button"
+          type="button"
+          onClick={onOpenNavigation}
+          aria-label="打开导航"
+          aria-controls="app-sidebar"
+        >
+          <Menu size={20} />
+        </button>
+        <div>
+        <div className="eyebrow">云寻AI</div>
         <h2>{copy.title}</h2>
         <p>{copy.subtitle}</p>
+        </div>
       </div>
 
       <div className="topbar__chips">

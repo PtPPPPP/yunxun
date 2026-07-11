@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 load_dotenv(PROJECT_ROOT / ".env")
 
 CHAT_SYSTEM_PROMPT = """
-你是“云寻 AI”的农技助手，服务对象是一线农户、合作社和基层农技员。
+你是“云寻AI”的农技助手，服务对象是一线农户、合作社和基层农技员。
 回答时请遵循这些原则：
 1. 先给结论，再解释原因，最后给出今天能执行的 2 到 4 条操作建议。
 2. 使用口语化中文，少用术语；涉及药剂、肥料和剂量时，提醒以当地农技站、产品标签和安全间隔期为准。
@@ -194,6 +194,11 @@ class Settings:
     log_level: str = "INFO"
     default_page_size: int = 20
     max_page_size: int = 100
+    idempotency_window_seconds: float = 10.0
+
+    @property
+    def idempotency_enabled(self) -> bool:
+        return self.idempotency_window_seconds > 0
 
     @property
     def available_models(self) -> list[str]:
@@ -223,7 +228,11 @@ class Settings:
 
     @property
     def cors_headers(self) -> list[str]:
-        return _parse_csv("YUNXUN_CORS_HEADERS", self.cors_headers_raw, ["Authorization", "Content-Type"])
+        return _parse_csv(
+            "YUNXUN_CORS_HEADERS",
+            self.cors_headers_raw,
+            ["Authorization", "Content-Type", "X-Idempotency-Key"],
+        )
 
     @property
     def ai_configured(self) -> bool:
@@ -246,6 +255,20 @@ class Settings:
         return level
 
 
+def validate_startup_settings(settings: Settings) -> None:
+    environment = settings.environment.strip().lower()
+    if not settings.jwt_secret.strip():
+        raise ValueError("YUNXUN_JWT_SECRET 不能为空。")
+    if environment == "production":
+        if settings.jwt_secret == "change-me-in-production" or len(settings.jwt_secret) < 32:
+            raise ValueError("生产环境的 YUNXUN_JWT_SECRET 必须是至少 32 字符的随机值。")
+        if settings.debug:
+            raise ValueError("生产环境禁止启用 YUNXUN_DEBUG。")
+        if not settings.allowed_origins or "*" in settings.allowed_origins:
+            raise ValueError("生产环境必须配置明确的 YUNXUN_ALLOWED_ORIGINS，禁止使用通配符。")
+    settings.normalized_log_level
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     default_database_path = PROJECT_ROOT / "backend" / "yunxun.db"
@@ -261,8 +284,8 @@ def get_settings() -> Settings:
     database_url = _getenv("YUNXUN_DATABASE_URL", f"sqlite:///{default_database_path}") or f"sqlite:///{default_database_path}"
 
     return Settings(
-        app_name=_parse_optional_str("YUNXUN_APP_NAME", _getenv("YUNXUN_APP_NAME"), default="云寻 AI"),
-        app_version=_parse_optional_str("YUNXUN_APP_VERSION", _getenv("YUNXUN_APP_VERSION"), default="4.0.0"),
+        app_name=_parse_optional_str("YUNXUN_APP_NAME", _getenv("YUNXUN_APP_NAME"), default="云寻智慧农业AI工作台软件"),
+        app_version=_parse_optional_str("YUNXUN_APP_VERSION", _getenv("YUNXUN_APP_VERSION"), default="V4.0"),
         environment=_parse_optional_str("YUNXUN_ENV", _getenv("YUNXUN_ENV"), default="development"),
         debug=_parse_bool("YUNXUN_DEBUG", _getenv("YUNXUN_DEBUG"), default=False),
         host=_parse_optional_str("YUNXUN_HOST", _getenv("YUNXUN_HOST"), default="0.0.0.0"),
@@ -286,7 +309,11 @@ def get_settings() -> Settings:
         db_path=_resolve_database_path(_getenv("YUNXUN_DB_PATH", database_url) or database_url),
         allowed_origins_raw=_getenv("YUNXUN_ALLOWED_ORIGINS", "") or "",
         cors_methods_raw=_getenv("YUNXUN_CORS_METHODS", "GET,POST,PATCH,DELETE,OPTIONS") or "GET,POST,PATCH,DELETE,OPTIONS",
-        cors_headers_raw=_getenv("YUNXUN_CORS_HEADERS", "Authorization,Content-Type") or "Authorization,Content-Type",
+        cors_headers_raw=_getenv(
+            "YUNXUN_CORS_HEADERS",
+            "Authorization,Content-Type,X-Idempotency-Key",
+        )
+        or "Authorization,Content-Type,X-Idempotency-Key",
         max_message_length=_parse_int("YUNXUN_MAX_MESSAGE_LENGTH", _getenv("YUNXUN_MAX_MESSAGE_LENGTH"), default=3000, minimum=1, maximum=20_000),
         requests_per_minute=_parse_int("YUNXUN_REQUESTS_PER_MINUTE", _getenv("YUNXUN_REQUESTS_PER_MINUTE"), default=20, minimum=1, maximum=600),
         token_hours=token_hours,
@@ -298,4 +325,11 @@ def get_settings() -> Settings:
         log_level=_parse_optional_str("YUNXUN_LOG_LEVEL", _getenv("YUNXUN_LOG_LEVEL"), default="INFO"),
         default_page_size=_parse_int("YUNXUN_DEFAULT_PAGE_SIZE", _getenv("YUNXUN_DEFAULT_PAGE_SIZE"), default=20, minimum=1, maximum=100),
         max_page_size=_parse_int("YUNXUN_MAX_PAGE_SIZE", _getenv("YUNXUN_MAX_PAGE_SIZE"), default=100, minimum=1, maximum=500),
+        idempotency_window_seconds=_parse_float(
+            "YUNXUN_IDEMPOTENCY_WINDOW_SECONDS",
+            _getenv("YUNXUN_IDEMPOTENCY_WINDOW_SECONDS"),
+            default=10.0,
+            minimum=0.0,
+            maximum=300.0,
+        ),
     )

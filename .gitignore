@@ -12,6 +12,8 @@ node_modules/
 dist/
 build/
 frontend/.env
+frontend/vite.config.js
+frontend/vite.config.d.ts
 qa-*.png
 # Python
 *.pyc

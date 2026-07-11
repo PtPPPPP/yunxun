@@ -7,8 +7,8 @@ from backend.app.services import system as system_service
 
 def make_settings(**overrides: object) -> Settings:
     values = {
-        "app_name": "云寻 AI",
-        "app_version": "4.0.0",
+        "app_name": "云寻智慧农业AI工作台软件",
+        "app_version": "V4.0",
         "environment": "intranet",
         "debug": False,
         "host": "0.0.0.0",
@@ -54,7 +54,7 @@ class SystemServiceTestCase(unittest.TestCase):
             payload = system_service.build_liveness_payload()
 
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["service"], "云寻 AI")
+        self.assertEqual(payload["service"], "云寻智慧农业AI工作台软件")
         self.assertNotIn("api_key", str(payload))
         self.assertNotIn("local-secret", str(payload))
 

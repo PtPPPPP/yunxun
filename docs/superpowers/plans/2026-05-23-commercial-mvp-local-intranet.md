@@ -1,4 +1,4 @@
-# 云寻 AI 本地/内网商业 MVP 加固 Implementation Plan
+# 云寻智慧农业AI工作台软件本地/内网商业 MVP 加固 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -79,8 +79,8 @@ from backend.app.core.runtime_status import build_runtime_status
 
 def make_settings(**overrides: object) -> Settings:
     values = {
-        "app_name": "云寻 AI",
-        "app_version": "4.0.0",
+        "app_name": "云寻智慧农业AI工作台软件",
+        "app_version": "V4.0",
         "environment": "intranet",
         "debug": False,
         "host": "0.0.0.0",
@@ -278,8 +278,8 @@ from backend.app.services import system as system_service
 
 def make_settings(**overrides: object) -> Settings:
     values = {
-        "app_name": "云寻 AI",
-        "app_version": "4.0.0",
+        "app_name": "云寻智慧农业AI工作台软件",
+        "app_version": "V4.0",
         "environment": "intranet",
         "debug": False,
         "host": "0.0.0.0",
@@ -987,11 +987,11 @@ git commit -m "feat: show runtime mode in frontend"
 Replace `.env.example` with:
 
 ```env
-# 云寻 AI 后端配置
+# 云寻智慧农业AI工作台软件后端配置
 # Windows 本地试用：复制为 .env 后按需修改。
 
-YUNXUN_APP_NAME=云寻 AI
-YUNXUN_APP_VERSION=4.0.0
+YUNXUN_APP_NAME=云寻智慧农业AI工作台软件
+YUNXUN_APP_VERSION=V4.0
 YUNXUN_ENV=development
 YUNXUN_DEBUG=false
 
@@ -1050,9 +1050,9 @@ VITE_YUNXUN_API_BASE_URL=http://127.0.0.1:8001
 Replace `README.md` with:
 
 ```markdown
-# 云寻 AI
+# 云寻智慧农业AI工作台软件
 
-云寻 AI 是一个面向农业场景的本地/内网 AI 工作台，提供农技问答、田间图片初步诊断和今日农活建议。当前版本定位为“本地/内网可试用的商业 MVP”：适合小团队、合作社、农场或基层农技人员在 Windows 电脑和局域网内小规模试用。
+云寻智慧农业AI工作台软件是一个面向农业场景的本地/内网 AI 工作台，提供农技问答、田间图片初步诊断和今日农活建议。当前版本定位为“本地/内网可试用的商业 MVP”：适合小团队、合作社、农场或基层农技人员在 Windows 电脑和局域网内小规模试用。
 
 ## 适用场景
 

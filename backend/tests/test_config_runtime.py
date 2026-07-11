@@ -1,13 +1,13 @@
 import unittest
 
-from backend.app.core.config import Settings, has_real_api_key
+from backend.app.core.config import Settings, has_real_api_key, validate_startup_settings
 from backend.app.core.runtime_status import build_runtime_status, build_runtime_warnings
 
 
 def make_settings(**overrides: object) -> Settings:
     values = {
-        "app_name": "云寻 AI",
-        "app_version": "4.0.0",
+        "app_name": "云寻智慧农业AI工作台软件",
+        "app_version": "V4.0",
         "environment": "intranet",
         "debug": False,
         "host": "0.0.0.0",
@@ -33,6 +33,17 @@ def make_settings(**overrides: object) -> Settings:
 
 
 class ConfigRuntimeTestCase(unittest.TestCase):
+    def test_production_rejects_default_secret(self) -> None:
+        with self.assertRaises(ValueError):
+            validate_startup_settings(make_settings(environment="production", allowed_origins_raw="https://example.com"))
+
+    def test_production_rejects_wildcard_cors(self) -> None:
+        with self.assertRaises(ValueError):
+            validate_startup_settings(make_settings(environment="production", jwt_secret="x" * 32, allowed_origins_raw="*"))
+
+    def test_production_accepts_secure_settings(self) -> None:
+        validate_startup_settings(make_settings(environment="production", jwt_secret="x" * 32, allowed_origins_raw="https://example.com"))
+
     def test_example_api_key_is_not_treated_as_configured(self) -> None:
         self.assertFalse(has_real_api_key(""))
         self.assertFalse(has_real_api_key("your-doubao-api-key"))

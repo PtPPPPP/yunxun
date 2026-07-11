@@ -2,14 +2,16 @@ import { FormEvent, Suspense, lazy, useCallback, useEffect, useMemo, useState } 
 
 import { AuthScreen } from "./components/AuthScreen";
 import { ChatWorkspace } from "./components/ChatWorkspace";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
+import { useChatController } from "./features/chat/useChatController";
+import { useAsyncGuard } from "./hooks/useAsyncGuard";
 import { api, getErrorMessage, setAuthToken } from "./lib/api";
 import { fileToBase64, formatFileSize, imageAcceptValue, validateImageFile } from "./lib/imageUpload";
 import { clearStoredAuthToken, persistAuthToken, readStoredAuthToken } from "./lib/tokenStorage";
-import { FeatureKey, HealthPayload, MessageItem, SessionItem, User } from "./types";
+import { FeatureKey, HealthPayload, User } from "./types";
 
-const DEFAULT_SESSION_TITLE = "新会话";
 const VisionWorkspace = lazy(() =>
   import("./components/VisionWorkspace").then((module) => ({ default: module.VisionWorkspace })),
 );
@@ -17,28 +19,20 @@ const DecisionWorkspace = lazy(() =>
   import("./components/DecisionWorkspace").then((module) => ({ default: module.DecisionWorkspace })),
 );
 
-function upsertSession(sessions: SessionItem[], nextSession: SessionItem): SessionItem[] {
-  return [nextSession, ...sessions.filter((session) => session.id !== nextSession.id)];
-}
-
 export default function App() {
   const [health, setHealth] = useState<HealthPayload | null>(null);
   const [bootLoading, setBootLoading] = useState(true);
-  const [authLoading, setAuthLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [token, setToken] = useState(readStoredAuthToken());
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authForm, setAuthForm] = useState({ username: "", password: "", displayName: "" });
   const [user, setUser] = useState<User | null>(null);
   const [activeFeature, setActiveFeature] = useState<FeatureKey>("chat");
-  const [sessions, setSessions] = useState<SessionItem[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<MessageItem[]>([]);
-  const [renameTitle, setRenameTitle] = useState(DEFAULT_SESSION_TITLE);
   const [settingsName, setSettingsName] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
-  const [chatDraft, setChatDraft] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
   const [visionFile, setVisionFile] = useState<File | null>(null);
   const [visionPreview, setVisionPreview] = useState<string | null>(null);
   const [visionUploadError, setVisionUploadError] = useState("");
@@ -54,57 +48,20 @@ export default function App() {
   });
   const [decisionResult, setDecisionResult] = useState("");
 
+  const authAction = useAsyncGuard();
+  const settingsAction = useAsyncGuard();
+  const visionAction = useAsyncGuard();
+  const decisionAction = useAsyncGuard();
   const models = useMemo(() => health?.available_models ?? [], [health]);
-  const activeSession = useMemo(
-    () => sessions.find((item) => item.id === activeSessionId) ?? null,
-    [activeSessionId, sessions],
-  );
+  const handleError = useCallback((message: string) => setError(message), []);
+  const chat = useChatController({ selectedModel, onError: handleError });
 
-  const syncSession = useCallback((nextSession: SessionItem) => {
-    setSessions((current) => upsertSession(current, nextSession));
-  }, []);
-
-  const clearActiveChat = useCallback(() => {
-    setActiveSessionId(null);
-    setMessages([]);
-    setRenameTitle(DEFAULT_SESSION_TITLE);
-  }, []);
-
-  const loadMe = useCallback(async (availableModels: string[] = models) => {
+  const loadMe = useCallback(async (availableModels: string[]) => {
     const response = await api.get<{ success: true; user: User }>("/api/me");
     setUser(response.data.user);
     setSettingsName(response.data.user.display_name);
     setSelectedModel((current) => current || response.data.user.preferred_model || availableModels[0] || "");
-  }, [models]);
-
-  const refreshSessions = useCallback(async () => {
-    const response = await api.get<{ success: true; sessions: SessionItem[] }>("/api/chat/sessions", {
-      params: { feature: "chat" },
-    });
-
-    setSessions(response.data.sessions);
-    setActiveSessionId((current) => {
-      if (current && !response.data.sessions.some((item) => item.id === current)) {
-        setMessages([]);
-        setRenameTitle(DEFAULT_SESSION_TITLE);
-        return null;
-      }
-
-      return current;
-    });
   }, []);
-
-  const applyAuthenticatedUser = useCallback(
-    (nextToken: string, nextUser: User) => {
-      setAuthToken(nextToken);
-      setToken(nextToken);
-      setUser(nextUser);
-      setSettingsName(nextUser.display_name);
-      setSelectedModel(nextUser.preferred_model || models[0] || "");
-      setAuthForm({ username: "", password: "", displayName: "" });
-    },
-    [models],
-  );
 
   useEffect(() => {
     setAuthToken(token || null);
@@ -120,9 +77,8 @@ export default function App() {
       try {
         const response = await api.get<HealthPayload>("/api/health");
         setHealth(response.data);
-
         if (token) {
-          await Promise.all([loadMe(response.data.available_models), refreshSessions()]);
+          await Promise.all([loadMe(response.data.available_models), chat.refreshSessions()]);
         }
       } catch (requestError) {
         setError(getErrorMessage(requestError, "后端未连接，请先启动服务。"));
@@ -132,221 +88,119 @@ export default function App() {
     }
 
     void bootstrap();
-  }, [loadMe, refreshSessions, token]);
+  }, [chat.refreshSessions, loadMe, token]);
 
   useEffect(() => {
     if (!visionFile) {
       setVisionPreview(null);
       return;
     }
-
     const preview = URL.createObjectURL(visionFile);
     setVisionPreview(preview);
-
     return () => URL.revokeObjectURL(preview);
   }, [visionFile]);
 
-  const loadSession = useCallback(async (sessionId: string) => {
-    setBusy(true);
-    try {
-      const response = await api.get<{ success: true; session: SessionItem; messages: MessageItem[] }>(
-        `/api/chat/sessions/${sessionId}`,
-      );
-      setActiveSessionId(sessionId);
-      setMessages(response.data.messages);
-      setRenameTitle(response.data.session.title);
-      setActiveFeature("chat");
-      setError("");
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-
-  const ensureSession = useCallback(async () => {
-    if (activeSessionId) {
-      return activeSessionId;
-    }
-
-    const response = await api.post<{ success: true; session: SessionItem }>("/api/chat/sessions", {
-      title: DEFAULT_SESSION_TITLE,
-      feature: "chat",
-      model_name: selectedModel,
-    });
-
-    setActiveSessionId(response.data.session.id);
-    setRenameTitle(response.data.session.title);
-    syncSession(response.data.session);
-    return response.data.session.id;
-  }, [activeSessionId, selectedModel, syncSession]);
+  const applyAuthenticatedUser = useCallback(
+    (nextToken: string, nextUser: User) => {
+      setAuthToken(nextToken);
+      setToken(nextToken);
+      setUser(nextUser);
+      setSettingsName(nextUser.display_name);
+      setSelectedModel(nextUser.preferred_model || models[0] || "");
+      setAuthForm({ username: "", password: "", displayName: "" });
+    },
+    [models],
+  );
 
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setAuthLoading(true);
-    setError("");
-
-    try {
-      const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/register";
-      const payload =
-        authMode === "login"
-          ? { username: authForm.username, password: authForm.password }
-          : {
-              username: authForm.username,
-              password: authForm.password,
-              display_name: authForm.displayName,
-            };
-
-      const response = await api.post<{ success: true; token: string; user: User }>(endpoint, payload);
-      applyAuthenticatedUser(response.data.token, response.data.user);
-      void refreshSessions();
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setAuthLoading(false);
-    }
+    await authAction.run(async () => {
+      setError("");
+      try {
+        const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/register";
+        const payload =
+          authMode === "login"
+            ? { username: authForm.username, password: authForm.password }
+            : {
+                username: authForm.username,
+                password: authForm.password,
+                display_name: authForm.displayName,
+              };
+        const response = await api.post<{ success: true; token: string; user: User }>(endpoint, payload);
+        applyAuthenticatedUser(response.data.token, response.data.user);
+        await chat.refreshSessions();
+      } catch (requestError) {
+        setError(getErrorMessage(requestError));
+      }
+    });
   }
 
   async function handleGuestLogin() {
-    setAuthLoading(true);
-    setError("");
-
-    try {
-      const response = await api.post<{ success: true; token: string; user: User }>("/api/auth/guest");
-      applyAuthenticatedUser(response.data.token, response.data.user);
-      void refreshSessions();
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setAuthLoading(false);
-    }
+    await authAction.run(async () => {
+      setError("");
+      try {
+        const response = await api.post<{ success: true; token: string; user: User }>("/api/auth/guest");
+        applyAuthenticatedUser(response.data.token, response.data.user);
+        await chat.refreshSessions();
+      } catch (requestError) {
+        setError(getErrorMessage(requestError));
+      }
+    });
   }
 
   async function handleSaveSettings() {
-    if (!settingsName.trim()) {
-      setError("显示名称不能为空。");
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const response = await api.patch<{ success: true; user: User }>("/api/me/profile", {
-        display_name: settingsName,
-        preferred_model: selectedModel,
-      });
-      setUser(response.data.user);
-      setSettingsName(response.data.user.display_name);
-      setError("");
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setBusy(false);
-    }
+    await settingsAction.run(async () => {
+      if (!settingsName.trim()) {
+        setError("显示名称不能为空。");
+        return;
+      }
+      try {
+        const response = await api.patch<{ success: true; user: User }>("/api/me/profile", {
+          display_name: settingsName,
+          preferred_model: selectedModel,
+        });
+        setUser(response.data.user);
+        setSettingsName(response.data.user.display_name);
+        setError("");
+      } catch (requestError) {
+        setError(getErrorMessage(requestError));
+      }
+    });
   }
 
   async function handleLogout() {
     try {
       await api.post("/api/auth/logout");
     } catch {
-      // no-op
+      // 本地状态仍需清理，避免失效后端阻止用户退出。
     }
-
     setAuthToken(null);
     clearStoredAuthToken();
     setToken("");
     setUser(null);
-    setSessions([]);
-    clearActiveChat();
+    chat.reset();
   }
 
-  async function handleRenameSession() {
-    if (!activeSessionId) {
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const response = await api.patch<{ success: true; session: SessionItem }>(`/api/chat/sessions/${activeSessionId}`, {
-        title: renameTitle,
-      });
-      syncSession(response.data.session);
-      setRenameTitle(response.data.session.title);
-      setError("");
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleDeleteSession() {
-    if (!activeSessionId) {
-      return;
-    }
-
-    setBusy(true);
-    try {
-      await api.delete(`/api/chat/sessions/${activeSessionId}`);
-      setSessions((current) => current.filter((session) => session.id !== activeSessionId));
-      clearActiveChat();
-      setError("");
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleSendChat() {
-    const prompt = chatDraft.trim();
-    if (!prompt) {
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const sessionId = await ensureSession();
-      const response = await api.post<{
-        success: true;
-        user_message: MessageItem;
-        assistant_message: MessageItem;
-        session: SessionItem;
-      }>(`/api/chat/sessions/${sessionId}/messages`, {
-        message: prompt,
-        model_name: selectedModel,
-      });
-
-      setMessages((current) => [...current, response.data.user_message, response.data.assistant_message]);
-      setRenameTitle(response.data.session.title);
-      setChatDraft("");
-      syncSession(response.data.session);
-      setError("");
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const handleVisionFileChange = useCallback((file: File | null) => {
-    if (!file) {
-      setVisionFile(null);
+  const handleVisionFileChange = useCallback(
+    (file: File | null) => {
+      if (!file) {
+        setVisionFile(null);
+        setVisionUploadError("");
+        return;
+      }
+      const validation = validateImageFile(file, health?.upload_max_bytes);
+      if (!validation.ok) {
+        setVisionFile(null);
+        setVisionUploadError(validation.message);
+        setError(validation.message);
+        return;
+      }
+      setVisionFile(file);
       setVisionUploadError("");
-      return;
-    }
-
-    const validation = validateImageFile(file, health?.upload_max_bytes);
-    if (!validation.ok) {
-      setVisionFile(null);
-      setVisionUploadError(validation.message);
-      setError(validation.message);
-      return;
-    }
-
-    setVisionFile(file);
-    setVisionUploadError("");
-    setError("");
-  }, [health?.upload_max_bytes]);
+      setError("");
+    },
+    [health?.upload_max_bytes],
+  );
 
   const handleClearVisionFile = useCallback(() => {
     setVisionFile(null);
@@ -355,106 +209,72 @@ export default function App() {
   }, []);
 
   async function handleVisionSubmit() {
-    if (!visionFile) {
-      setError("请先选择一张图片。");
-      return;
-    }
-
-    const validation = validateImageFile(visionFile, health?.upload_max_bytes);
-    if (!validation.ok) {
-      setVisionUploadError(validation.message);
-      setError(validation.message);
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const response = await api.post<{ success: true; reply: string }>("/api/vision", {
-        image_base64: await fileToBase64(visionFile),
-        crop: visionCrop,
-        symptom: visionSymptom,
-      });
-      setVisionResult(response.data.reply);
-      setError("");
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setBusy(false);
-    }
+    await visionAction.run(async () => {
+      if (!visionFile) {
+        setError("请先选择一张图片。");
+        return;
+      }
+      const validation = validateImageFile(visionFile, health?.upload_max_bytes);
+      if (!validation.ok) {
+        setVisionUploadError(validation.message);
+        setError(validation.message);
+        return;
+      }
+      try {
+        const requestId = crypto.randomUUID();
+        const response = await api.post<{ success: true; reply: string }>(
+          "/api/vision",
+          {
+            image_base64: await fileToBase64(visionFile),
+            crop: visionCrop,
+            symptom: visionSymptom,
+          },
+          { headers: { "X-Idempotency-Key": requestId } },
+        );
+        setVisionResult(response.data.reply);
+        setError("");
+      } catch (requestError) {
+        setError(getErrorMessage(requestError));
+      }
+    });
   }
 
   async function handleDecisionSubmit() {
-    setBusy(true);
-    try {
-      const response = await api.post<{ success: true; reply: string }>("/api/decision", {
-        crop: decisionForm.crop,
-        stage: decisionForm.stage,
-        rain_prob: decisionForm.rainProb,
-        soil_moisture: decisionForm.soilMoisture,
-        temperature: decisionForm.temperature,
-      });
-      setDecisionResult(response.data.reply);
-      setError("");
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setBusy(false);
+    await decisionAction.run(async () => {
+      try {
+        const requestId = crypto.randomUUID();
+        const response = await api.post<{ success: true; reply: string }>(
+          "/api/decision",
+          {
+            crop: decisionForm.crop,
+            stage: decisionForm.stage,
+            rain_prob: decisionForm.rainProb,
+            soil_moisture: decisionForm.soilMoisture,
+            temperature: decisionForm.temperature,
+          },
+          { headers: { "X-Idempotency-Key": requestId } },
+        );
+        setDecisionResult(response.data.reply);
+        setError("");
+      } catch (requestError) {
+        setError(getErrorMessage(requestError));
+      }
+    });
+  }
+
+  async function confirmDeleteSession() {
+    const deleted = await chat.deleteActiveSession();
+    if (deleted) {
+      setDeleteDialogOpen(false);
     }
   }
 
-  const handleAuthFormChange = useCallback((field: "username" | "password" | "displayName", value: string) => {
-    setAuthForm((current) => ({ ...current, [field]: value }));
-  }, []);
-
-  const handleGuestLoginAction = useCallback(() => {
-    void handleGuestLogin();
-  }, []);
-
-  const handleCreateSession = useCallback(() => {
-    setActiveFeature("chat");
-    clearActiveChat();
-  }, [clearActiveChat]);
-
-  const handleSelectSession = useCallback((sessionId: string) => {
-    void loadSession(sessionId);
-  }, [loadSession]);
-
-  const handleRenameSessionAction = useCallback(() => {
-    void handleRenameSession();
-  }, [activeSessionId, renameTitle]);
-
-  const handleDeleteSessionAction = useCallback(() => {
-    void handleDeleteSession();
-  }, [activeSessionId]);
-
-  const handleSaveSettingsAction = useCallback(() => {
-    void handleSaveSettings();
-  }, [selectedModel, settingsName]);
-
-  const handleLogoutAction = useCallback(() => {
-    void handleLogout();
-  }, []);
-
-  const handleSendChatAction = useCallback(() => {
-    void handleSendChat();
-  }, [activeSessionId, chatDraft, ensureSession, messages, selectedModel]);
-
-  const handleVisionSubmitAction = useCallback(() => {
-    void handleVisionSubmit();
-  }, [visionCrop, visionFile, visionSymptom]);
-
-  const handleDecisionSubmitAction = useCallback(() => {
-    void handleDecisionSubmit();
-  }, [decisionForm]);
-
   if (bootLoading) {
-    return <div className="app-loading">正在加载云寻 AI...</div>;
+    return <div className="app-loading">正在加载云寻AI...</div>;
   }
-
   if (!health) {
     return <div className="app-loading">{error || "后端未连接，请先启动服务。"}</div>;
   }
-
   if (!user) {
     return (
       <div className="app-shell app-shell--auth">
@@ -466,56 +286,76 @@ export default function App() {
           modelStatus={health.model_status}
           environment={health.environment}
           warnings={health.warnings}
-          loading={authLoading}
+          loading={authAction.busy}
           form={authForm}
           onModeChange={setAuthMode}
-          onChange={handleAuthFormChange}
+          onChange={(field, value) => setAuthForm((current) => ({ ...current, [field]: value }))}
           onSubmit={handleAuthSubmit}
-          onGuestLogin={handleGuestLoginAction}
+          onGuestLogin={() => void handleGuestLogin()}
         />
       </div>
     );
   }
 
+  const anyBusy = chat.sendBusy || chat.sessionBusy || settingsAction.busy || visionAction.busy || decisionAction.busy;
+
   return (
     <div className="app-shell">
       {error && <div className="toast-banner">{error}</div>}
+      <button
+        className={sidebarOpen ? "sidebar-backdrop is-visible" : "sidebar-backdrop"}
+        type="button"
+        aria-label="关闭导航"
+        onClick={() => setSidebarOpen(false)}
+      />
       <Sidebar
         user={user}
         activeFeature={activeFeature}
-        sessions={sessions}
-        activeSessionId={activeSessionId}
-        renameTitle={renameTitle}
+        sessions={chat.sessions}
+        activeSessionId={chat.activeSessionId}
+        renameTitle={chat.renameTitle}
         settingsName={settingsName}
         selectedModel={selectedModel || models[0] || ""}
         models={models}
+        mobileOpen={sidebarOpen}
+        sessionBusy={chat.sessionBusy}
+        settingsBusy={settingsAction.busy}
+        onClose={() => setSidebarOpen(false)}
         onFeatureChange={setActiveFeature}
-        onCreateSession={handleCreateSession}
-        onSelectSession={handleSelectSession}
-        onRenameTitleChange={setRenameTitle}
-        onRenameSession={handleRenameSessionAction}
-        onDeleteSession={handleDeleteSessionAction}
+        onCreateSession={() => {
+          setActiveFeature("chat");
+          chat.clearActiveChat();
+        }}
+        onSelectSession={(sessionId) => {
+          setActiveFeature("chat");
+          void chat.loadSession(sessionId);
+        }}
+        onRenameTitleChange={chat.setRenameTitle}
+        onRenameSession={() => void chat.renameActiveSession()}
+        onDeleteSession={() => setDeleteDialogOpen(true)}
         onSettingsNameChange={setSettingsName}
         onModelChange={setSelectedModel}
-        onSaveSettings={handleSaveSettingsAction}
-        onLogout={handleLogoutAction}
+        onSaveSettings={() => void handleSaveSettings()}
+        onLogout={() => void handleLogout()}
       />
 
       <main className="workspace">
-        <TopBar health={health} activeFeature={activeFeature} />
-
-        {busy && <div className="inline-status">正在处理中，请稍候...</div>}
+        <TopBar health={health} activeFeature={activeFeature} onOpenNavigation={() => setSidebarOpen(true)} />
+        {anyBusy && <div className="inline-status">正在处理当前操作，请稍候...</div>}
 
         {activeFeature === "chat" && (
           <ChatWorkspace
-            messages={messages}
-            draft={chatDraft}
+            messages={chat.messages}
+            draft={chat.draft}
             selectedModel={selectedModel || models[0] || "未配置"}
             maxMessageLength={health.max_message_length}
-            activeSession={activeSession}
-            onDraftChange={setChatDraft}
-            onSend={handleSendChatAction}
-            onUsePrompt={setChatDraft}
+            activeSession={chat.activeSession}
+            busy={chat.sendBusy}
+            hasOlderMessages={chat.hasOlderMessages}
+            onLoadOlder={chat.loadOlderMessages}
+            onDraftChange={chat.setDraft}
+            onSend={() => void chat.sendMessage()}
+            onUsePrompt={chat.setDraft}
             onOpenFeature={setActiveFeature}
           />
         )}
@@ -534,11 +374,12 @@ export default function App() {
               result={visionResult}
               modelMode={health.mode}
               aiConfigured={health.ai_configured}
+              busy={visionAction.busy}
               onFileChange={handleVisionFileChange}
               onClearFile={handleClearVisionFile}
               onCropChange={setVisionCrop}
               onSymptomChange={setVisionSymptom}
-              onSubmit={handleVisionSubmitAction}
+              onSubmit={() => void handleVisionSubmit()}
             />
           </Suspense>
         )}
@@ -552,12 +393,23 @@ export default function App() {
               soilMoisture={decisionForm.soilMoisture}
               temperature={decisionForm.temperature}
               result={decisionResult}
+              busy={decisionAction.busy}
               onChange={(field, value) => setDecisionForm((current) => ({ ...current, [field]: value }))}
-              onSubmit={handleDecisionSubmitAction}
+              onSubmit={() => void handleDecisionSubmit()}
             />
           </Suspense>
         )}
       </main>
+
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        title="删除当前会话？"
+        description="会话和其中的消息会永久删除，删除后无法恢复。"
+        confirmLabel="确认删除"
+        busy={chat.sessionBusy || chat.sendBusy}
+        onConfirm={() => void confirmDeleteSession()}
+        onCancel={() => setDeleteDialogOpen(false)}
+      />
     </div>
   );
 }

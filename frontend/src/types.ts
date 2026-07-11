@@ -41,6 +41,8 @@ export interface MessageItem {
   role: "user" | "assistant";
   content: string;
   created_at: string;
+  delivery_status?: "pending" | "failed";
+  client_request_id?: string;
 }
 
 export interface ApiError {

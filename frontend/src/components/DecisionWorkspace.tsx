@@ -7,6 +7,7 @@ interface DecisionWorkspaceProps {
   soilMoisture: number;
   temperature: number;
   result: string;
+  busy: boolean;
   onChange: (field: "crop" | "stage" | "rainProb" | "soilMoisture" | "temperature", value: string | number) => void;
   onSubmit: () => void;
 }
@@ -15,7 +16,7 @@ const crops = ["玉米", "水稻", "小麦", "大豆", "番茄", "黄瓜", "辣�
 const stages = ["播种出苗期", "苗期", "快速生长期", "开花坐果期", "灌浆成熟期", "采收期"];
 
 export function DecisionWorkspace(props: DecisionWorkspaceProps) {
-  const { crop, stage, rainProb, soilMoisture, temperature, result, onChange, onSubmit } = props;
+  const { crop, stage, rainProb, soilMoisture, temperature, result, busy, onChange, onSubmit } = props;
 
   return (
     <section className="workspace-grid workspace-grid--decision">
@@ -95,9 +96,9 @@ export function DecisionWorkspace(props: DecisionWorkspaceProps) {
           </label>
         </div>
 
-        <button className="primary-button" type="button" onClick={onSubmit}>
+        <button className="primary-button" type="button" onClick={onSubmit} disabled={busy}>
           <CalendarCheck2 size={16} />
-          生成今日建议
+          {busy ? "生成中…" : "生成今日建议"}
         </button>
       </div>
 

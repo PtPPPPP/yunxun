@@ -1,4 +1,4 @@
-# 云寻 AI
+# 云寻智慧农业AI工作台软件
 
 [![CI](https://github.com/PtPPPPP/yunxun/actions/workflows/ci.yml/badge.svg)](https://github.com/PtPPPPP/yunxun/actions/workflows/ci.yml)
 [![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
@@ -8,9 +8,9 @@
 [![SQLite](https://img.shields.io/badge/db-SQLite-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![Doubao Ark](https://img.shields.io/badge/AI-Doubao%20Ark-5b4cff)](https://www.volcengine.com/product/doubao)
 
-> 面向农业场景的本地 / 内网 AI 工作台，集成农技问答、田间图片初步诊断和今日农活建议，适合小团队快速试用和演示。
+> 云寻智慧农业AI工作台软件（简称“云寻AI”）是一款面向农业场景的本地 / 内网 AI 工作台，集成农技问答、田间图片初步诊断和今日农活建议，适合小团队快速试用和演示。
 
-云寻 AI 定位为「本地 / 内网可试用的农业 AI 工作台」。它适合合作社、农场、农业服务队或基层农技人员在 Windows 电脑和局域网内小规模试用。未配置真实豆包 / Ark Key 时，系统会自动进入**本地演示模式**，无需外部 AI 服务也能跑通登录、会话、图片诊断和农活建议等核心流程。
+云寻智慧农业AI工作台软件定位为「本地 / 内网可试用的农业 AI 工作台」。它适合合作社、农场、农业服务队或基层农技人员在 Windows 电脑和局域网内小规模试用。未配置真实豆包 / Ark Key 时，系统会自动进入**本地演示模式**，无需外部 AI 服务也能跑通登录、会话、图片诊断和农活建议等核心流程。
 
 ## ✨ 核心特性
 
@@ -231,8 +231,8 @@ New-NetFirewallRule -DisplayName "Yunxun Frontend 5173" -Direction Inbound -Prot
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `YUNXUN_APP_NAME` | `云寻 AI` | 应用名称。 |
-| `YUNXUN_APP_VERSION` | `4.0.0` | 应用版本。 |
+| `YUNXUN_APP_NAME` | `云寻智慧农业AI工作台软件` | 正式软件名称。 |
+| `YUNXUN_APP_VERSION` | `V4.0` | 对外展示版本。 |
 | `YUNXUN_ENV` | `development` | 运行环境；本地试用保持默认即可。 |
 | `YUNXUN_DEBUG` | `false` | 是否开启调试模式。 |
 | `YUNXUN_HOST` | `0.0.0.0` | 后端监听地址；本机和局域网试用都可保持默认。 |
@@ -245,7 +245,7 @@ New-NetFirewallRule -DisplayName "Yunxun Frontend 5173" -Direction Inbound -Prot
 | `YUNXUN_DB_PATH` | `./backend/yunxun.db` | SQLite 文件路径兼容变量；如果设置了它，后端实际优先使用这个路径。 |
 | `YUNXUN_ALLOWED_ORIGINS` | 本机 Vite 地址集合 | 允许访问后端的前端来源，局域网访问必须补充实际 IP 地址。 |
 | `YUNXUN_CORS_METHODS` | `GET,POST,PATCH,DELETE,OPTIONS` | 允许的 CORS 方法。 |
-| `YUNXUN_CORS_HEADERS` | `Authorization,Content-Type` | 允许的 CORS 请求头。 |
+| `YUNXUN_CORS_HEADERS` | `Authorization,Content-Type,X-Idempotency-Key` | 允许的 CORS 请求头。 |
 | `YUNXUN_MAX_MESSAGE_LENGTH` | `3000` | 单条消息最大长度。 |
 | `YUNXUN_REQUESTS_PER_MINUTE` | `20` | 简单请求频率限制。 |
 | `YUNXUN_UPLOAD_MAX_BYTES` | `5242880` | 单张图片最大上传字节数。 |
@@ -255,6 +255,7 @@ New-NetFirewallRule -DisplayName "Yunxun Frontend 5173" -Direction Inbound -Prot
 | `YUNXUN_LOG_LEVEL` | `INFO` | 后端日志等级。 |
 | `YUNXUN_DEFAULT_PAGE_SIZE` | `20` | 默认分页大小。 |
 | `YUNXUN_MAX_PAGE_SIZE` | `100` | 最大分页大小。 |
+| `YUNXUN_IDEMPOTENCY_WINDOW_SECONDS` | `10` | 聊天请求的防重复窗口；设为 `0` 可关闭。 |
 | `DOUBAO_API_KEY` | `your-doubao-api-key` | 豆包 / Ark API Key；为空或占位值时进入演示模式。 |
 | `DOUBAO_BASE_URL` | `https://ark.cn-beijing.volces.com/api/v3` | 豆包 / Ark OpenAI 兼容 API 地址。 |
 | `DOUBAO_CHAT_ENDPOINT` | `doubao-seed-1-6-250615` | 聊天模型 Endpoint。 |
@@ -313,6 +314,8 @@ Authorization: Bearer <token>
 如果项目从旧版本升级，后端启动初始化数据库时会识别旧的明文 token 表，并重建为哈希 token 表。旧登录态会失效，用户重新登录即可。
 
 过期 token 的清理不会在每次接口鉴权时全表执行。当前策略是在签发新 token 时顺带清理过期记录，普通接口请求只检查当前 token 是否存在且未过期。
+
+聊天发送接口支持 `X-Idempotency-Key` 请求头。前端每次主动发送会生成新标识；网络重试复用同一标识时，后端会回放已完成结果或拒绝仍在进行中的重复请求，避免重复调用模型和重复落库。
 
 ## 豆包 / Ark 配置
 
@@ -385,10 +388,21 @@ Set-Location frontend
 npm ci
 npm run lint
 npm run build
+npm run test:e2e
 npm audit
 Set-Location ..
 python scripts\count_source_lines.py
 ```
+
+`npm run test:e2e` 会启动真实 Chromium、独立后端和临时 SQLite 数据库；结束后自动清理数据。失败用例的截图和 trace 保存在 `frontend/test-results/`，生产环境不会启用测试数据库。
+
+首次运行 Playwright 前执行 `npx playwright install chromium`。E2E 使用本地演示模型，不读取真实 API Key，也不会连接开发或生产数据库。
+
+## 数据库迁移
+
+当前 SQLite Schema 版本为 `1`，记录在 `PRAGMA user_version`。后端启动时会在单个事务内按顺序升级；迁移失败会回滚且不会推进版本。版本高于当前代码支持范围时会拒绝启动。升级前请停止后端并备份 `backend/yunxun.db`；当前不支持自动降级。
+
+SQLite 适合当前单机或小规模部署，不支持多个服务实例共享同一个数据库文件。生产环境必须设置至少 32 字符的随机 `YUNXUN_JWT_SECRET`、明确的 CORS 来源并关闭 debug。缺少模型 Key 只会进入本地演示模式，不影响基础会话功能。
 
 GitHub Actions 会在推送和 Pull Request 时执行同等的后端、前端和安全检查。
 
@@ -403,21 +417,33 @@ GitHub Actions 会在推送和 Pull Request 时执行同等的后端、前端和
 7. 创建一个会话，发送一条农技问题，确认有回复。
 8. 进入图片诊断或今日农活建议流程，确认页面可提交并返回结果。
 
-## 代码行统计
+## 软著源码材料
 
-项目内置源码行数统计脚本，用于分别统计后端和前端的有效代码行：
+项目内置源码材料脚本。默认命令仅统计正式源码并显示固定文件顺序：
 
 ```powershell
 python scripts\count_source_lines.py
 ```
 
-统计口径：
+需要生成软著源码文本和清单时执行：
 
-- 后端统计 `backend` 下的 `.py` 文件。
-- 前端统计 `frontend/src` 下的 `.ts`、`.tsx`、`.js`、`.jsx`、`.css` 文件。
-- 自动排除空行、纯注释行、依赖目录、构建产物、缓存和虚拟环境。
+```powershell
+python scripts\count_source_lines.py --generate
+```
 
-脚本会输出每个文件的有效行数、前后端汇总行数，以及是否超过目标行数。
+输出目录为 `docs/software-copyright/`，包含：
+
+- `source-code.txt`：使用“云寻智慧农业AI工作台软件 V4.0”统一页眉，每页50行源码正文。
+- `source-code-manifest.txt`：记录生成时间、统计结果、排除规则、固定排序和实际文件清单。
+
+筛选口径：
+
+我- 纳入后端正式 `.py` 源码，以及 `frontend/src` 下的核心 `.ts`、`.tsx`、`.js`、`.jsx` 和 `.css` 源码。
+- 自动排除测试、依赖、锁文件、构建产物、缓存、虚拟环境、声明文件和重复生成文件。
+- 按后端入口、API、业务逻辑、数据层、核心工具、前端入口、页面组件、服务工具和样式的顺序稳定输出。
+- 统计并导出有效源码行，不使用“前后端分别超过1750行”作为硬编码判断。
+
+生成文本为 UTF-8 编码，页眉不计入每页50行源码正文。
 
 ## 常见问题
 

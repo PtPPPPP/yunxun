@@ -36,6 +36,14 @@ class ConfigParsingTestCase(unittest.TestCase):
         values = config._parse_csv("YUNXUN_ALLOWED_ORIGINS", " http://a.test, http://a.test, http://b.test ")
         self.assertEqual(values, ["http://a.test", "http://b.test"])
 
+    def test_default_cors_headers_allow_idempotency_key(self) -> None:
+        config.get_settings.cache_clear()
+        with patch.dict("os.environ", {}, clear=True):
+            settings = config.get_settings()
+
+        self.assertIn("X-Idempotency-Key", settings.cors_headers)
+        config.get_settings.cache_clear()
+
     def test_get_settings_uses_safe_numeric_parsers(self) -> None:
         config.get_settings.cache_clear()
         with patch.dict(

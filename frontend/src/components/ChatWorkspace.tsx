@@ -1,4 +1,5 @@
 import { ClipboardCopy, SendHorizonal, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MessageItem, SessionItem } from "../types";
 
@@ -8,6 +9,9 @@ interface ChatWorkspaceProps {
   selectedModel: string;
   maxMessageLength: number;
   activeSession: SessionItem | null;
+  busy: boolean;
+  hasOlderMessages?: boolean;
+  onLoadOlder?: () => Promise<void>;
   onDraftChange: (value: string) => void;
   onSend: () => void;
   onUsePrompt: (prompt: string) => void;
@@ -28,11 +32,54 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
     selectedModel,
     maxMessageLength,
     activeSession,
+    busy,
+    hasOlderMessages,
+    onLoadOlder,
     onDraftChange,
     onSend,
     onUsePrompt,
     onOpenFeature,
   } = props;
+
+  const threadRef = useRef<HTMLDivElement>(null);
+  const [followLatest, setFollowLatest] = useState(true);
+  const [showLatestButton, setShowLatestButton] = useState(false);
+  const loadingOlderRef = useRef(false);
+
+  const loadOlder = useCallback(async () => {
+    const thread = threadRef.current;
+    if (!thread || !onLoadOlder || loadingOlderRef.current) return;
+    loadingOlderRef.current = true;
+    const previousHeight = thread.scrollHeight;
+    const previousTop = thread.scrollTop;
+    try {
+      await onLoadOlder();
+      requestAnimationFrame(() => {
+        const current = threadRef.current;
+        if (current) current.scrollTop = previousTop + current.scrollHeight - previousHeight;
+      });
+    } finally {
+      loadingOlderRef.current = false;
+    }
+  }, [onLoadOlder]);
+
+  const scrollToLatest = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const thread = threadRef.current;
+    if (!thread) {
+      return;
+    }
+    thread.scrollTo({ top: thread.scrollHeight, behavior });
+    setFollowLatest(true);
+    setShowLatestButton(false);
+  }, []);
+
+  useEffect(() => {
+    if (followLatest) {
+      scrollToLatest(messages.length <= 2 ? "auto" : "smooth");
+    } else if (messages.length > 0) {
+      setShowLatestButton(true);
+    }
+  }, [followLatest, messages, scrollToLatest]);
 
   return (
     <section className="workspace-grid">
@@ -45,7 +92,27 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
           <div className="panel__meta">模型：{selectedModel}</div>
         </div>
 
-        <div className="chat-thread">
+        <div
+          ref={threadRef}
+          className="chat-thread"
+          aria-live="polite"
+          onScroll={() => {
+            const thread = threadRef.current;
+            if (!thread) {
+              return;
+            }
+            const nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 96;
+            setFollowLatest(nearBottom);
+            if (nearBottom) {
+              setShowLatestButton(false);
+            }
+          }}
+        >
+          {hasOlderMessages && (
+            <button className="ghost-button" type="button" onClick={() => void loadOlder()}>
+              加载更早消息
+            </button>
+          )}
           {messages.length === 0 ? (
             <div className="empty-surface">
               <Sparkles size={20} />
@@ -64,10 +131,14 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
                 key={message.id}
                 className={message.role === "user" ? "message-row message-row--user" : "message-row"}
               >
-                <div className="message-bubble">
-                  <div className="message-bubble__role">{message.role === "user" ? "你" : "云寻 AI"}</div>
+                <div
+                  className={`message-bubble${message.delivery_status ? ` message-bubble--${message.delivery_status}` : ""}`}
+                >
+                  <div className="message-bubble__role">{message.role === "user" ? "你" : "云寻AI"}</div>
                   <div className="message-bubble__content">{message.content}</div>
-                  {message.role === "assistant" && (
+                  {message.delivery_status === "pending" && <div className="message-state">处理中</div>}
+                  {message.delivery_status === "failed" && <div className="message-state">未完成</div>}
+                  {message.role === "assistant" && !message.delivery_status && (
                     <button
                       className="ghost-button message-copy"
                       type="button"
@@ -83,6 +154,12 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
           )}
         </div>
 
+        {showLatestButton && (
+          <button className="latest-message-button" type="button" onClick={() => scrollToLatest()}>
+            回到最新消息
+          </button>
+        )}
+
         <div className="composer">
           <textarea
             value={draft}
@@ -92,7 +169,7 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
-                if (draft.trim()) {
+                if (draft.trim() && !busy) {
                   onSend();
                 }
               }
@@ -100,9 +177,9 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
           />
           <div className="composer__footer">
             <span>单次输入上限 {maxMessageLength} 字</span>
-            <button className="primary-button" type="button" onClick={onSend} disabled={!draft.trim()}>
+            <button className="primary-button" type="button" onClick={onSend} disabled={busy || !draft.trim()}>
               <SendHorizonal size={16} />
-              发送
+              {busy ? "生成中…" : "发送"}
             </button>
           </div>
         </div>

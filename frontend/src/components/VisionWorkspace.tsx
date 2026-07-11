@@ -12,6 +12,7 @@ interface VisionWorkspaceProps {
   result: string;
   modelMode: string;
   aiConfigured: boolean;
+  busy: boolean;
   onFileChange: (file: File | null) => void;
   onClearFile: () => void;
   onCropChange: (value: string) => void;
@@ -34,6 +35,7 @@ export function VisionWorkspace(props: VisionWorkspaceProps) {
     result,
     modelMode,
     aiConfigured,
+    busy,
     onFileChange,
     onClearFile,
     onCropChange,
@@ -55,6 +57,7 @@ export function VisionWorkspace(props: VisionWorkspaceProps) {
           <input
             type="file"
             accept={accept}
+            disabled={busy}
             onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
           />
           {previewUrl ? (
@@ -74,7 +77,7 @@ export function VisionWorkspace(props: VisionWorkspaceProps) {
                 <strong>{fileName}</strong>
                 <span>{fileSizeText}</span>
               </div>
-              <button className="ghost-button upload-summary__clear" type="button" onClick={onClearFile}>
+              <button className="ghost-button upload-summary__clear" type="button" onClick={onClearFile} disabled={busy}>
                 <X size={15} />
                 清除
               </button>
@@ -120,9 +123,9 @@ export function VisionWorkspace(props: VisionWorkspaceProps) {
           </label>
         </div>
 
-        <button className="primary-button" type="button" onClick={onSubmit}>
+        <button className="primary-button" type="button" onClick={onSubmit} disabled={busy || !fileName}>
           <ScanSearch size={16} />
-          开始诊断
+          {busy ? "诊断中…" : "开始诊断"}
         </button>
       </div>
 

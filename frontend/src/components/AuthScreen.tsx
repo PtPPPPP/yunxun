@@ -46,7 +46,7 @@ export function AuthScreen(props: AuthScreenProps) {
               <Leaf size={24} />
             </div>
             <div>
-              <div className="brand-name">云寻 AI</div>
+              <div className="brand-name">云寻AI</div>
               <div className="brand-subname">Agronomy workspace</div>
             </div>
           </div>
@@ -54,7 +54,7 @@ export function AuthScreen(props: AuthScreenProps) {
           <div className="auth-hero__copy">
             <h1>把农技问答、识病和田间计划，放进一个能落地的工作台。</h1>
             <p>
-              云寻 AI 面向农户、合作社和基层农技员，保留历史会话、模型偏好和诊断上下文，
+              云寻AI面向农户、合作社和基层农技员，保留历史会话、模型偏好和诊断上下文，
               让每次回来都能从上次进度继续。
             </p>
           </div>

@@ -1,4 +1,4 @@
-import { MessageSquareText, NotebookTabs, ScanSearch, Settings2, Sprout, Trash2 } from "lucide-react";
+import { MessageSquareText, NotebookTabs, ScanSearch, Settings2, Sprout, Trash2, X } from "lucide-react";
 import { memo } from "react";
 
 import { FeatureKey, SessionItem, User } from "../types";
@@ -18,6 +18,10 @@ interface SidebarProps {
   settingsName: string;
   selectedModel: string;
   models: string[];
+  mobileOpen: boolean;
+  sessionBusy: boolean;
+  settingsBusy: boolean;
+  onClose: () => void;
   onFeatureChange: (feature: FeatureKey) => void;
   onCreateSession: () => void;
   onSelectSession: (sessionId: string) => void;
@@ -40,6 +44,10 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
     settingsName,
     selectedModel,
     models,
+    mobileOpen,
+    sessionBusy,
+    settingsBusy,
+    onClose,
     onFeatureChange,
     onCreateSession,
     onSelectSession,
@@ -53,18 +61,29 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
   } = props;
 
   return (
-    <aside className="sidebar">
+    <aside id="app-sidebar" className={mobileOpen ? "sidebar is-open" : "sidebar"} aria-label="主导航">
+      <button className="sidebar__close" type="button" onClick={onClose} aria-label="关闭导航">
+        <X size={20} />
+      </button>
       <div className="sidebar__brand">
         <div className="brand-mark">
           <Sprout size={20} />
         </div>
         <div>
-          <div className="brand-name">云寻 AI</div>
+          <div className="brand-name">云寻AI</div>
           <div className="brand-subname">Agronomy cockpit</div>
         </div>
       </div>
 
-      <button className="primary-button sidebar__new" type="button" onClick={onCreateSession}>
+      <button
+        className="primary-button sidebar__new"
+        type="button"
+        onClick={() => {
+          onCreateSession();
+          onClose();
+        }}
+        disabled={sessionBusy}
+      >
         <MessageSquareText size={16} />
         新建会话
       </button>
@@ -75,7 +94,10 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
             key={feature}
             type="button"
             className={activeFeature === feature ? "feature-nav__item is-active" : "feature-nav__item"}
-            onClick={() => onFeatureChange(feature)}
+            onClick={() => {
+              onFeatureChange(feature);
+              onClose();
+            }}
           >
             {feature === "chat" && <MessageSquareText size={18} />}
             {feature === "vision" && <ScanSearch size={18} />}
@@ -94,7 +116,11 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
               key={session.id}
               type="button"
               className={activeSessionId === session.id ? "session-card is-active" : "session-card"}
-              onClick={() => onSelectSession(session.id)}
+              onClick={() => {
+                onSelectSession(session.id);
+                onClose();
+              }}
+              disabled={sessionBusy}
             >
               <div className="session-card__title">{session.title}</div>
               <div className="session-card__meta">{session.model_name}</div>
@@ -114,10 +140,10 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
             </div>
           </label>
           <div className="inline-actions">
-            <button className="secondary-button" type="button" onClick={onRenameSession}>
+            <button className="secondary-button" type="button" onClick={onRenameSession} disabled={sessionBusy}>
               保存标题
             </button>
-            <button className="ghost-button danger" type="button" onClick={onDeleteSession}>
+            <button className="ghost-button danger" type="button" onClick={onDeleteSession} disabled={sessionBusy}>
               <Trash2 size={16} />
               删除
             </button>
@@ -153,8 +179,8 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
           <div className="profile-card__meta">@{user.username}</div>
         </div>
         <div className="inline-actions">
-          <button className="secondary-button" type="button" onClick={onSaveSettings}>
-            保存设置
+          <button className="secondary-button" type="button" onClick={onSaveSettings} disabled={settingsBusy}>
+            {settingsBusy ? "保存中…" : "保存设置"}
           </button>
           <button className="ghost-button" type="button" onClick={onLogout}>
             退出登录

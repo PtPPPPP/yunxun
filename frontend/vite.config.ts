@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 // GitHub Pages 项目站点地址为 https://<user>.github.io/<repo>/，
@@ -10,5 +10,6 @@ export default defineConfig(({ command }) => ({
   server: {
     host: "0.0.0.0",
     port: 5173
-  }
+  },
+  test: { exclude: ["e2e/**", "node_modules/**"] },
 }));

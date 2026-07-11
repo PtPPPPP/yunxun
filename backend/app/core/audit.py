@@ -1,6 +1,8 @@
 import logging
 from typing import Any
 
+from backend.app.core.request_context import get_request_id
+
 
 SENSITIVE_FIELDS = {
     "password",
@@ -22,6 +24,9 @@ def _format_value(key: str, value: Any) -> str:
 
 
 def log_event(logger: logging.Logger, event: str, **fields: Any) -> None:
+    request_id = get_request_id()
+    if request_id:
+        fields.setdefault("request_id", request_id)
     ordered_fields = " ".join(f"{key}={_format_value(key, value)}" for key, value in sorted(fields.items()))
     if ordered_fields:
         logger.info("event=%s %s", event, ordered_fields)
