@@ -11,7 +11,7 @@
   "9": "devDependencies",
   "10": "InMemoryRateLimiter",
   "11": "compilerOptions",
-  "12": "validate_image_payload",
+  "12": "V1.0 发布检查清单",
   "13": "compilerOptions",
   "14": "ConfigParsingTestCase",
   "15": "DecisionWorkspace.tsx",
@@ -52,5 +52,9 @@
   "50": "Local Demo Mode",
   "51": "FastAPI React Vite SQLite Architecture",
   "52": "Local and Intranet Commercial MVP",
-  "53": "Opaque Token Hash Storage"
+  "53": "Opaque Token Hash Storage",
+  "54": "更新日志",
+  "55": "http_load_test.py",
+  "56": "build_frontend.ps1",
+  "57": "start_backend.ps1"
 }

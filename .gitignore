@@ -11,6 +11,11 @@ __pycache__/
 node_modules/
 dist/
 build/
+dist/release/
+backups/
+frontend/test-results/
+frontend/playwright-report/
+graphify-out/cache/
 frontend/.env
 frontend/vite.config.js
 frontend/vite.config.d.ts

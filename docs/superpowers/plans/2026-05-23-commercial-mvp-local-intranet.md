@@ -80,7 +80,7 @@ from backend.app.core.runtime_status import build_runtime_status
 def make_settings(**overrides: object) -> Settings:
     values = {
         "app_name": "云寻智慧农业AI工作台软件",
-        "app_version": "V4.0",
+        "app_version": "1.0.0",
         "environment": "intranet",
         "debug": False,
         "host": "0.0.0.0",
@@ -279,7 +279,7 @@ from backend.app.services import system as system_service
 def make_settings(**overrides: object) -> Settings:
     values = {
         "app_name": "云寻智慧农业AI工作台软件",
-        "app_version": "V4.0",
+        "app_version": "1.0.0",
         "environment": "intranet",
         "debug": False,
         "host": "0.0.0.0",
@@ -991,7 +991,7 @@ Replace `.env.example` with:
 # Windows 本地试用：复制为 .env 后按需修改。
 
 YUNXUN_APP_NAME=云寻智慧农业AI工作台软件
-YUNXUN_APP_VERSION=V4.0
+YUNXUN_APP_VERSION=1.0.0
 YUNXUN_ENV=development
 YUNXUN_DEBUG=false
 

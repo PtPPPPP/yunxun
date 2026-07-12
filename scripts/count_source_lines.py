@@ -12,7 +12,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SOFTWARE_FULL_NAME = "云寻智慧农业AI工作台软件"
 SOFTWARE_SHORT_NAME = "云寻AI"
-SOFTWARE_VERSION = "V4.0"
+SOFTWARE_VERSION = "1.0.0"
 LINES_PER_PAGE = 50
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "docs" / "software-copyright"
 

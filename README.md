@@ -232,7 +232,7 @@ New-NetFirewallRule -DisplayName "Yunxun Frontend 5173" -Direction Inbound -Prot
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `YUNXUN_APP_NAME` | `云寻智慧农业AI工作台软件` | 正式软件名称。 |
-| `YUNXUN_APP_VERSION` | `V4.0` | 对外展示版本。 |
+| `YUNXUN_APP_VERSION` | `1.0.0` | 对外展示版本。 |
 | `YUNXUN_ENV` | `development` | 运行环境；本地试用保持默认即可。 |
 | `YUNXUN_DEBUG` | `false` | 是否开启调试模式。 |
 | `YUNXUN_HOST` | `0.0.0.0` | 后端监听地址；本机和局域网试用都可保持默认。 |
@@ -404,6 +404,40 @@ python scripts\count_source_lines.py
 
 SQLite 适合当前单机或小规模部署，不支持多个服务实例共享同一个数据库文件。生产环境必须设置至少 32 字符的随机 `YUNXUN_JWT_SECRET`、明确的 CORS 来源并关闭 debug。缺少模型 Key 只会进入本地演示模式，不影响基础会话功能。
 
+## 生产运维
+
+发布前检查并启动后端：
+
+```powershell
+python scripts\check_release.py
+powershell -File scripts\start_backend.ps1
+```
+
+构建前端执行 `powershell -File scripts\build_frontend.ps1`。CI 位于 `.github/workflows/ci.yml`，push 和 Pull Request 会运行后端、Vitest、lint、build、依赖审计及真实 Chromium E2E；失败的 Playwright 截图、trace 和报告会作为短期构建产物保存。
+
+数据库使用 SQLite Backup API 创建一致性备份，不要在服务写入时复制 `.db`、`-wal` 文件：
+
+```powershell
+python scripts\database_admin.py backup --dir backups --keep 10
+python scripts\database_admin.py verify backups\yunxun-时间戳.db
+# 恢复前必须停止后端
+python scripts\database_admin.py restore backups\yunxun-时间戳.db --dir backups
+```
+
+恢复前会自动备份当前数据库，并通过临时文件原子替换；失败时保留原数据库。探针为 `/health/live` 和 `/health/ready`，readiness 会检查连接、Schema 版本和核心表，但不会调用付费模型。发布步骤和回滚要求见 `docs/release-checklist.md`，版本变更见 `CHANGELOG.md`。
+
+Windows每日备份计划只生成脚本，不会自动注册：
+
+```powershell
+scripts\backup_task.ps1 -Action Install -BackupDirectory D:\yunxun-backups -Keep 10 -DailyAt 02:00
+scripts\backup_task.ps1 -Action Show
+scripts\backup_task.ps1 -Action Run
+scripts\backup_task.ps1 -Action Disable
+scripts\backup_task.ps1 -Action Delete
+```
+
+发布封板可执行 `python scripts\release_rehearsal.py`，它会在临时目录中重新创建Python虚拟环境、执行`npm ci`、构建、启动、重启和备份恢复。执行 `python scripts\package_release.py` 会在`dist/release/`生成V1.0 ZIP、Manifest和SHA-256；该目录不进入Git。
+
 GitHub Actions 会在推送和 Pull Request 时执行同等的后端、前端和安全检查。
 
 **本地冒烟流程：**
@@ -433,7 +467,7 @@ python scripts\count_source_lines.py --generate
 
 输出目录为 `docs/software-copyright/`，包含：
 
-- `source-code.txt`：使用“云寻智慧农业AI工作台软件 V4.0”统一页眉，每页50行源码正文。
+- `source-code.txt`：使用统一产品名称和发布版本页眉，每页50行源码正文。
 - `source-code-manifest.txt`：记录生成时间、统计结果、排除规则、固定排序和实际文件清单。
 
 筛选口径：
