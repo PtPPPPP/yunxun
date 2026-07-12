@@ -61,3 +61,16 @@ export function failOptimisticMessages(messages: MessageItem[], requestId: strin
 export function removeOptimisticMessages(messages: MessageItem[], requestId: string): MessageItem[] {
   return messages.filter((message) => message.client_request_id !== requestId);
 }
+
+export function mergeOlderMessages(current: MessageItem[], older: MessageItem[]): MessageItem[] {
+  const existing = new Set(current.map((message) => message.id));
+  return [...older.filter((message) => !existing.has(message.id)), ...current];
+}
+
+export function restoreDraftAfterFailure(currentDraft: string, failedPrompt: string): string {
+  return currentDraft || failedPrompt;
+}
+
+export function shouldApplySessionResponse(activeSessionId: string | null, responseSessionId: string): boolean {
+  return activeSessionId === responseSessionId;
+}

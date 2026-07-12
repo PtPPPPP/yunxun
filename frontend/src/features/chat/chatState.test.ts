@@ -5,6 +5,9 @@ import {
   commitOptimisticMessages,
   createOptimisticMessagePair,
   failOptimisticMessages,
+  mergeOlderMessages,
+  restoreDraftAfterFailure,
+  shouldApplySessionResponse,
 } from "./chatState";
 
 const committedPair: MessageItem[] = [
@@ -44,5 +47,26 @@ describe("chat optimistic state", () => {
     expect(failed[0]).toBe(previous);
     expect(failed[1].delivery_status).toBe("failed");
     expect(failed[2]).toMatchObject({ delivery_status: "failed", role: "assistant" });
+  });
+});
+
+describe("controller concurrency helpers", () => {
+  it("旧会话响应不会应用到新会话", () => {
+    expect(shouldApplySessionResponse("new-session", "old-session")).toBe(false);
+    expect(shouldApplySessionResponse("new-session", "new-session")).toBe(true);
+  });
+
+  it("失败恢复不会覆盖用户新输入", () => {
+    expect(restoreDraftAfterFailure("new draft", "failed prompt")).toBe("new draft");
+    expect(restoreDraftAfterFailure("", "failed prompt")).toBe("failed prompt");
+  });
+
+  it("历史分页去重且保持顺序", () => {
+    const current = [{ id: "2", role: "user" as const, content: "2", created_at: "2" }];
+    const older = [
+      { id: "1", role: "user" as const, content: "1", created_at: "1" },
+      { id: "2", role: "user" as const, content: "duplicate", created_at: "2" },
+    ];
+    expect(mergeOlderMessages(current, older).map((message) => message.id)).toEqual(["1", "2"]);
   });
 });

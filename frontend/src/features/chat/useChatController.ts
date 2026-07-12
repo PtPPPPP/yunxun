@@ -8,6 +8,9 @@ import {
   createOptimisticMessagePair,
   failOptimisticMessages,
   removeOptimisticMessages,
+  mergeOlderMessages,
+  restoreDraftAfterFailure,
+  shouldApplySessionResponse,
 } from "./chatState";
 
 const DEFAULT_SESSION_TITLE = "新会话";
@@ -156,7 +159,7 @@ export function useChatController({ selectedModel, onError }: ChatControllerOpti
           { headers: { "X-Idempotency-Key": requestId } },
         );
 
-        if (activeSessionIdRef.current === sessionId) {
+        if (shouldApplySessionResponse(activeSessionIdRef.current, sessionId)) {
           setMessages((current) =>
             commitOptimisticMessages(current, requestId, [response.data.user_message, response.data.assistant_message]),
           );
@@ -166,7 +169,7 @@ export function useChatController({ selectedModel, onError }: ChatControllerOpti
       } catch (error) {
         if (!targetSessionId || activeSessionIdRef.current === targetSessionId) {
           setMessages((current) => failOptimisticMessages(current, requestId));
-          setDraft((current) => current || prompt);
+          setDraft((current) => restoreDraftAfterFailure(current, prompt));
         }
         retryRef.current = { prompt, requestId };
         onError(getErrorMessage(error));
@@ -227,10 +230,7 @@ export function useChatController({ selectedModel, onError }: ChatControllerOpti
         { params: { message_limit: 100, message_cursor: messageCursor } },
       );
       if (activeSessionIdRef.current !== sessionId) return;
-      setMessages((current) => {
-        const existing = new Set(current.map((message) => message.id));
-        return [...response.data.messages.filter((message) => !existing.has(message.id)), ...current];
-      });
+      setMessages((current) => mergeOlderMessages(current, response.data.messages));
       setHasOlderMessages(response.data.message_pagination.has_more);
       setMessageCursor(response.data.message_pagination.next_cursor);
     } catch (error) {

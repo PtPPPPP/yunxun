@@ -25,6 +25,14 @@ interface ApiErrorPayload {
   detail?: unknown;
 }
 
+export interface ApiErrorInfo {
+  code?: string;
+  message: string;
+  status?: number;
+  requestId?: string;
+  retryable: boolean;
+}
+
 function isApiErrorPayload(value: unknown): value is ApiErrorPayload {
   return typeof value === "object" && value !== null;
 }
@@ -71,13 +79,25 @@ function axiosErrorMessage(error: AxiosError, fallback: string): string {
 }
 
 export function getErrorMessage(error: unknown, fallback = "请求失败，请稍后重试。"): string {
+  return getApiErrorInfo(error, fallback).message;
+}
+
+export function getApiErrorInfo(error: unknown, fallback = "请求失败，请稍后重试。"): ApiErrorInfo {
   if (axios.isAxiosError(error)) {
-    return axiosErrorMessage(error, fallback);
+    const status = error.response?.status;
+    const payload = error.response?.data;
+    return {
+      code: isApiErrorPayload(payload) && typeof payload.code === "string" ? payload.code : undefined,
+      message: axiosErrorMessage(error, fallback),
+      status,
+      requestId: error.response?.headers?.["x-request-id"],
+      retryable: !status || status === 408 || status === 429 || status >= 500,
+    };
   }
 
   if (error instanceof Error && error.message) {
-    return error.message;
+    return { message: error.message, retryable: false };
   }
 
-  return fallback;
+  return { message: fallback, retryable: false };
 }
