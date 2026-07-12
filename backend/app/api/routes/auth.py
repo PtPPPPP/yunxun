@@ -1,29 +1,40 @@
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from backend.app.api.deps import get_current_user
 from backend.app.core.exceptions import success_payload
 from backend.app.repositories import public_user
 from backend.app.schemas import LoginRequest, ProfileUpdateRequest, RegisterRequest
 from backend.app.services.auth import get_current_user_from_header, guest_login, login_user, logout_user, register_user, update_profile
+from backend.app.core.rate_limit import InMemoryRateLimiter
+from backend.app.core.security import safe_fingerprint
 
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+auth_rate_limiter = InMemoryRateLimiter()
+
+
+def _limit_auth(request: Request) -> None:
+    host = request.client.host if request.client else "local"
+    auth_rate_limiter.check(f"auth:{safe_fingerprint(host)}", 20, 60)
 
 
 @router.post("/register")
-async def register_api(request: RegisterRequest) -> dict[str, object]:
+async def register_api(request: RegisterRequest, http_request: Request) -> dict[str, object]:
+    _limit_auth(http_request)
     payload = register_user(request.username, request.password, request.display_name)
     return success_payload(**payload)
 
 
 @router.post("/login")
-async def login_api(request: LoginRequest) -> dict[str, object]:
+async def login_api(request: LoginRequest, http_request: Request) -> dict[str, object]:
+    _limit_auth(http_request)
     payload = login_user(request.username, request.password)
     return success_payload(**payload)
 
 
 @router.post("/guest")
-async def guest_login_api() -> dict[str, object]:
+async def guest_login_api(request: Request) -> dict[str, object]:
+    _limit_auth(request)
     payload = guest_login()
     return success_payload(**payload)
 

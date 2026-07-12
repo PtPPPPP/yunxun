@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from threading import RLock
 from typing import Callable, Deque
 
-from fastapi import HTTPException
+from backend.app.core.errors import rate_limited
 
 
 TimeProvider = Callable[[], float]
@@ -58,11 +58,7 @@ class InMemoryRateLimiter:
             bucket.prune(now)
             if len(bucket.attempts) >= limit:
                 reset_after = bucket.reset_after(now)
-                raise HTTPException(
-                    status_code=429,
-                    detail=f"请求太频繁了，请 {max(1, int(reset_after))} 秒后再试。",
-                    headers={"Retry-After": str(max(1, int(reset_after)))},
-                )
+                raise rate_limited(max(1, int(reset_after)))
 
             bucket.attempts.append(now)
             remaining = max(0, limit - len(bucket.attempts))

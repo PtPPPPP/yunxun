@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from backend.app.core.audit import log_event
 from backend.app.core.config import get_settings
 from backend.app.core.upload import ImageUploadPolicy, validate_image_payload
+from backend.app.core.security import safe_fingerprint
 from backend.app.services.assistant import build_vision_demo_reply, create_vision_reply
 from backend.app.services.chat import rate_limiter
 from backend.app.services.decision import build_decision_reply
@@ -24,7 +25,7 @@ async def create_vision_analysis(user_id: str, client_host: str, image_base64: s
         logger,
         "vision_request",
         user_id=user_id,
-        client_host=client_host,
+        client_fingerprint=safe_fingerprint(client_host),
         crop=normalized_crop,
         image_size=image.size_bytes,
         image_mime=image.mime_type,
@@ -60,7 +61,7 @@ def create_decision_advice(
         logger,
         "decision_request",
         user_id=user_id,
-        client_host=client_host,
+        client_fingerprint=safe_fingerprint(client_host),
         crop=crop,
         stage=stage,
         rain_prob=rain_prob,

@@ -15,6 +15,7 @@ from backend.app.core.errors import (
 )
 from backend.app.core.idempotency import DatabaseIdempotencyStore, MAX_RESPONSE_BYTES, build_fingerprint
 from backend.app.core.rate_limit import InMemoryRateLimiter
+from backend.app.core.security import safe_fingerprint
 from backend.app.repositories import (
     choose_model,
     count_all_sessions,
@@ -135,7 +136,7 @@ async def create_session_message(
         "chat_message_request",
         user_id=user["id"],
         session_id=session_id,
-        client_host=client_host,
+        client_fingerprint=safe_fingerprint(client_host),
         message_length=len(message_text.strip()),
         ai_configured=settings.ai_configured,
     )

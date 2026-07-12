@@ -47,15 +47,31 @@ def create_app() -> FastAPI:
         request_id = normalize_request_id(request.headers.get("X-Request-ID"))
         context_token = set_request_id(request_id)
         started = time.perf_counter()
+        status_code = 500
         try:
+            content_length = request.headers.get("content-length", "")
+            if content_length.isdigit() and int(content_length) > 10 * 1024 * 1024:
+                from fastapi.responses import JSONResponse
+                response = JSONResponse(status_code=413, content={"success": False, "error": "请求体过大。", "code": "REQUEST_TOO_LARGE"})
+                response.headers["X-Request-ID"] = request_id
+                status_code = 413
+                return response
             response = await call_next(request)
+            status_code = response.status_code
             response.headers["X-Request-ID"] = request_id
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+            if not request.url.path.startswith(("/docs", "/redoc", "/openapi.json")):
+                response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
             return response
         finally:
             logger.info(
-                "event=http_request method=%s path=%s duration_ms=%d request_id=%s",
+                "event=http_request method=%s path=%s status_code=%d duration_ms=%d request_id=%s",
                 request.method,
                 request.url.path,
+                status_code,
                 round((time.perf_counter() - started) * 1000),
                 request_id,
             )

@@ -7,7 +7,7 @@ from backend.app.core.runtime_status import build_runtime_status, build_runtime_
 def make_settings(**overrides: object) -> Settings:
     values = {
         "app_name": "云寻智慧农业AI工作台软件",
-        "app_version": "V4.0",
+        "app_version": "1.0.0",
         "environment": "intranet",
         "debug": False,
         "host": "0.0.0.0",

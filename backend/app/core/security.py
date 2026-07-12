@@ -23,3 +23,8 @@ def create_token() -> str:
 def hash_auth_token(raw_token: str) -> str:
     secret = get_settings().jwt_secret.encode("utf-8")
     return hmac.new(secret, raw_token.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def safe_fingerprint(value: str) -> str:
+    secret = get_settings().jwt_secret.encode("utf-8")
+    return hmac.new(secret, value.encode("utf-8"), hashlib.sha256).hexdigest()[:12]

@@ -8,7 +8,7 @@ from backend.app.services import system as system_service
 def make_settings(**overrides: object) -> Settings:
     values = {
         "app_name": "云寻智慧农业AI工作台软件",
-        "app_version": "V4.0",
+        "app_version": "1.0.0",
         "environment": "intranet",
         "debug": False,
         "host": "0.0.0.0",
@@ -62,7 +62,7 @@ class SystemServiceTestCase(unittest.TestCase):
         settings = make_settings(api_key="sk-real-example-value")
         with (
             patch.object(system_service, "get_settings", return_value=settings),
-            patch.object(system_service, "check_database_ready", return_value=True),
+            patch.object(system_service, "check_database_ready", return_value={"ready": True, "schema_version": 1}),
         ):
             payload = system_service.build_readiness_payload()
 
@@ -75,7 +75,7 @@ class SystemServiceTestCase(unittest.TestCase):
         settings = make_settings()
         with (
             patch.object(system_service, "get_settings", return_value=settings),
-            patch.object(system_service, "check_database_ready", return_value=False),
+            patch.object(system_service, "check_database_ready", return_value={"ready": False, "schema_version": None}),
         ):
             payload = system_service.build_readiness_payload()
 

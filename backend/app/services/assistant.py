@@ -126,7 +126,14 @@ def _run_with_retries(operation: Callable[[], T]) -> T:
         except Exception as exc:
             last_error = exc
             logger.warning("AI request failed on attempt %s/%s: %s", attempt, attempts, type(exc).__name__)
+            status = getattr(exc, "status_code", None)
+            if status in {401, 403}:
+                raise HTTPException(status_code=502, detail="模型服务鉴权失败，请检查服务端配置。") from exc
 
+    if isinstance(last_error, TimeoutError) or "timeout" in type(last_error).__name__.lower():
+        raise HTTPException(status_code=504, detail="模型服务响应超时，请稍后重试。") from last_error
+    if getattr(last_error, "status_code", None) == 429:
+        raise HTTPException(status_code=503, detail="模型服务当前繁忙，请稍后重试。") from last_error
     raise HTTPException(status_code=502, detail="模型服务暂时不可用，请稍后重试。") from last_error
 
 

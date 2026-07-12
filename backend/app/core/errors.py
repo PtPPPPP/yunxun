@@ -34,6 +34,7 @@ class ErrorCode:
     IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
     NOT_FOUND = "NOT_FOUND"
     BAD_REQUEST = "BAD_REQUEST"
+    RATE_LIMITED = "RATE_LIMITED"
 
 
 class AppError(HTTPException):
@@ -94,6 +95,16 @@ def idempotency_conflict() -> AppError:
         message="同一请求标识不能用于不同内容，请刷新后重试。",
         status_code=409,
     )
+
+
+def rate_limited(retry_after: int) -> AppError:
+    error = AppError(
+        code=ErrorCode.RATE_LIMITED,
+        message=f"请求太频繁了，请 {retry_after} 秒后再试。",
+        status_code=429,
+    )
+    error.headers = {"Retry-After": str(retry_after)}
+    return error
 
 
 def not_found(message: str = "资源不存在或已被删除。") -> AppError:

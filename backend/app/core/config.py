@@ -285,7 +285,7 @@ def get_settings() -> Settings:
 
     return Settings(
         app_name=_parse_optional_str("YUNXUN_APP_NAME", _getenv("YUNXUN_APP_NAME"), default="云寻智慧农业AI工作台软件"),
-        app_version=_parse_optional_str("YUNXUN_APP_VERSION", _getenv("YUNXUN_APP_VERSION"), default="V4.0"),
+        app_version=_parse_optional_str("YUNXUN_APP_VERSION", _getenv("YUNXUN_APP_VERSION"), default="1.0.0"),
         environment=_parse_optional_str("YUNXUN_ENV", _getenv("YUNXUN_ENV"), default="development"),
         debug=_parse_bool("YUNXUN_DEBUG", _getenv("YUNXUN_DEBUG"), default=False),
         host=_parse_optional_str("YUNXUN_HOST", _getenv("YUNXUN_HOST"), default="0.0.0.0"),
