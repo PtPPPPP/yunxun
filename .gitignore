@@ -1,35 +1,48 @@
+# Local configuration and secrets
 .env
 .env.local
 .env.*.local
+frontend/.env
+
+# Python environments and caches
 .venv/
 venv/
+env/
 __pycache__/
-*.pyc
-*.db
-*.log
-*.tsbuildinfo
+*.py[cod]
+.pytest_cache/
+
+# Node dependencies and generated output
 node_modules/
 dist/
 build/
-dist/release/
-backups/
+*.tsbuildinfo
 frontend/test-results/
 frontend/playwright-report/
+coverage/
+
+# Runtime data
+*.db
+*.db-shm
+*.db-wal
+*.log
+backups/
+
+# Graphify machine-local and transient state
+graphify-out/.graphify_python
+graphify-out/.graphify_root
+graphify-out/.graphify_detect.json
+graphify-out/.graphify_extract.json
+graphify-out/.graphify_ast.json
+graphify-out/.graphify_semantic*.json
+graphify-out/.graphify_analysis.json
+graphify-out/.graphify_cached.json
+graphify-out/.graphify_uncached.txt
+graphify-out/.graphify_chunk_*.json
 graphify-out/cache/
-frontend/.env
-frontend/vite.config.js
-frontend/vite.config.d.ts
-qa-*.png
-# Python
-*.pyc
-*.pyo
-*.pyd
-env/
-.env
-# Node
-# Logs
-# System
+
+# Editor, operating system and QA output
+.vscode/
 .DS_Store
 Thumbs.db
-# VS Code
-.vscode/
+qa-*.png

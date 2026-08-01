@@ -26,7 +26,13 @@ class DatabaseMigrationTestCase(unittest.TestCase):
         with closing(sqlite3.connect(self.db_path)) as conn:
             self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        self.assertTrue({"users", "chat_sessions", "chat_messages", "auth_tokens", "idempotency_requests"} <= tables)
+        self.assertTrue(
+            {"users", "chat_sessions", "chat_messages", "auth_tokens", "idempotency_requests", "user_model_credentials"}
+            <= tables
+        )
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            session_columns = {row[1] for row in conn.execute("PRAGMA table_info(chat_sessions)")}
+        self.assertIn("model_config_id", session_columns)
 
     def test_repeated_startup_does_not_reapply_migration(self) -> None:
         init_db()

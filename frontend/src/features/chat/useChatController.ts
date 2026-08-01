@@ -17,6 +17,7 @@ const DEFAULT_SESSION_TITLE = "新会话";
 
 interface ChatControllerOptions {
   selectedModel: string;
+  selectedModelConfigId: string | null;
   onError: (message: string) => void;
 }
 
@@ -24,7 +25,7 @@ function upsertSession(sessions: SessionItem[], nextSession: SessionItem): Sessi
   return [nextSession, ...sessions.filter((session) => session.id !== nextSession.id)];
 }
 
-export function useChatController({ selectedModel, onError }: ChatControllerOptions) {
+export function useChatController({ selectedModel, selectedModelConfigId, onError }: ChatControllerOptions) {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageItem[]>([]);
@@ -121,13 +122,14 @@ export function useChatController({ selectedModel, onError }: ChatControllerOpti
       title: DEFAULT_SESSION_TITLE,
       feature: "chat",
       model_name: selectedModel,
+      model_config_id: selectedModelConfigId,
     });
     setActiveSessionId(response.data.session.id);
     activeSessionIdRef.current = response.data.session.id;
     setRenameTitle(response.data.session.title);
     syncSession(response.data.session);
     return response.data.session.id;
-  }, [activeSessionId, selectedModel, syncSession]);
+  }, [activeSessionId, selectedModel, selectedModelConfigId, syncSession]);
 
   const sendMessage = useCallback(async () => {
     await sendAction.run(async () => {
@@ -155,7 +157,7 @@ export function useChatController({ selectedModel, onError }: ChatControllerOpti
           session: SessionItem;
         }>(
           `/api/chat/sessions/${sessionId}/messages`,
-          { message: prompt, model_name: selectedModel },
+          { message: prompt, model_name: selectedModel, model_config_id: selectedModelConfigId },
           { headers: { "X-Idempotency-Key": requestId } },
         );
 
@@ -175,7 +177,7 @@ export function useChatController({ selectedModel, onError }: ChatControllerOpti
         onError(getErrorMessage(error));
       }
     });
-  }, [draft, ensureSession, onError, selectedModel, sendAction, syncSession]);
+  }, [draft, ensureSession, onError, selectedModel, selectedModelConfigId, sendAction, syncSession]);
 
   const renameActiveSession = useCallback(async () => {
     if (!activeSessionId) {

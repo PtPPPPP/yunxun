@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -23,6 +24,14 @@ EXCLUDED_SUFFIXES = {".db", ".log", ".pyc", ".zip", ".png"}
 def allowed(path: Path) -> bool:
     relative = path.relative_to(ROOT)
     return not (EXCLUDED_PARTS & set(relative.parts)) and path.suffix.lower() not in EXCLUDED_SUFFIXES and path.name != ".env"
+
+
+def read_schema_version() -> int:
+    database_source = (ROOT / "backend/app/core/database.py").read_text(encoding="utf-8")
+    match = re.search(r"^SCHEMA_VERSION\s*=\s*(\d+)\s*$", database_source, re.MULTILINE)
+    if not match:
+        raise SystemExit("发布包校验失败：无法从数据库模块读取 Schema 版本。")
+    return int(match.group(1))
 
 
 def main() -> None:
@@ -46,9 +55,13 @@ def main() -> None:
                 shutil.copy2(source, destination)
         files = sorted(path for path in stage.rglob("*") if path.is_file())
         manifest = {
-            "application_name": "云寻AI",
+            "application_name": "云寻智慧农业AI工作台软件",
+            "application_short_name": "云寻AI",
             "version": VERSION,
-            "schema_version": 1,
+            "schema_version": read_schema_version(),
+            "v1_scope_baseline": subprocess.check_output(
+                ["git", "rev-parse", "v1.0.0^{}"], cwd=ROOT, text=True
+            ).strip(),
             "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
             "working_tree_modified": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()),
             "build_time_utc": datetime.now(timezone.utc).isoformat(),

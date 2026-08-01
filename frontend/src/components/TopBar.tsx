@@ -16,6 +16,10 @@ const featureTitles: Record<FeatureKey, { title: string; subtitle: string }> = {
     title: "今日农活计划",
     subtitle: "结合天气、墒情和生长期，快速生成今天能执行的田间安排。",
   },
+  models: {
+    title: "模型设置",
+    subtitle: "安全保存自己的模型 API Key，并决定聊天默认使用哪个模型服务。",
+  },
 };
 
 interface TopBarProps {

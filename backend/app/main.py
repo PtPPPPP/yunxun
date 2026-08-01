@@ -5,7 +5,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api.routes import auth, chat, system, tools
+from backend.app.api.routes import auth, chat, model_configs, system, tools
+from backend.app.core.byok_security import CredentialCipher
 from backend.app.core.config import get_settings, validate_startup_settings
 from backend.app.core.database import init_db
 from backend.app.core.exceptions import (
@@ -15,6 +16,7 @@ from backend.app.core.exceptions import (
 )
 from backend.app.core.runtime_status import log_runtime_status
 from backend.app.core.request_context import normalize_request_id, reset_request_id, set_request_id
+from backend.app.core.csrf import validate_csrf_request
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -24,6 +26,8 @@ logger = logging.getLogger("yunxun.backend")
 def create_app() -> FastAPI:
     settings = get_settings()
     validate_startup_settings(settings)
+    if settings.is_production and settings.byok_enabled and settings.byok_allow_persistence:
+        CredentialCipher(settings.credential_encryption_key)
     log_runtime_status(logger, settings)
     init_db()
 
@@ -49,6 +53,8 @@ def create_app() -> FastAPI:
         started = time.perf_counter()
         status_code = 500
         try:
+            if request.url.path.startswith("/api/"):
+                validate_csrf_request(request)
             content_length = request.headers.get("content-length", "")
             if content_length.isdigit() and int(content_length) > 10 * 1024 * 1024:
                 from fastapi.responses import JSONResponse
@@ -83,6 +89,7 @@ def create_app() -> FastAPI:
     app.include_router(system.router)
     app.include_router(auth.router)
     app.include_router(chat.router)
+    app.include_router(model_configs.router)
     app.include_router(tools.router)
 
     logger.info("Application initialized", extra={"host": settings.host, "port": settings.port})

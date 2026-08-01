@@ -10,6 +10,12 @@ SENSITIVE_FIELDS = {
     "token",
     "authorization",
     "api_key",
+    "encrypted_api_key",
+    "nonce",
+    "cookie",
+    "headers",
+    "prompt",
+    "response",
     "image_base64",
 }
 

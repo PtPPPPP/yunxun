@@ -35,6 +35,8 @@ from backend.app.repositories import (
     safe_text,
 )
 from backend.app.services.assistant import build_local_chat_reply, create_chat_reply
+from backend.app.services.byok_provider import call_chat_completion
+from backend.app.services.model_configs import resolve_runtime_model_config
 
 
 rate_limiter = InMemoryRateLimiter()
@@ -51,12 +53,39 @@ def require_session_owner(session_id: str, user_id: str) -> dict[str, str]:
     return session_record
 
 
-def create_user_session(user_id: str, title: str, feature: str, model_name: str) -> dict[str, str]:
+def create_user_session(
+    user_id: str,
+    title: str,
+    feature: str,
+    model_name: str,
+    model_config_id: str | None = None,
+) -> dict[str, str]:
     settings = get_settings()
     normalized_title = safe_text(title, "新会话")
-    normalized_model = choose_model(model_name, settings.available_models, settings.chat_endpoint)
-    session_record = create_session(user_id, normalized_title, feature.strip(), normalized_model)
-    log_event(logger, "chat_session_create", user_id=user_id, session_id=session_record["id"], feature=feature.strip(), model_name=normalized_model)
+    explicit_system_model = model_config_id is None and bool(model_name.strip())
+    runtime_config = None if explicit_system_model else resolve_runtime_model_config(user_id, model_config_id, None)
+    normalized_model = (
+        runtime_config["model"]
+        if runtime_config
+        else choose_model(model_name, settings.available_models, settings.chat_endpoint)
+    )
+    selected_config_id = runtime_config["id"] if runtime_config else None
+    session_record = create_session(
+        user_id,
+        normalized_title,
+        feature.strip(),
+        normalized_model,
+        selected_config_id,
+    )
+    log_event(
+        logger,
+        "chat_session_create",
+        user_id=user_id,
+        session_id=session_record["id"],
+        feature=feature.strip(),
+        model_name=normalized_model,
+        config_id=selected_config_id,
+    )
     return public_session(session_record)
 
 
@@ -127,6 +156,7 @@ async def create_session_message(
     model_name: str,
     client_host: str,
     idempotency_key: str | None = None,
+    model_config_id: str | None = None,
 ) -> dict[str, object]:
     settings = get_settings()
     session_record = require_session_owner(session_id, user["id"])
@@ -149,14 +179,33 @@ async def create_session_message(
 
     # 显式请求标识用于网络重试；旧客户端没有标识时仍按消息内容防双击。
     explicit_key = idempotency_key.strip() if idempotency_key and idempotency_key.strip() else None
-    selected_model = choose_model(
-        model_name or session_record["model_name"] or user["preferred_model"],
-        settings.available_models,
-        settings.chat_endpoint,
+    explicit_system_model = model_config_id is None and bool(model_name.strip())
+    runtime_config = (
+        None
+        if explicit_system_model
+        else resolve_runtime_model_config(
+            user["id"],
+            model_config_id,
+            session_record.get("model_config_id"),
+        )
     )
+    selected_model = (
+        runtime_config["model"]
+        if runtime_config
+        else choose_model(
+            model_name or session_record["model_name"] or user["preferred_model"],
+            settings.available_models,
+            settings.chat_endpoint,
+        )
+    )
+    selected_config_id = runtime_config["id"] if runtime_config else None
     request_identity = explicit_key or normalized_message
     key_hash = build_fingerprint("chat", user["id"], session_id, request_identity)
-    request_hash = build_fingerprint(normalized_message, selected_model)
+    request_hash = (
+        build_fingerprint(normalized_message, selected_model, selected_config_id)
+        if selected_config_id
+        else build_fingerprint(normalized_message, selected_model)
+    )
     lease_id: str | None = None
     if settings.idempotency_enabled:
         claim = idempotency_store.begin(
@@ -176,7 +225,16 @@ async def create_session_message(
             raise idempotency_conflict()
         lease_id = claim.lease_id
     try:
-        if settings.ai_configured:
+        if runtime_config:
+            history = build_history(session_id)
+            history.append({"role": "user", "content": normalized_message})
+            reply, _ = await call_chat_completion(
+                base_url=runtime_config["base_url"],
+                api_key=runtime_config["api_key"],
+                model=selected_model,
+                history=history,
+            )
+        elif settings.ai_configured:
             history = build_history(session_id)
             history.append({"role": "user", "content": normalized_message})
             reply = await create_chat_reply(history, selected_model)
@@ -190,6 +248,7 @@ async def create_session_message(
             normalized_message,
             reply,
             selected_model,
+            selected_config_id,
         )
     except HTTPException:
         if lease_id:
@@ -205,6 +264,7 @@ async def create_session_message(
         user_id=user["id"],
         session_id=session_id,
         model_name=selected_model,
+        config_id=selected_config_id,
         reply_length=len(reply),
     )
     payload = {

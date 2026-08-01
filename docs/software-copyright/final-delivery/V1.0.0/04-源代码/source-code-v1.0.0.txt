@@ -1,0 +1,5262 @@
+云寻智慧农业AI工作台软件 1.0.0    第 1 页 / 共 102 页
+import socket
+import sys
+from pathlib import Path
+import uvicorn
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from backend.app.core.config import get_settings
+def _is_port_available(host: str, port: int) -> bool:
+    probe_host = "0.0.0.0" if host in {"0.0.0.0", "::"} else host
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((probe_host, port))
+        except OSError:
+            return False
+    return True
+def main() -> None:
+    settings = get_settings()
+    if not _is_port_available(settings.host, settings.port):
+        raise SystemExit(
+            f"Port {settings.port} is already in use. "
+            f"Change YUNXUN_PORT or PORT in the environment, then start the backend again."
+        )
+    uvicorn.run(
+        "backend.app.main:app",
+        host=settings.host,
+        port=settings.port,
+        reload=settings.debug,
+    )
+if __name__ == "__main__":
+    main()
+import logging
+import time
+from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from backend.app.api.routes import auth, chat, system, tools
+from backend.app.core.config import get_settings, validate_startup_settings
+from backend.app.core.database import init_db
+from backend.app.core.exceptions import (
+    http_exception_handler,
+    unexpected_exception_handler,
+    validation_exception_handler,
+)
+from backend.app.core.runtime_status import log_runtime_status
+from backend.app.core.request_context import normalize_request_id, reset_request_id, set_request_id
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logger = logging.getLogger("yunxun.backend")
+def create_app() -> FastAPI:
+
+云寻智慧农业AI工作台软件 1.0.0    第 2 页 / 共 102 页
+    settings = get_settings()
+    validate_startup_settings(settings)
+    log_runtime_status(logger, settings)
+    init_db()
+    app = FastAPI(
+        title=settings.app_name,
+        version=settings.app_version,
+        debug=settings.debug,
+        docs_url="/docs" if settings.docs_enabled else None,
+        redoc_url="/redoc" if settings.docs_enabled else None,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.allowed_origins,
+        allow_credentials=True,
+        allow_methods=settings.cors_methods,
+        allow_headers=settings.cors_headers,
+    )
+    @app.middleware("http")
+    async def request_context(request, call_next):
+        request_id = normalize_request_id(request.headers.get("X-Request-ID"))
+        context_token = set_request_id(request_id)
+        started = time.perf_counter()
+        status_code = 500
+        try:
+            content_length = request.headers.get("content-length", "")
+            if content_length.isdigit() and int(content_length) > 10 * 1024 * 1024:
+                from fastapi.responses import JSONResponse
+                response = JSONResponse(status_code=413, content={"success": False, "error": "请求体过大。", "code": "REQUEST_TOO_LARGE"})
+                response.headers["X-Request-ID"] = request_id
+                status_code = 413
+                return response
+            response = await call_next(request)
+            status_code = response.status_code
+            response.headers["X-Request-ID"] = request_id
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+            if not request.url.path.startswith(("/docs", "/redoc", "/openapi.json")):
+                response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+            return response
+        finally:
+            logger.info(
+                "event=http_request method=%s path=%s status_code=%d duration_ms=%d request_id=%s",
+                request.method,
+                request.url.path,
+                status_code,
+                round((time.perf_counter() - started) * 1000),
+                request_id,
+
+云寻智慧农业AI工作台软件 1.0.0    第 3 页 / 共 102 页
+            )
+            reset_request_id(context_token)
+    app.add_exception_handler(HTTPException, http_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(Exception, unexpected_exception_handler)
+    app.include_router(system.router)
+    app.include_router(auth.router)
+    app.include_router(chat.router)
+    app.include_router(tools.router)
+    logger.info("Application initialized", extra={"host": settings.host, "port": settings.port})
+    return app
+app = create_app()
+from fastapi import Header
+from backend.app.services.auth import get_current_user_from_header
+def get_current_user(authorization: str | None = Header(default=None)) -> dict[str, str]:
+    return get_current_user_from_header(authorization)
+from backend.app.api.routes import auth, chat, system, tools
+__all__ = ["auth", "chat", "system", "tools"]
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from backend.app.api.deps import get_current_user
+from backend.app.core.exceptions import success_payload
+from backend.app.repositories import public_user
+from backend.app.schemas import LoginRequest, ProfileUpdateRequest, RegisterRequest
+from backend.app.services.auth import get_current_user_from_header, guest_login, login_user, logout_user, register_user, update_profile
+from backend.app.core.rate_limit import InMemoryRateLimiter
+from backend.app.core.security import safe_fingerprint
+router = APIRouter(prefix="/api/auth", tags=["auth"])
+auth_rate_limiter = InMemoryRateLimiter()
+def _limit_auth(request: Request) -> None:
+    host = request.client.host if request.client else "local"
+    auth_rate_limiter.check(f"auth:{safe_fingerprint(host)}", 20, 60)
+@router.post("/register")
+async def register_api(request: RegisterRequest, http_request: Request) -> dict[str, object]:
+    _limit_auth(http_request)
+    payload = register_user(request.username, request.password, request.display_name)
+    return success_payload(**payload)
+@router.post("/login")
+async def login_api(request: LoginRequest, http_request: Request) -> dict[str, object]:
+    _limit_auth(http_request)
+    payload = login_user(request.username, request.password)
+    return success_payload(**payload)
+@router.post("/guest")
+async def guest_login_api(request: Request) -> dict[str, object]:
+    _limit_auth(request)
+    payload = guest_login()
+    return success_payload(**payload)
+@router.post("/logout")
+async def logout_api(authorization: str | None = Header(default=None)) -> dict[str, str]:
+    user_id: str | None = None
+    if authorization and authorization.startswith("Bearer "):
+
+云寻智慧农业AI工作台软件 1.0.0    第 4 页 / 共 102 页
+        try:
+            user_id = get_current_user_from_header(authorization)["id"]
+        except HTTPException:
+            user_id = None
+    logout_user(authorization, user_id=user_id)
+    return success_payload(message="已退出登录。")
+@router.get("/me", include_in_schema=False)
+async def auth_me_api(user: dict[str, str] = Depends(get_current_user)) -> dict[str, object]:
+    return success_payload(user=public_user(user))
+@router.patch("/profile", include_in_schema=False)
+async def auth_profile_api(
+    request: ProfileUpdateRequest,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    updated_user = update_profile(user["id"], request.display_name, request.preferred_model)
+    return success_payload(user=updated_user)
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from backend.app.api.deps import get_current_user
+from backend.app.core.config import get_settings
+from backend.app.core.exceptions import success_payload
+from backend.app.core.pagination import build_page, decode_cursor, parse_page_params
+from backend.app.schemas import ChatMessageRequest, ChatSessionCreateRequest, ChatSessionRenameRequest
+from backend.app.services.chat import (
+    build_session_stats,
+    create_session_message,
+    create_user_session,
+    delete_user_session,
+    get_session_detail,
+    list_user_sessions,
+    list_user_sessions_page,
+    rename_user_session,
+)
+router = APIRouter(prefix="/api/chat", tags=["chat"])
+@router.get("/sessions")
+async def list_chat_sessions_api(
+    feature: str = "chat",
+    page: str | None = Query(default=None, description="页码，从 1 开始；不传则一次返回全部。"),
+    page_size: str | None = Query(default=None, description="每页数量；不传则使用默认值。"),
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    settings = get_settings()
+    try:
+        params = parse_page_params(
+            page,
+            page_size,
+            default_page_size=settings.default_page_size,
+            max_page_size=settings.max_page_size,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+云寻智慧农业AI工作台软件 1.0.0    第 5 页 / 共 102 页
+    if params is None:
+        return success_payload(sessions=list_user_sessions(user["id"], feature))
+    sessions, total = list_user_sessions_page(user["id"], feature, params)
+    page_obj = build_page(sessions, total, params)
+    return success_payload(sessions=page_obj.items, pagination=page_obj.to_payload())
+@router.get("/stats")
+async def chat_stats_api(
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    return success_payload(**build_session_stats(user["id"]))
+@router.post("/sessions")
+async def create_chat_session_api(
+    request: ChatSessionCreateRequest,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    session = create_user_session(user["id"], request.title, request.feature, request.model_name)
+    return success_payload(session=session)
+@router.get("/sessions/{session_id}")
+async def chat_session_detail_api(
+    session_id: str,
+    message_limit: int | None = Query(default=None, ge=1, le=200),
+    message_cursor: str | None = Query(default=None, max_length=512),
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    try:
+        cursor = decode_cursor(message_cursor) if message_cursor else None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return success_payload(
+        **get_session_detail(session_id, user["id"], message_limit=message_limit, message_cursor=cursor)
+    )
+@router.patch("/sessions/{session_id}")
+async def rename_chat_session_api(
+    session_id: str,
+    request: ChatSessionRenameRequest,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    session = rename_user_session(session_id, user["id"], request.title)
+    return success_payload(session=session)
+@router.delete("/sessions/{session_id}")
+async def delete_chat_session_api(
+    session_id: str,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    delete_user_session(session_id, user["id"])
+    return success_payload(message="会话已删除。")
+@router.post("/sessions/{session_id}/messages")
+async def create_chat_message_api(
+    session_id: str,
+    request: ChatMessageRequest,
+
+云寻智慧农业AI工作台软件 1.0.0    第 6 页 / 共 102 页
+    http_request: Request,
+    idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    payload = await create_session_message(
+        session_id=session_id,
+        user=user,
+        message_text=request.message,
+        model_name=request.model_name,
+        client_host=http_request.client.host if http_request.client else "local",
+        idempotency_key=idempotency_key,
+    )
+    return success_payload(**payload)
+from fastapi import APIRouter, Depends
+from backend.app.api.deps import get_current_user
+from backend.app.core.exceptions import success_payload
+from backend.app.repositories import public_user
+from backend.app.schemas import ProfileUpdateRequest
+from backend.app.services.auth import update_profile
+from backend.app.services.system import build_health_payload, build_liveness_payload, build_readiness_payload
+router = APIRouter(tags=["system"])
+@router.get("/")
+async def root_api() -> dict[str, object]:
+    return success_payload(message="云寻智慧农业AI工作台软件后端已启动。")
+@router.get("/api/health")
+async def health_api() -> dict[str, object]:
+    return success_payload(**build_health_payload())
+@router.get("/health")
+async def public_health_api() -> dict[str, object]:
+    return success_payload(**build_health_payload())
+@router.get("/health/live")
+async def liveness_api() -> dict[str, object]:
+    return success_payload(**build_liveness_payload())
+@router.get("/health/ready")
+async def readiness_api() -> dict[str, object]:
+    return success_payload(**build_readiness_payload())
+@router.get("/api/me")
+async def me_api(user: dict[str, str] = Depends(get_current_user)) -> dict[str, object]:
+    return success_payload(user=public_user(user))
+@router.patch("/api/me/profile")
+async def profile_api(
+    request: ProfileUpdateRequest,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    updated_user = update_profile(user["id"], request.display_name, request.preferred_model)
+    return success_payload(user=updated_user)
+from fastapi import APIRouter, Depends, Request
+from backend.app.api.deps import get_current_user
+from backend.app.core.exceptions import success_payload
+from backend.app.schemas import DecisionRequest, VisionRequest
+
+云寻智慧农业AI工作台软件 1.0.0    第 7 页 / 共 102 页
+from backend.app.services.tools import create_decision_advice, create_vision_analysis
+router = APIRouter(prefix="/api", tags=["tools"])
+@router.post("/vision")
+async def vision_api(
+    request: VisionRequest,
+    http_request: Request,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    client_host = http_request.client.host if http_request.client else "local"
+    payload = await create_vision_analysis(
+        user_id=user["id"],
+        client_host=client_host,
+        image_base64=request.image_base64,
+        crop=request.crop,
+        symptom=request.symptom,
+    )
+    return success_payload(**payload)
+@router.post("/decision")
+async def decision_api(
+    request: DecisionRequest,
+    http_request: Request,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    client_host = http_request.client.host if http_request.client else "local"
+    payload = create_decision_advice(
+        user_id=user["id"],
+        client_host=client_host,
+        crop=request.crop,
+        stage=request.stage,
+        rain_prob=request.rain_prob,
+        soil_moisture=request.soil_moisture,
+        temperature=request.temperature,
+    )
+    return success_payload(**payload)
+import logging
+from functools import lru_cache
+from typing import Callable, TypeVar
+from fastapi.concurrency import run_in_threadpool
+from fastapi import HTTPException
+from openai import OpenAI
+from backend.app.core.config import CHAT_SYSTEM_PROMPT, VISION_SYSTEM_PROMPT, get_settings
+logger = logging.getLogger("yunxun.backend.assistant")
+T = TypeVar("T")
+def build_local_chat_reply(question: str) -> str:
+    lowered = question.lower()
+    if any(word in question for word in ["玉米", "苞谷"]):
+        return (
+            "先看心叶和叶片。如果有虫孔、虫粪，优先怀疑玉米螟或草地贪夜蛾。\n\n"
+            "今天先做三件事：\n"
+            "1. 连查 5 个点，每点看 20 株，确认虫口密度。\n"
+
+云寻智慧农业AI工作台软件 1.0.0    第 8 页 / 共 102 页
+            "2. 重度叶先清掉，田边杂草一并处理。\n"
+            "3. 真要用药时，按当地农技站建议、标签剂量和安全间隔期执行。"
+        )
+    if "水稻" in question or "稻" in question:
+        return (
+            "水稻发黄先分清是湿害、缺肥还是病害。\n\n"
+            "今天先拔一株看根，再拍叶片正反面。如果根发黑发臭，先排水透气；如果只是叶尖黄，优先排查肥水管理。"
+        )
+    if "小麦" in question or "麦" in question:
+        return (
+            "小麦返青慢、地里又偏湿时，不建议先猛追肥。\n\n"
+            "先排湿，再查叶片有没有锈斑、白粉和条纹。地表能下脚后再少量追肥，会更稳。"
+        )
+    if any(word in lowered for word in ["price", "market"]) or any(word in question for word in ["价格", "卖粮", "行情"]):
+        return (
+            "卖粮先别只看一天价格，稳一点的做法是分批卖。\n\n"
+            "急用钱的部分先出，剩下的盯 3 到 7 天的价格和天气。仓储条件一般时，先防霉变和虫蛀。"
+        )
+    return (
+        "这个问题我先给稳妥建议：请补充作物、地区、生长期、最近天气，再拍一张清晰近照。\n\n"
+        "没有把握前，不建议直接定病定药。今天先把重病株标出来，观察 24 小时有没有继续扩散。"
+    )
+def build_vision_demo_reply(crop: str) -> str:
+    return (
+        f"本地演示模式已收到 {crop} 照片，但没有配置 AI Key，暂时不能真正识别图片。\n\n"
+        "建议先补拍 3 张照片：整株、发病部位近景、叶片背面。若病斑扩展快，先隔离重病株，暂停盲目混药。"
+    )
+@lru_cache(maxsize=1)
+def get_client() -> OpenAI:
+    settings = get_settings()
+    if not settings.ai_configured:
+        raise HTTPException(status_code=503, detail="AI 服务未配置，请先设置 DOUBAO_API_KEY。")
+    return OpenAI(api_key=settings.api_key, base_url=settings.base_url, timeout=settings.ai_timeout_seconds)
+async def create_chat_reply(history: list[dict[str, str]], model_name: str) -> str:
+    _validate_history(history)
+    model = _validate_model_name(model_name)
+    return await run_in_threadpool(_create_chat_reply_sync, history, model)
+def _create_chat_reply_sync(history: list[dict[str, str]], model_name: str) -> str:
+    response = _run_with_retries(
+        lambda: get_client().chat.completions.create(
+            model=model_name,
+            messages=[{"role": "system", "content": CHAT_SYSTEM_PROMPT}, *history],
+            temperature=0.35,
+        )
+    )
+    return _extract_text_reply(response, empty_message="这次没有生成有效内容，请换一种说法再试。")
+async def create_vision_reply(image_base64: str, crop: str, symptom: str) -> str:
+    if not image_base64.strip():
+        raise HTTPException(status_code=400, detail="图片内容不能为空。")
+    return await run_in_threadpool(_create_vision_reply_sync, image_base64, crop, symptom)
+
+云寻智慧农业AI工作台软件 1.0.0    第 9 页 / 共 102 页
+def _create_vision_reply_sync(image_base64: str, crop: str, symptom: str) -> str:
+    settings = get_settings()
+    response = _run_with_retries(
+        lambda: get_client().chat.completions.create(
+            model=settings.vision_endpoint,
+            messages=[
+                {"role": "system", "content": VISION_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                f"作物：{crop or '未填写'}\n"
+                                f"农户描述：{symptom or '未填写'}\n"
+                                "请分析这张作物照片，给出初步诊断和处理建议。"
+                            ),
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"},
+                        },
+                    ],
+                },
+            ],
+            temperature=0.2,
+        )
+    )
+    return _extract_text_reply(response, empty_message="视觉模型没有返回有效内容。")
+def _run_with_retries(operation: Callable[[], T]) -> T:
+    settings = get_settings()
+    attempts = settings.ai_max_retries + 1
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return operation()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            last_error = exc
+            logger.warning("AI request failed on attempt %s/%s: %s", attempt, attempts, type(exc).__name__)
+            status = getattr(exc, "status_code", None)
+            if status in {401, 403}:
+                raise HTTPException(status_code=502, detail="模型服务鉴权失败，请检查服务端配置。") from exc
+    if isinstance(last_error, TimeoutError) or "timeout" in type(last_error).__name__.lower():
+        raise HTTPException(status_code=504, detail="模型服务响应超时，请稍后重试。") from last_error
+    if getattr(last_error, "status_code", None) == 429:
+        raise HTTPException(status_code=503, detail="模型服务当前繁忙，请稍后重试。") from last_error
+    raise HTTPException(status_code=502, detail="模型服务暂时不可用，请稍后重试。") from last_error
+def _validate_history(history: list[dict[str, str]]) -> None:
+
+云寻智慧农业AI工作台软件 1.0.0    第 10 页 / 共 102 页
+    if not history:
+        raise HTTPException(status_code=400, detail="对话历史不能为空。")
+    for item in history:
+        role = item.get("role", "")
+        content = item.get("content", "")
+        if role not in {"user", "assistant", "system"}:
+            raise HTTPException(status_code=400, detail="对话角色格式不正确。")
+        if not content.strip():
+            raise HTTPException(status_code=400, detail="对话内容不能为空。")
+def _validate_model_name(model_name: str) -> str:
+    normalized = model_name.strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="模型名称不能为空。")
+    if len(normalized) > 128:
+        raise HTTPException(status_code=400, detail="模型名称过长。")
+    return normalized
+def _extract_text_reply(response: object, *, empty_message: str) -> str:
+    try:
+        choices = getattr(response, "choices")
+        first_choice = choices[0]
+        message = getattr(first_choice, "message")
+        content = getattr(message, "content")
+    except (AttributeError, IndexError, TypeError) as exc:
+        logger.warning("Invalid AI response shape: %s", type(response).__name__)
+        raise HTTPException(status_code=502, detail="模型返回格式不正确。") from exc
+    reply = (content or "").strip()
+    if not reply:
+        raise HTTPException(status_code=502, detail=empty_message)
+    return reply
+import logging
+import re
+import secrets
+import uuid
+from datetime import timedelta
+from fastapi import HTTPException
+from backend.app.core.audit import log_event
+from backend.app.core.config import get_settings
+from backend.app.core.security import create_token, hash_auth_token, hash_password, verify_password
+from backend.app.repositories import (
+    choose_model,
+    cleanup_expired_tokens,
+    create_auth_token,
+    create_user,
+    delete_auth_token,
+    get_user_by_id,
+    get_user_by_token_hash,
+    get_user_by_username,
+    now_utc,
+    public_user,
+    update_user_profile,
+
+云寻智慧农业AI工作台软件 1.0.0    第 11 页 / 共 102 页
+)
+USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
+logger = logging.getLogger("yunxun.backend.auth")
+def register_user(username: str, password: str, display_name: str) -> dict[str, str | dict]:
+    settings = get_settings()
+    normalized_username = username.strip().lower()
+    normalized_display_name = display_name.strip()
+    if not USERNAME_PATTERN.fullmatch(normalized_username):
+        raise HTTPException(status_code=400, detail="用户名只能包含英文字母、数字或下划线。")
+    if get_user_by_username(normalized_username):
+        raise HTTPException(status_code=409, detail="用户名已存在。")
+    if not normalized_display_name:
+        raise HTTPException(status_code=400, detail="显示名称不能为空。")
+    user_record = create_user(
+        username=normalized_username,
+        password_hash=hash_password(password),
+        display_name=normalized_display_name,
+        preferred_model=choose_model("", settings.available_models, settings.chat_endpoint),
+    )
+    log_event(logger, "auth_register_success", user_id=user_record["id"], username=normalized_username)
+    token = issue_auth_token(user_record["id"])
+    return {"user": public_user(user_record), "token": token}
+def login_user(username: str, password: str) -> dict[str, str | dict]:
+    user_record = get_user_by_username(username.strip().lower())
+    if not user_record or not verify_password(password, user_record["password_hash"]):
+        raise HTTPException(status_code=401, detail="用户名或密码不正确。")
+    log_event(logger, "auth_login_success", user_id=user_record["id"], username=user_record["username"])
+    token = issue_auth_token(user_record["id"])
+    return {"user": public_user(user_record), "token": token}
+def guest_login() -> dict[str, str | dict]:
+    suffix = uuid.uuid4().hex[:8]
+    log_event(logger, "auth_guest_login", guest_suffix=suffix)
+    return register_user(
+        username=f"guest_{suffix}",
+        password=secrets.token_urlsafe(16),
+        display_name=f"访客 {suffix[:4]}",
+    )
+def issue_auth_token(user_id: str) -> str:
+    settings = get_settings()
+    token = create_token()
+    expires_at = (now_utc() + timedelta(hours=settings.token_hours)).isoformat(timespec="seconds")
+    cleanup_expired_tokens()
+    create_auth_token(user_id, hash_auth_token(token), expires_at)
+    return token
+def get_current_user_from_header(authorization: str | None) -> dict[str, str]:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="请先登录。")
+    token = authorization.split(" ", 1)[1].strip()
+    user_record = get_user_by_token_hash(hash_auth_token(token))
+    if not user_record:
+
+云寻智慧农业AI工作台软件 1.0.0    第 12 页 / 共 102 页
+        raise HTTPException(status_code=401, detail="登录状态已失效，请重新登录。")
+    return user_record
+def logout_user(authorization: str | None, user_id: str | None = None) -> None:
+    if not authorization or not authorization.startswith("Bearer "):
+        return
+    token = authorization.split(" ", 1)[1].strip()
+    delete_auth_token(hash_auth_token(token))
+    log_event(logger, "auth_logout", user_id=user_id or "unknown")
+def update_profile(user_id: str, display_name: str, preferred_model: str) -> dict[str, str]:
+    settings = get_settings()
+    user_record = get_user_by_id(user_id)
+    if not user_record:
+        raise HTTPException(status_code=404, detail="用户不存在。")
+    if not display_name.strip():
+        raise HTTPException(status_code=400, detail="显示名称不能为空。")
+    normalized_model = choose_model(
+        preferred_model or user_record["preferred_model"],
+        settings.available_models,
+        settings.chat_endpoint,
+    )
+    updated_record = update_user_profile(user_id, display_name.strip(), normalized_model)
+    log_event(logger, "auth_profile_update", user_id=user_id, preferred_model=normalized_model)
+    return public_user(updated_record)
+import logging
+from fastapi import HTTPException
+from backend.app.core.audit import log_event
+from backend.app.core.config import get_settings
+from backend.app.core.errors import (
+    duplicate_request,
+    forbidden,
+    idempotency_conflict,
+    message_empty,
+    message_too_long,
+    model_unavailable,
+    session_not_found,
+)
+from backend.app.core.idempotency import DatabaseIdempotencyStore, MAX_RESPONSE_BYTES, build_fingerprint
+from backend.app.core.rate_limit import InMemoryRateLimiter
+from backend.app.core.security import safe_fingerprint
+from backend.app.repositories import (
+    choose_model,
+    count_all_sessions,
+    count_messages_for_user,
+    count_sessions,
+    count_sessions_by_feature,
+    create_session,
+    delete_session,
+    get_session,
+    list_messages,
+    list_messages_page,
+
+云寻智慧农业AI工作台软件 1.0.0    第 13 页 / 共 102 页
+    list_sessions,
+    list_sessions_page,
+    public_session,
+    rename_session,
+    save_chat_exchange,
+    safe_text,
+)
+from backend.app.services.assistant import build_local_chat_reply, create_chat_reply
+rate_limiter = InMemoryRateLimiter()
+idempotency_store = DatabaseIdempotencyStore()
+logger = logging.getLogger("yunxun.backend.chat")
+def require_session_owner(session_id: str, user_id: str) -> dict[str, str]:
+    session_record = get_session(session_id)
+    if not session_record:
+        raise session_not_found(session_id)
+    if session_record["user_id"] != user_id:
+        raise forbidden()
+    return session_record
+def create_user_session(user_id: str, title: str, feature: str, model_name: str) -> dict[str, str]:
+    settings = get_settings()
+    normalized_title = safe_text(title, "新会话")
+    normalized_model = choose_model(model_name, settings.available_models, settings.chat_endpoint)
+    session_record = create_session(user_id, normalized_title, feature.strip(), normalized_model)
+    log_event(logger, "chat_session_create", user_id=user_id, session_id=session_record["id"], feature=feature.strip(), model_name=normalized_model)
+    return public_session(session_record)
+def list_user_sessions(user_id: str, feature: str) -> list[dict[str, str]]:
+    return list_sessions(user_id, feature)
+def list_user_sessions_page(user_id: str, feature: str, params) -> tuple[list[dict[str, str]], int]:
+    """分页查询会话列表，返回 (当前页, 总数)。"""
+    sessions = list_sessions_page(user_id, feature, limit=params.limit, offset=params.offset)
+    return sessions, count_sessions(user_id, feature)
+def build_session_stats(user_id: str) -> dict[str, object]:
+    """面向工作台的会话统计：总会话数、总消息数、各功能会话数。"""
+    return {
+        "total_sessions": count_all_sessions(user_id),
+        "total_messages": count_messages_for_user(user_id),
+        "sessions_by_feature": count_sessions_by_feature(user_id),
+    }
+def get_session_detail(
+    session_id: str,
+    user_id: str,
+    *,
+    message_limit: int | None = None,
+    message_cursor: tuple[str, str] | None = None,
+) -> dict[str, object]:
+    session_record = require_session_owner(session_id, user_id)
+    if message_limit is None:
+        return {"session": public_session(session_record), "messages": list_messages(session_id)}
+    messages, has_more = list_messages_page(session_id, limit=message_limit, cursor=message_cursor)
+    from backend.app.core.pagination import encode_cursor
+
+云寻智慧农业AI工作台软件 1.0.0    第 14 页 / 共 102 页
+    next_cursor = None
+    if has_more and messages:
+        next_cursor = encode_cursor(messages[0]["created_at"], messages[0]["id"])
+    return {
+        "session": public_session(session_record),
+        "messages": messages,
+        "message_pagination": {"has_more": has_more, "next_cursor": next_cursor},
+    }
+def rename_user_session(session_id: str, user_id: str, title: str) -> dict[str, str]:
+    require_session_owner(session_id, user_id)
+    session_record = rename_session(session_id, safe_text(title, "新会话"))
+    log_event(logger, "chat_session_rename", user_id=user_id, session_id=session_id)
+    return public_session(session_record)
+def delete_user_session(session_id: str, user_id: str) -> None:
+    require_session_owner(session_id, user_id)
+    delete_session(session_id)
+    log_event(logger, "chat_session_delete", user_id=user_id, session_id=session_id)
+def build_history(session_id: str) -> list[dict[str, str]]:
+    history = list_messages(session_id)
+    return [{"role": item["role"], "content": item["content"]} for item in history[-12:]]
+async def create_session_message(
+    session_id: str,
+    user: dict[str, str],
+    message_text: str,
+    model_name: str,
+    client_host: str,
+    idempotency_key: str | None = None,
+) -> dict[str, object]:
+    settings = get_settings()
+    session_record = require_session_owner(session_id, user["id"])
+    rate_limiter.check(f"{user['id']}:{client_host}", settings.requests_per_minute)
+    log_event(
+        logger,
+        "chat_message_request",
+        user_id=user["id"],
+        session_id=session_id,
+        client_fingerprint=safe_fingerprint(client_host),
+        message_length=len(message_text.strip()),
+        ai_configured=settings.ai_configured,
+    )
+    normalized_message = message_text.strip()
+    if not normalized_message:
+        raise message_empty()
+    if len(normalized_message) > settings.max_message_length:
+        raise message_too_long(settings.max_message_length)
+    explicit_key = idempotency_key.strip() if idempotency_key and idempotency_key.strip() else None
+    selected_model = choose_model(
+        model_name or session_record["model_name"] or user["preferred_model"],
+        settings.available_models,
+        settings.chat_endpoint,
+
+云寻智慧农业AI工作台软件 1.0.0    第 15 页 / 共 102 页
+    )
+    request_identity = explicit_key or normalized_message
+    key_hash = build_fingerprint("chat", user["id"], session_id, request_identity)
+    request_hash = build_fingerprint(normalized_message, selected_model)
+    lease_id: str | None = None
+    if settings.idempotency_enabled:
+        claim = idempotency_store.begin(
+            owner_id=user["id"],
+            key_hash=key_hash,
+            request_fingerprint=request_hash,
+            ttl_seconds=max(settings.idempotency_window_seconds, settings.ai_timeout_seconds + 5),
+        )
+        if claim.state == "completed":
+            log_event(logger, "chat_message_duplicate", user_id=user["id"], session_id=session_id)
+            if claim.response_body is None:
+                raise duplicate_request()
+            return claim.response_body
+        if claim.state == "in_flight":
+            raise duplicate_request()
+        if claim.state == "conflict":
+            raise idempotency_conflict()
+        lease_id = claim.lease_id
+    try:
+        if settings.ai_configured:
+            history = build_history(session_id)
+            history.append({"role": "user", "content": normalized_message})
+            reply = await create_chat_reply(history, selected_model)
+        else:
+            reply = build_local_chat_reply(normalized_message)
+        if len(reply.encode("utf-8")) > MAX_RESPONSE_BYTES // 2:
+            raise model_unavailable("模型回复过长，未保存本次结果，请缩小问题范围后重试。")
+        user_message, assistant_message, updated_session = save_chat_exchange(
+            session_id,
+            normalized_message,
+            reply,
+            selected_model,
+        )
+    except HTTPException:
+        if lease_id:
+            idempotency_store.fail(owner_id=user["id"], key_hash=key_hash, lease_id=lease_id)
+        raise
+    except Exception as exc:
+        if lease_id:
+            idempotency_store.fail(owner_id=user["id"], key_hash=key_hash, lease_id=lease_id)
+        raise model_unavailable() from exc
+    log_event(
+        logger,
+        "chat_message_success",
+        user_id=user["id"],
+        session_id=session_id,
+
+云寻智慧农业AI工作台软件 1.0.0    第 16 页 / 共 102 页
+        model_name=selected_model,
+        reply_length=len(reply),
+    )
+    payload = {
+        "reply": reply,
+        "user_message": user_message,
+        "assistant_message": assistant_message,
+        "session": public_session(updated_session),
+    }
+    if lease_id:
+        idempotency_store.complete(
+            owner_id=user["id"],
+            key_hash=key_hash,
+            lease_id=lease_id,
+            response_status=200,
+            response_body=payload,
+            ttl_seconds=settings.idempotency_window_seconds,
+        )
+    return payload
+def build_decision_reply(
+    crop: str,
+    stage: str,
+    rain_prob: int,
+    soil_moisture: int,
+    temperature: float,
+) -> str:
+    wet = rain_prob >= 60 or soil_moisture >= 65
+    dry = rain_prob <= 30 and soil_moisture <= 35
+    if wet:
+        water_advice = "今天先不浇水，低洼地块及时开沟排水。"
+        fertilizer_advice = "雨前不要大水大肥，等田间能下脚后再少量追肥。"
+        risk_level = "偏高"
+    elif dry:
+        water_advice = "早晚小水慢灌，优先保苗保根。"
+        fertilizer_advice = "可随水少量追肥，避开中午高温。"
+        risk_level = "中等"
+    else:
+        water_advice = "保持现有墒情，今天重点巡田查虫查病。"
+        fertilizer_advice = "长势弱的地块可少量补肥，长势正常的不用急着加量。"
+        risk_level = "较低"
+    return f"""
+**今日建议**
+1. {water_advice}
+2. {fertilizer_advice}
+3. {crop} 现在处于“{stage}”，建议上午巡田一次，重点看叶片背面、根部和低洼处。
+4. 当前风险：**{risk_level}**。未来 24 到 48 小时若有强降雨或高温，及时调整浇水和用药。
+**依据**
+- 降雨概率：{rain_prob}%
+- 土壤湿度：{soil_moisture}%
+- 气温：{temperature:.1f}℃
+
+云寻智慧农业AI工作台软件 1.0.0    第 17 页 / 共 102 页
+""".strip()
+from pathlib import Path
+import sqlite3
+from backend.app.core.config import get_settings
+from backend.app.core.database import SCHEMA_VERSION, get_connection
+from backend.app.core.backup import CORE_TABLES
+from backend.app.core.request_context import get_request_id
+from backend.app.core.runtime_status import build_runtime_status
+def build_health_payload() -> dict[str, object]:
+    settings = get_settings()
+    status = build_runtime_status(settings)
+    return {
+        "mode": status["mode"],
+        "ai_configured": status["ai_configured"],
+        "model_status": status["model_status"],
+        "environment": status["environment"],
+        "backend_url": status["backend_url"],
+        "available_models": status["available_models"],
+        "max_message_length": status["max_message_length"],
+        "requests_per_minute": status["requests_per_minute"],
+        "upload_max_bytes": status["upload_max_bytes"],
+        "debug": status["debug"],
+        "database_path": Path(str(status["database_path"])).name,
+        "allowed_origins": status["allowed_origins"],
+        "warnings": status["warnings"],
+    }
+def build_liveness_payload() -> dict[str, object]:
+    settings = get_settings()
+    return {
+        "status": "ok",
+        "service": settings.app_name,
+        "version": settings.app_version,
+        "environment": settings.environment,
+        "request_id": get_request_id(),
+    }
+def build_readiness_payload() -> dict[str, object]:
+    settings = get_settings()
+    database = check_database_ready()
+    checks = {
+        "application": True,
+        "database": database["ready"],
+        "schema_version": database["schema_version"],
+        "ai_configured": settings.ai_configured,
+    }
+    return {
+        "status": "ready" if checks["application"] and database["ready"] else "degraded",
+        "checks": checks,
+        "mode": "AI 模式" if settings.ai_configured else "本地演示模式",
+        "database": Path(settings.db_path).name,
+        "warnings": build_runtime_status(settings)["warnings"],
+
+云寻智慧农业AI工作台软件 1.0.0    第 18 页 / 共 102 页
+        "request_id": get_request_id(),
+    }
+def check_database_ready() -> dict[str, object]:
+    try:
+        with get_connection() as conn:
+            version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    except (OSError, sqlite3.Error):
+        return {"ready": False, "schema_version": None}
+    return {"ready": version == SCHEMA_VERSION and CORE_TABLES.issubset(tables), "schema_version": version}
+import logging
+from fastapi import HTTPException
+from backend.app.core.audit import log_event
+from backend.app.core.config import get_settings
+from backend.app.core.upload import ImageUploadPolicy, validate_image_payload
+from backend.app.core.security import safe_fingerprint
+from backend.app.services.assistant import build_vision_demo_reply, create_vision_reply
+from backend.app.services.chat import rate_limiter
+from backend.app.services.decision import build_decision_reply
+logger = logging.getLogger("yunxun.backend.tools")
+async def create_vision_analysis(user_id: str, client_host: str, image_base64: str, crop: str, symptom: str) -> dict[str, str]:
+    settings = get_settings()
+    rate_limiter.check(f"vision:{user_id}:{client_host}", settings.requests_per_minute)
+    image = validate_image_payload(image_base64, ImageUploadPolicy(max_bytes=settings.upload_max_bytes))
+    normalized_crop = crop.strip() or "当前作物"
+    normalized_symptom = symptom.strip()
+    log_event(
+        logger,
+        "vision_request",
+        user_id=user_id,
+        client_fingerprint=safe_fingerprint(client_host),
+        crop=normalized_crop,
+        image_size=image.size_bytes,
+        image_mime=image.mime_type,
+        ai_configured=settings.ai_configured,
+    )
+    if not settings.ai_configured:
+        log_event(logger, "vision_demo_mode", user_id=user_id, crop=normalized_crop)
+        return {"reply": build_vision_demo_reply(normalized_crop), "mode": "demo"}
+    try:
+        reply = await create_vision_reply(image.base64_data, normalized_crop, normalized_symptom)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="视觉模型暂时不可用，请稍后再试。") from exc
+    log_event(logger, "vision_success", user_id=user_id, crop=normalized_crop, reply_length=len(reply))
+    return {"reply": reply, "mode": "live"}
+def create_decision_advice(
+    user_id: str,
+    client_host: str,
+
+云寻智慧农业AI工作台软件 1.0.0    第 19 页 / 共 102 页
+    crop: str,
+    stage: str,
+    rain_prob: int,
+    soil_moisture: int,
+    temperature: float,
+) -> dict[str, str]:
+    settings = get_settings()
+    rate_limiter.check(f"decision:{user_id}:{client_host}", settings.requests_per_minute)
+    log_event(
+        logger,
+        "decision_request",
+        user_id=user_id,
+        client_fingerprint=safe_fingerprint(client_host),
+        crop=crop,
+        stage=stage,
+        rain_prob=rain_prob,
+        soil_moisture=soil_moisture,
+        temperature=temperature,
+    )
+    return {
+        "reply": build_decision_reply(
+            crop=crop,
+            stage=stage,
+            rain_prob=rain_prob,
+            soil_moisture=soil_moisture,
+            temperature=temperature,
+        )
+    }
+from pydantic import BaseModel, Field
+from backend.app.core.config import get_settings
+settings = get_settings()
+class RegisterRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=32)
+    password: str = Field(..., min_length=4, max_length=64)
+    display_name: str = Field(..., min_length=1, max_length=32)
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=32)
+    password: str = Field(..., min_length=4, max_length=64)
+class ProfileUpdateRequest(BaseModel):
+    display_name: str = Field(..., min_length=1, max_length=32)
+    preferred_model: str = Field("", max_length=64)
+class ChatSessionCreateRequest(BaseModel):
+    title: str = Field("新会话", min_length=1, max_length=48)
+    feature: str = Field("chat", min_length=1, max_length=20)
+    model_name: str = Field("", max_length=64)
+class ChatMessageRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=settings.max_message_length)
+    model_name: str = Field("", max_length=64)
+class ChatSessionRenameRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=48)
+
+云寻智慧农业AI工作台软件 1.0.0    第 20 页 / 共 102 页
+class VisionRequest(BaseModel):
+    image_base64: str = Field(..., min_length=32, max_length=settings.upload_max_base64_length)
+    crop: str = Field("", max_length=32)
+    symptom: str = Field("", max_length=300)
+class DecisionRequest(BaseModel):
+    crop: str = Field(..., min_length=1, max_length=20)
+    stage: str = Field(..., min_length=1, max_length=20)
+    rain_prob: int = Field(..., ge=0, le=100)
+    soil_moisture: int = Field(42, ge=0, le=100)
+    temperature: float = Field(24.5, ge=-20, le=55)
+import sqlite3
+import uuid
+from datetime import datetime, timedelta, timezone
+from typing import Any
+from backend.app.core.database import get_connection
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+def now_iso() -> str:
+    return now_utc().isoformat(timespec="seconds")
+def safe_text(value: str, fallback: str) -> str:
+    text = value.strip()
+    return text or fallback
+def choose_model(model_name: str | None, available_models: list[str], fallback_endpoint: str) -> str:
+    candidate = (model_name or "").strip()
+    if candidate:
+        return candidate
+    if available_models:
+        return available_models[0]
+    return fallback_endpoint
+def public_user(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": record["id"],
+        "username": record["username"],
+        "display_name": record["display_name"],
+        "preferred_model": record["preferred_model"],
+        "created_at": record["created_at"],
+    }
+def public_session(record: dict[str, Any], last_message: str = "") -> dict[str, Any]:
+    return {
+        "id": record["id"],
+        "title": record["title"],
+        "feature": record["feature"],
+        "model_name": record["model_name"],
+        "created_at": record["created_at"],
+        "updated_at": record["updated_at"],
+        "last_message": last_message,
+    }
+def public_message(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": record["id"],
+
+云寻智慧农业AI工作台软件 1.0.0    第 21 页 / 共 102 页
+        "role": record["role"],
+        "content": record["content"],
+        "created_at": record["created_at"],
+    }
+def _fetchone(query: str, params: tuple[Any, ...]) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        row = conn.execute(query, params).fetchone()
+    return dict(row) if row else None
+def get_user_by_id(user_id: str) -> dict[str, Any] | None:
+    return _fetchone("SELECT * FROM users WHERE id = ?", (user_id,))
+def get_user_by_username(username: str) -> dict[str, Any] | None:
+    return _fetchone("SELECT * FROM users WHERE username = ?", (username,))
+def create_user(username: str, password_hash: str, display_name: str, preferred_model: str) -> dict[str, Any]:
+    user_id = uuid.uuid4().hex
+    timestamp = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (id, username, password_hash, display_name, preferred_model, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (user_id, username, password_hash, display_name, preferred_model, timestamp, timestamp),
+        )
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return dict(row)
+def update_user_profile(user_id: str, display_name: str, preferred_model: str) -> dict[str, Any]:
+    updated_at = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE users
+            SET display_name = ?, preferred_model = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (display_name, preferred_model, updated_at, user_id),
+        )
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return dict(row)
+def create_auth_token(user_id: str, token_hash: str, expires_at: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO auth_tokens (token_hash, user_id, expires_at, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (token_hash, user_id, expires_at, now_iso()),
+        )
+def delete_auth_token(token_hash: str) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM auth_tokens WHERE token_hash = ?", (token_hash,))
+
+云寻智慧农业AI工作台软件 1.0.0    第 22 页 / 共 102 页
+def cleanup_expired_tokens() -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM auth_tokens WHERE expires_at < ?", (now_iso(),))
+def get_user_by_token_hash(token_hash: str) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        token_row = conn.execute(
+            "SELECT * FROM auth_tokens WHERE token_hash = ? AND expires_at >= ?",
+            (token_hash, now_iso()),
+        ).fetchone()
+        if not token_row:
+            return None
+        user_row = conn.execute("SELECT * FROM users WHERE id = ?", (token_row["user_id"],)).fetchone()
+    return dict(user_row) if user_row else None
+def create_session(user_id: str, title: str, feature: str, model_name: str) -> dict[str, Any]:
+    session_id = uuid.uuid4().hex
+    timestamp = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO chat_sessions (id, user_id, title, feature, model_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (session_id, user_id, title, feature, model_name, timestamp, timestamp),
+        )
+        row = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
+    return dict(row)
+def get_session(session_id: str) -> dict[str, Any] | None:
+    return _fetchone("SELECT * FROM chat_sessions WHERE id = ?", (session_id,))
+def list_sessions(user_id: str, feature: str) -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                s.*,
+                (
+                    SELECT content
+                    FROM chat_messages m
+                    WHERE m.session_id = s.id
+                    ORDER BY m.created_at DESC, m.id DESC
+                    LIMIT 1
+                ) AS last_message
+            FROM chat_sessions s
+            WHERE s.user_id = ? AND s.feature = ?
+            ORDER BY s.updated_at DESC, s.id DESC
+            """,
+            (user_id, feature),
+        ).fetchall()
+    sessions: list[dict[str, Any]] = []
+    for row in rows:
+        record = dict(row)
+
+云寻智慧农业AI工作台软件 1.0.0    第 23 页 / 共 102 页
+        sessions.append(public_session(record, record.get("last_message") or ""))
+    return sessions
+def _session_list_query() -> str:
+    return """
+        SELECT
+            s.*,
+            (
+                SELECT content
+                FROM chat_messages m
+                WHERE m.session_id = s.id
+                ORDER BY m.created_at DESC, m.id DESC
+                LIMIT 1
+            ) AS last_message
+        FROM chat_sessions s
+        WHERE s.user_id = ? AND s.feature = ?
+        ORDER BY s.updated_at DESC, s.id DESC
+    """
+def list_sessions_page(user_id: str, feature: str, *, limit: int, offset: int) -> list[dict[str, Any]]:
+    """与 :func:`list_sessions` 相同的排序，但只取一页。"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            _session_list_query() + " LIMIT ? OFFSET ?",
+            (user_id, feature, limit, offset),
+        ).fetchall()
+    return [public_session(dict(row), dict(row).get("last_message") or "") for row in rows]
+def count_sessions(user_id: str, feature: str) -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS total FROM chat_sessions WHERE user_id = ? AND feature = ?",
+            (user_id, feature),
+        ).fetchone()
+    return int(row["total"]) if row else 0
+def count_all_sessions(user_id: str) -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS total FROM chat_sessions WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return int(row["total"]) if row else 0
+def count_messages_for_user(user_id: str) -> int:
+    """统计某用户的全部会话消息总数（跨功能）。"""
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM chat_messages m
+            JOIN chat_sessions s ON s.id = m.session_id
+            WHERE s.user_id = ?
+            """,
+            (user_id,),
+
+云寻智慧农业AI工作台软件 1.0.0    第 24 页 / 共 102 页
+        ).fetchone()
+    return int(row["total"]) if row else 0
+def count_sessions_by_feature(user_id: str) -> dict[str, int]:
+    """按功能维度统计该用户的会话数量。"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT feature, COUNT(*) AS total
+            FROM chat_sessions
+            WHERE user_id = ?
+            GROUP BY feature
+            """,
+            (user_id,),
+        ).fetchall()
+    return {str(row["feature"]): int(row["total"]) for row in rows}
+def rename_session(session_id: str, title: str) -> dict[str, Any]:
+    updated_at = now_iso()
+    with get_connection() as conn:
+        conn.execute("UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?", (title, updated_at, session_id))
+        row = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
+    return dict(row)
+def delete_session(session_id: str) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
+        conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
+def save_chat_exchange(
+    session_id: str,
+    user_content: str,
+    assistant_content: str,
+    model_name: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """在一个事务中保存一轮完整对话并更新会话元数据。"""
+    exchange_time = now_utc()
+    user_created_at = exchange_time.isoformat(timespec="microseconds")
+    assistant_created_at = (exchange_time + timedelta(microseconds=1)).isoformat(timespec="microseconds")
+    user_message_id = uuid.uuid4().hex
+    assistant_message_id = uuid.uuid4().hex
+    with get_connection() as conn:
+        session_row = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
+        if session_row is None:
+            raise LookupError("chat session disappeared before message persistence")
+        user_message_count = conn.execute(
+            "SELECT COUNT(*) AS total FROM chat_messages WHERE session_id = ? AND role = 'user'",
+            (session_id,),
+        ).fetchone()["total"]
+        next_title = session_row["title"]
+        if next_title == "新会话" and int(user_message_count) == 0:
+            next_title = safe_text(user_content.replace("\n", " ")[:24], "新会话")
+        conn.executemany(
+            """
+
+云寻智慧农业AI工作台软件 1.0.0    第 25 页 / 共 102 页
+            INSERT INTO chat_messages (id, session_id, role, content, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                (user_message_id, session_id, "user", user_content, user_created_at),
+                (assistant_message_id, session_id, "assistant", assistant_content, assistant_created_at),
+            ],
+        )
+        conn.execute(
+            """
+            UPDATE chat_sessions
+            SET title = ?, model_name = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (next_title, model_name, assistant_created_at, session_id),
+        )
+        user_row = conn.execute("SELECT * FROM chat_messages WHERE id = ?", (user_message_id,)).fetchone()
+        assistant_row = conn.execute("SELECT * FROM chat_messages WHERE id = ?", (assistant_message_id,)).fetchone()
+        updated_session = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
+    return (
+        public_message(dict(user_row)),
+        public_message(dict(assistant_row)),
+        dict(updated_session),
+    )
+def list_messages(session_id: str) -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM chat_messages
+            WHERE session_id = ?
+            ORDER BY created_at ASC, id ASC
+            """,
+            (session_id,),
+        ).fetchall()
+    return [public_message(dict(row)) for row in rows]
+def list_messages_page(
+    session_id: str,
+    *,
+    limit: int,
+    cursor: tuple[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
+    cursor_sql = ""
+    params: list[Any] = [session_id]
+    if cursor:
+        cursor_sql = " AND (created_at < ? OR (created_at = ? AND id < ?))"
+        params.extend([cursor[0], cursor[0], cursor[1]])
+    params.append(limit + 1)
+    with get_connection() as conn:
+        rows = conn.execute(
+
+云寻智慧农业AI工作台软件 1.0.0    第 26 页 / 共 102 页
+            "SELECT * FROM chat_messages WHERE session_id = ?" + cursor_sql
+            + " ORDER BY created_at DESC, id DESC LIMIT ?",
+            tuple(params),
+        ).fetchall()
+    has_more = len(rows) > limit
+    selected = rows[:limit]
+    selected.reverse()
+    return [public_message(dict(row)) for row in selected], has_more
+import logging
+from typing import Any
+from backend.app.core.request_context import get_request_id
+SENSITIVE_FIELDS = {
+    "password",
+    "password_hash",
+    "token",
+    "authorization",
+    "api_key",
+    "image_base64",
+}
+def _format_value(key: str, value: Any) -> str:
+    if key.casefold() in SENSITIVE_FIELDS:
+        return "[redacted]"
+    if value is None:
+        return "none"
+    text = str(value).replace("\n", " ").replace("\r", " ").strip()
+    return text[:160]
+def log_event(logger: logging.Logger, event: str, **fields: Any) -> None:
+    request_id = get_request_id()
+    if request_id:
+        fields.setdefault("request_id", request_id)
+    ordered_fields = " ".join(f"{key}={_format_value(key, value)}" for key, value in sorted(fields.items()))
+    if ordered_fields:
+        logger.info("event=%s %s", event, ordered_fields)
+    else:
+        logger.info("event=%s", event)
+from __future__ import annotations
+import os
+import sqlite3
+from contextlib import closing
+from datetime import datetime, timezone
+from pathlib import Path
+from backend.app.core.database import SCHEMA_VERSION
+CORE_TABLES = {"users", "chat_sessions", "chat_messages", "auth_tokens", "idempotency_requests"}
+def validate_database(path: Path) -> int:
+    if not path.is_file():
+        raise ValueError(f"数据库文件不存在：{path.name}")
+    try:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as conn:
+            if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ValueError("数据库完整性检查失败。")
+
+云寻智慧农业AI工作台软件 1.0.0    第 27 页 / 共 102 页
+            version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    except sqlite3.Error as exc:
+        raise ValueError("数据库文件无法打开或已经损坏。") from exc
+    if version > SCHEMA_VERSION:
+        raise ValueError(f"数据库 Schema 版本 {version} 高于当前支持版本 {SCHEMA_VERSION}。")
+    if not CORE_TABLES.issubset(tables):
+        raise ValueError("数据库缺少必要数据表。")
+    return version
+def create_backup(source: Path, backup_dir: Path, *, keep: int = 10) -> Path:
+    validate_database(source)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    destination = backup_dir / f"yunxun-{timestamp}.db"
+    with closing(sqlite3.connect(source)) as source_conn, closing(sqlite3.connect(destination)) as destination_conn:
+        source_conn.backup(destination_conn)
+    validate_database(destination)
+    backups = sorted(backup_dir.glob("yunxun-*.db"), key=lambda item: item.stat().st_mtime, reverse=True)
+    for expired in backups[max(1, keep):]:
+        expired.unlink()
+    return destination
+def restore_backup(current: Path, backup: Path, backup_dir: Path) -> Path:
+    validate_database(backup)
+    safety_backup = create_backup(current, backup_dir)
+    temporary = current.with_suffix(current.suffix + ".restore.tmp")
+    try:
+        temporary.unlink(missing_ok=True)
+        with closing(sqlite3.connect(backup)) as source_conn, closing(sqlite3.connect(temporary)) as destination_conn:
+            source_conn.backup(destination_conn)
+        validate_database(temporary)
+        os.replace(temporary, current)
+        current.with_name(current.name + "-wal").unlink(missing_ok=True)
+        current.with_name(current.name + "-shm").unlink(missing_ok=True)
+        validate_database(current)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    return safety_backup
+import os
+import re
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+from dotenv import load_dotenv
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+load_dotenv(PROJECT_ROOT / ".env")
+CHAT_SYSTEM_PROMPT = """
+你是“云寻AI”的农技助手，服务对象是一线农户、合作社和基层农技员。
+回答时请遵循这些原则：
+1. 先给结论，再解释原因，最后给出今天能执行的 2 到 4 条操作建议。
+
+云寻智慧农业AI工作台软件 1.0.0    第 28 页 / 共 102 页
+2. 使用口语化中文，少用术语；涉及药剂、肥料和剂量时，提醒以当地农技站、产品标签和安全间隔期为准。
+3. 不确定时明确说明“暂时不能直接下结论”，并告诉用户需要补充哪些信息或照片。
+4. 优先给出短、稳、能落地的建议，避免空泛表述。
+""".strip()
+VISION_SYSTEM_PROMPT = """
+你是专业植物病虫害诊断助手。请根据图片给出初步判断，但不要假装百分之百确定。
+输出格式：
+1. 初步诊断：可能的病虫害或生理问题，并说明把握程度。
+2. 依据：指出你从图片中看到的叶片、茎秆、果实或土壤特征。
+3. 今日处理：给出田间管理、复查重点和用药方向建议。
+4. 安全提醒：药剂必须按产品标签和当地农技部门建议使用。
+""".strip()
+def _getenv(name: str, default: str | None = None) -> str | None:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip()
+def _format_bounds(minimum: int | float | None, maximum: int | float | None) -> str:
+    parts: list[str] = []
+    if minimum is not None:
+        parts.append(f"不能小于 {minimum}")
+    if maximum is not None:
+        parts.append(f"不能大于 {maximum}")
+    return "，".join(parts)
+def _parse_int(
+    name: str,
+    value: str | None,
+    *,
+    default: int,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int:
+    if value is None:
+        return default
+    try:
+        parsed = int(value.strip())
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} 必须是整数，当前值为 {value!r}。") from exc
+    if minimum is not None and parsed < minimum:
+        raise ValueError(f"{name} 配置无效：{parsed}，{_format_bounds(minimum, maximum)}。")
+    if maximum is not None and parsed > maximum:
+        raise ValueError(f"{name} 配置无效：{parsed}，{_format_bounds(minimum, maximum)}。")
+    return parsed
+def _parse_float(
+    name: str,
+    value: str | None,
+    *,
+    default: float,
+    minimum: float | None = None,
+    maximum: float | None = None,
+
+云寻智慧农业AI工作台软件 1.0.0    第 29 页 / 共 102 页
+) -> float:
+    if value is None:
+        return default
+    try:
+        parsed = float(value.strip())
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} 必须是数字，当前值为 {value!r}。") from exc
+    if minimum is not None and parsed < minimum:
+        raise ValueError(f"{name} 配置无效：{parsed}，{_format_bounds(minimum, maximum)}。")
+    if maximum is not None and parsed > maximum:
+        raise ValueError(f"{name} 配置无效：{parsed}，{_format_bounds(minimum, maximum)}。")
+    return parsed
+def _parse_bool(name: str, value: str | None, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    truthy = {"1", "true", "yes", "y", "on"}
+    falsy = {"0", "false", "no", "n", "off"}
+    if normalized in truthy:
+        return True
+    if normalized in falsy:
+        return False
+    raise ValueError(f"{name} 必须是布尔值，可用 true/false、yes/no、1/0，当前值为 {value!r}。")
+def _parse_csv(name: str, value: str | None, fallback: list[str] | None = None) -> list[str]:
+    fallback = fallback or []
+    if value is None:
+        return fallback
+    items = [item.strip() for item in value.split(",")]
+    normalized: list[str] = []
+    for item in items:
+        if item and item not in normalized:
+            normalized.append(item)
+    return normalized or fallback
+def _parse_optional_str(name: str, value: str | None, *, default: str = "") -> str:
+    if value is None:
+        return default
+    cleaned = value.strip()
+    if "\x00" in cleaned:
+        raise ValueError(f"{name} 不能包含空字符。")
+    return cleaned
+def _normalize_example_key(value: str) -> str:
+    cleaned = value.strip().strip("<>{}[]()\"'").strip()
+    return re.sub(r"[\s_-]+", "", cleaned.casefold())
+EXAMPLE_API_KEY_VALUES = {
+    "",
+    "your-doubao-api-key",
+    "your_doubao_api_key",
+    "your-api-key",
+    "your_api_key",
+    "change-me",
+
+云寻智慧农业AI工作台软件 1.0.0    第 30 页 / 共 102 页
+    "change_me",
+    "change-me-in-production",
+    "change_me_in_production",
+    "你的真实 api key",
+    "你的真实api key",
+    "你的真实 Ark API Key",
+    "你的真实Ark API Key",
+}
+EXAMPLE_API_KEYS = {_normalize_example_key(value) for value in EXAMPLE_API_KEY_VALUES}
+def has_real_api_key(value: str | None) -> bool:
+    normalized = _normalize_example_key(value or "")
+    if not normalized:
+        return False
+    return normalized not in EXAMPLE_API_KEYS
+def _resolve_database_path(raw_database_url: str) -> str:
+    if raw_database_url.startswith("sqlite:///"):
+        raw_path = raw_database_url.removeprefix("sqlite:///")
+    else:
+        raw_path = raw_database_url
+    path = Path(raw_path)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / raw_path
+    return str(path.resolve())
+@dataclass(frozen=True)
+class Settings:
+    app_name: str
+    app_version: str
+    environment: str
+    debug: bool
+    host: str
+    port: int
+    backend_url: str
+    jwt_secret: str
+    api_key: str
+    base_url: str
+    chat_endpoint: str
+    vision_endpoint: str
+    available_models_raw: str
+    database_url: str
+    db_path: str
+    allowed_origins_raw: str
+    cors_methods_raw: str
+    cors_headers_raw: str
+    max_message_length: int
+    requests_per_minute: int
+    token_hours: int
+    upload_max_bytes: int = 5 * 1024 * 1024
+    upload_max_base64_length: int = 8_000_000
+    request_timeout_seconds: float = 45.0
+    ai_timeout_seconds: float = 45.0
+
+云寻智慧农业AI工作台软件 1.0.0    第 31 页 / 共 102 页
+    ai_max_retries: int = 1
+    log_level: str = "INFO"
+    default_page_size: int = 20
+    max_page_size: int = 100
+    idempotency_window_seconds: float = 10.0
+    @property
+    def idempotency_enabled(self) -> bool:
+        return self.idempotency_window_seconds > 0
+    @property
+    def available_models(self) -> list[str]:
+        return _parse_csv("DOUBAO_AVAILABLE_MODELS", self.available_models_raw, [self.chat_endpoint])
+    @property
+    def allowed_origins(self) -> list[str]:
+        return _parse_csv(
+            "YUNXUN_ALLOWED_ORIGINS",
+            self.allowed_origins_raw,
+            [
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+                "http://localhost:5174",
+                "http://127.0.0.1:5174",
+                "http://localhost:4173",
+                "http://127.0.0.1:4173",
+                "http://localhost:8501",
+                "http://127.0.0.1:8501",
+            ],
+        )
+    @property
+    def cors_methods(self) -> list[str]:
+        methods = _parse_csv("YUNXUN_CORS_METHODS", self.cors_methods_raw, ["GET", "POST", "PATCH", "DELETE", "OPTIONS"])
+        return [method.upper() for method in methods]
+    @property
+    def cors_headers(self) -> list[str]:
+        return _parse_csv(
+            "YUNXUN_CORS_HEADERS",
+            self.cors_headers_raw,
+            ["Authorization", "Content-Type", "X-Idempotency-Key"],
+        )
+    @property
+    def ai_configured(self) -> bool:
+        return bool(has_real_api_key(self.api_key) and self.base_url.strip() and self.chat_endpoint.strip())
+    @property
+    def docs_enabled(self) -> bool:
+        return self.debug or self.environment != "production"
+    @property
+    def upload_max_megabytes(self) -> float:
+        return round(self.upload_max_bytes / 1024 / 1024, 2)
+    @property
+    def normalized_log_level(self) -> str:
+        level = self.log_level.strip().upper()
+
+云寻智慧农业AI工作台软件 1.0.0    第 32 页 / 共 102 页
+        allowed = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        if level not in allowed:
+            raise ValueError(f"YUNXUN_LOG_LEVEL 只能是 {', '.join(sorted(allowed))}，当前值为 {self.log_level!r}。")
+        return level
+def validate_startup_settings(settings: Settings) -> None:
+    environment = settings.environment.strip().lower()
+    if not settings.jwt_secret.strip():
+        raise ValueError("YUNXUN_JWT_SECRET 不能为空。")
+    if environment == "production":
+        if settings.jwt_secret == "change-me-in-production" or len(settings.jwt_secret) < 32:
+            raise ValueError("生产环境的 YUNXUN_JWT_SECRET 必须是至少 32 字符的随机值。")
+        if settings.debug:
+            raise ValueError("生产环境禁止启用 YUNXUN_DEBUG。")
+        if not settings.allowed_origins or "*" in settings.allowed_origins:
+            raise ValueError("生产环境必须配置明确的 YUNXUN_ALLOWED_ORIGINS，禁止使用通配符。")
+    settings.normalized_log_level
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    default_database_path = PROJECT_ROOT / "backend" / "yunxun.db"
+    port = _parse_int("YUNXUN_PORT", _getenv("YUNXUN_PORT", _getenv("PORT", "8001")), default=8001, minimum=1, maximum=65535)
+    token_hours = _parse_int("YUNXUN_TOKEN_EXPIRE_HOURS", _getenv("YUNXUN_TOKEN_EXPIRE_HOURS"), default=168, minimum=1, maximum=24 * 365)
+    upload_max_bytes = _parse_int(
+        "YUNXUN_UPLOAD_MAX_BYTES",
+        _getenv("YUNXUN_UPLOAD_MAX_BYTES"),
+        default=5 * 1024 * 1024,
+        minimum=1,
+        maximum=20 * 1024 * 1024,
+    )
+    database_url = _getenv("YUNXUN_DATABASE_URL", f"sqlite:///{default_database_path}") or f"sqlite:///{default_database_path}"
+    return Settings(
+        app_name=_parse_optional_str("YUNXUN_APP_NAME", _getenv("YUNXUN_APP_NAME"), default="云寻智慧农业AI工作台软件"),
+        app_version=_parse_optional_str("YUNXUN_APP_VERSION", _getenv("YUNXUN_APP_VERSION"), default="1.0.0"),
+        environment=_parse_optional_str("YUNXUN_ENV", _getenv("YUNXUN_ENV"), default="development"),
+        debug=_parse_bool("YUNXUN_DEBUG", _getenv("YUNXUN_DEBUG"), default=False),
+        host=_parse_optional_str("YUNXUN_HOST", _getenv("YUNXUN_HOST"), default="0.0.0.0"),
+        port=port,
+        backend_url=_parse_optional_str("YUNXUN_BACKEND_URL", _getenv("YUNXUN_BACKEND_URL"), default=f"http://127.0.0.1:{port}"),
+        jwt_secret=_parse_optional_str("YUNXUN_JWT_SECRET", _getenv("YUNXUN_JWT_SECRET"), default="change-me-in-production"),
+        api_key=_parse_optional_str("DOUBAO_API_KEY", _getenv("DOUBAO_API_KEY"), default=""),
+        base_url=_parse_optional_str("DOUBAO_BASE_URL", _getenv("DOUBAO_BASE_URL"), default="https://ark.cn-beijing.volces.com/api/v3"),
+        chat_endpoint=_parse_optional_str("DOUBAO_CHAT_ENDPOINT", _getenv("DOUBAO_CHAT_ENDPOINT"), default="doubao-seed-1-6-250615"),
+        vision_endpoint=_parse_optional_str(
+            "DOUBAO_VISION_ENDPOINT",
+            _getenv("DOUBAO_VISION_ENDPOINT"),
+            default=_getenv("DOUBAO_CHAT_ENDPOINT", "doubao-seed-1-6-250615") or "doubao-seed-1-6-250615",
+        ),
+        available_models_raw=_parse_optional_str(
+            "DOUBAO_AVAILABLE_MODELS",
+            _getenv("DOUBAO_AVAILABLE_MODELS"),
+            default=_getenv("DOUBAO_CHAT_ENDPOINT", "doubao-seed-1-6-250615") or "doubao-seed-1-6-250615",
+
+云寻智慧农业AI工作台软件 1.0.0    第 33 页 / 共 102 页
+        ),
+        database_url=database_url,
+        db_path=_resolve_database_path(_getenv("YUNXUN_DB_PATH", database_url) or database_url),
+        allowed_origins_raw=_getenv("YUNXUN_ALLOWED_ORIGINS", "") or "",
+        cors_methods_raw=_getenv("YUNXUN_CORS_METHODS", "GET,POST,PATCH,DELETE,OPTIONS") or "GET,POST,PATCH,DELETE,OPTIONS",
+        cors_headers_raw=_getenv(
+            "YUNXUN_CORS_HEADERS",
+            "Authorization,Content-Type,X-Idempotency-Key",
+        )
+        or "Authorization,Content-Type,X-Idempotency-Key",
+        max_message_length=_parse_int("YUNXUN_MAX_MESSAGE_LENGTH", _getenv("YUNXUN_MAX_MESSAGE_LENGTH"), default=3000, minimum=1, maximum=20_000),
+        requests_per_minute=_parse_int("YUNXUN_REQUESTS_PER_MINUTE", _getenv("YUNXUN_REQUESTS_PER_MINUTE"), default=20, minimum=1, maximum=600),
+        token_hours=token_hours,
+        upload_max_bytes=upload_max_bytes,
+        upload_max_base64_length=int(upload_max_bytes * 1.38) + 128,
+        request_timeout_seconds=_parse_float("YUNXUN_REQUEST_TIMEOUT_SECONDS", _getenv("YUNXUN_REQUEST_TIMEOUT_SECONDS"), default=45.0, minimum=1.0, maximum=180.0),
+        ai_timeout_seconds=_parse_float("YUNXUN_AI_TIMEOUT_SECONDS", _getenv("YUNXUN_AI_TIMEOUT_SECONDS"), default=45.0, minimum=1.0, maximum=180.0),
+        ai_max_retries=_parse_int("YUNXUN_AI_MAX_RETRIES", _getenv("YUNXUN_AI_MAX_RETRIES"), default=1, minimum=0, maximum=3),
+        log_level=_parse_optional_str("YUNXUN_LOG_LEVEL", _getenv("YUNXUN_LOG_LEVEL"), default="INFO"),
+        default_page_size=_parse_int("YUNXUN_DEFAULT_PAGE_SIZE", _getenv("YUNXUN_DEFAULT_PAGE_SIZE"), default=20, minimum=1, maximum=100),
+        max_page_size=_parse_int("YUNXUN_MAX_PAGE_SIZE", _getenv("YUNXUN_MAX_PAGE_SIZE"), default=100, minimum=1, maximum=500),
+        idempotency_window_seconds=_parse_float(
+            "YUNXUN_IDEMPOTENCY_WINDOW_SECONDS",
+            _getenv("YUNXUN_IDEMPOTENCY_WINDOW_SECONDS"),
+            default=10.0,
+            minimum=0.0,
+            maximum=300.0,
+        ),
+    )
+import logging
+import sqlite3
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
+from fastapi import HTTPException
+from backend.app.core.config import get_settings
+logger = logging.getLogger("yunxun.backend.database")
+SCHEMA_VERSION = 1
+def get_db_path() -> Path:
+    return Path(get_settings().db_path)
+def ensure_parent_dir() -> None:
+    get_db_path().parent.mkdir(parents=True, exist_ok=True)
+@contextmanager
+def get_connection() -> Iterator[sqlite3.Connection]:
+    ensure_parent_dir()
+    connection = sqlite3.connect(get_db_path(), check_same_thread=False, timeout=10)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA busy_timeout = 10000")
+    try:
+
+云寻智慧农业AI工作台软件 1.0.0    第 34 页 / 共 102 页
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+def _table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return {row["name"] for row in rows}
+def _create_auth_tokens_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS auth_tokens (
+            token_hash TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+def _ensure_auth_tokens_schema(conn: sqlite3.Connection) -> None:
+    columns = _table_columns(conn, "auth_tokens")
+    if not columns:
+        _create_auth_tokens_table(conn)
+        return
+    if "token_hash" not in columns:
+        logger.warning("Invalidating legacy plaintext auth tokens during schema migration.")
+        conn.execute("DROP TABLE auth_tokens")
+        _create_auth_tokens_table(conn)
+def _apply_schema_v1(conn: sqlite3.Connection) -> None:
+    statements = [
+        """CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL, display_name TEXT NOT NULL, preferred_model TEXT NOT NULL,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""",
+        """CREATE TABLE IF NOT EXISTS chat_sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
+        title TEXT NOT NULL, feature TEXT NOT NULL DEFAULT 'chat', model_name TEXT NOT NULL,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id))""",
+        """CREATE TABLE IF NOT EXISTS chat_messages (id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+        role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL,
+        FOREIGN KEY(session_id) REFERENCES chat_sessions(id))""",
+        """CREATE TABLE IF NOT EXISTS idempotency_requests (owner_id TEXT NOT NULL, key_hash TEXT NOT NULL,
+        request_fingerprint TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('in_flight','completed','failed')),
+        lease_id TEXT NOT NULL, response_status INTEGER, response_body TEXT, created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL, expires_at TEXT NOT NULL, PRIMARY KEY(owner_id,key_hash))""",
+        "CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_feature_updated ON chat_sessions(user_id,feature,updated_at DESC,id DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created ON chat_messages(session_id,created_at DESC,id DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_idempotency_expires_at ON idempotency_requests(expires_at)",
+    ]
+
+云寻智慧农业AI工作台软件 1.0.0    第 35 页 / 共 102 页
+    for statement in statements:
+        conn.execute(statement)
+    _ensure_auth_tokens_schema(conn)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_tokens_expires_at ON auth_tokens(expires_at)")
+def migrate_schema(conn: sqlite3.Connection) -> tuple[int, list[str]]:
+    current = int(conn.execute("PRAGMA user_version").fetchone()[0])
+    if current > SCHEMA_VERSION:
+        raise sqlite3.DatabaseError(
+            f"数据库 Schema 版本 {current} 高于当前代码支持的 {SCHEMA_VERSION}。"
+        )
+    applied: list[str] = []
+    if current < 1:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            _apply_schema_v1(conn)
+            conn.execute("PRAGMA user_version = 1")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        applied.append("1_initial_secure_schema")
+    return current, applied
+def init_db() -> None:
+    db_path = get_db_path()
+    try:
+        ensure_parent_dir()
+        conn = sqlite3.connect(db_path, timeout=10)
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA busy_timeout = 10000")
+            current, applied = migrate_schema(conn)
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.commit()
+        finally:
+            conn.close()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"数据库路径不可写：{db_path}") from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(status_code=500, detail="数据库初始化失败，请检查 SQLite 文件权限。") from exc
+    logger.info(
+        "SQLite database initialized: %s schema_before=%s schema_target=%s migrations=%s",
+        db_path, current, SCHEMA_VERSION, ",".join(applied) or "none",
+    )
+"""统一异常与错误码体系。
+把过去散落在各处的 ``raise HTTPException(detail=...)`` 收敛为一套带稳定
+机器可读 ``code`` 的领域异常。这样前端可以按 ``code`` 做精确分支（例如
+会话不存在、权限不足、重复请求），而不是只能猜测 HTTP 状态码；同时把
+面向用户的话术集中在一处维护。
+``AppError`` 继承自 ``HTTPException``，因此：
+
+云寻智慧农业AI工作台软件 1.0.0    第 36 页 / 共 102 页
+* 现有 ``assertRaises(HTTPException)`` 形式的单测无需改动仍然成立；
+* 仍由 ``exceptions.http_exception_handler`` 统一处理，只需在该处理器里
+  读取 ``code`` 字段并入参到响应体即可，不破坏既有错误载荷结构。
+"""
+from __future__ import annotations
+from fastapi import HTTPException
+class ErrorCode:
+    """稳定的错误码常量。
+    命名遵循 ``DOMAIN_REASON`` 约定。新增场景时只在这里追加常量，避免
+    在调用处出现魔法字符串。
+    """
+    AUTH_REQUIRED = "AUTH_REQUIRED"
+    FORBIDDEN = "FORBIDDEN"
+    SESSION_NOT_FOUND = "SESSION_NOT_FOUND"
+    MESSAGE_EMPTY = "MESSAGE_EMPTY"
+    MESSAGE_TOO_LONG = "MESSAGE_TOO_LONG"
+    MODEL_UNAVAILABLE = "MODEL_UNAVAILABLE"
+    DUPLICATE_REQUEST = "DUPLICATE_REQUEST"
+    IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
+    NOT_FOUND = "NOT_FOUND"
+    BAD_REQUEST = "BAD_REQUEST"
+    RATE_LIMITED = "RATE_LIMITED"
+class AppError(HTTPException):
+    """携带稳定 ``code`` 的领域异常。
+    与普通 ``HTTPException`` 的区别：响应体里会多一个 ``code`` 字段（见
+    :func:`backend.app.core.exceptions.error_response`），其余行为完全一致，
+    所以老调用方和测试都不受影响。
+    """
+    code: str = ErrorCode.BAD_REQUEST
+    def __init__(self, *, code: str, message: str, status_code: int) -> None:
+        super().__init__(status_code=status_code, detail=message)
+        self.code = code
+        self.message = message
+def session_not_found(session_id: str) -> AppError:
+    return AppError(
+        code=ErrorCode.SESSION_NOT_FOUND,
+        message="会话不存在。",
+        status_code=404,
+    )
+def forbidden(message: str = "你无权访问这个会话。") -> AppError:
+    return AppError(code=ErrorCode.FORBIDDEN, message=message, status_code=403)
+def message_empty() -> AppError:
+    return AppError(code=ErrorCode.MESSAGE_EMPTY, message="输入内容不能为空。", status_code=400)
+def message_too_long(limit: int) -> AppError:
+    return AppError(
+        code=ErrorCode.MESSAGE_TOO_LONG,
+        message=f"输入内容不能超过 {limit} 个字符。",
+        status_code=400,
+    )
+def model_unavailable(message: str = "模型服务暂时不可用，请稍后重试。") -> AppError:
+
+云寻智慧农业AI工作台软件 1.0.0    第 37 页 / 共 102 页
+    return AppError(code=ErrorCode.MODEL_UNAVAILABLE, message=message, status_code=502)
+def duplicate_request() -> AppError:
+    return AppError(
+        code=ErrorCode.DUPLICATE_REQUEST,
+        message="检测到重复请求，相同内容刚提交过，请稍后再试。",
+        status_code=409,
+    )
+def idempotency_conflict() -> AppError:
+    return AppError(
+        code=ErrorCode.IDEMPOTENCY_CONFLICT,
+        message="同一请求标识不能用于不同内容，请刷新后重试。",
+        status_code=409,
+    )
+def rate_limited(retry_after: int) -> AppError:
+    error = AppError(
+        code=ErrorCode.RATE_LIMITED,
+        message=f"请求太频繁了，请 {retry_after} 秒后再试。",
+        status_code=429,
+    )
+    error.headers = {"Retry-After": str(retry_after)}
+    return error
+def not_found(message: str = "资源不存在或已被删除。") -> AppError:
+    return AppError(code=ErrorCode.NOT_FOUND, message=message, status_code=404)
+import logging
+from typing import Any
+from fastapi import HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from backend.app.core.errors import AppError
+logger = logging.getLogger("yunxun.backend")
+def success_payload(**payload: Any) -> dict[str, Any]:
+    return {"success": True, **payload}
+def error_response(message: str, status_code: int, *, code: str | None = None) -> JSONResponse:
+    """构造统一的错误响应。
+    ``code`` 仅在 ``AppError``（或显式传入）时出现，普通错误载荷保持
+    ``{"success": False, "error": message}`` 的历史结构，确保向后兼容。
+    """
+    body: dict[str, Any] = {"success": False, "error": message}
+    if code:
+        body["code"] = code
+    return JSONResponse(status_code=status_code, content=body)
+async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+    detail = exc.detail if isinstance(exc.detail, str) else "请求处理失败。"
+    code = getattr(exc, "code", None)
+    return error_response(detail, exc.status_code, code=code)
+async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+    first_error = exc.errors()[0] if exc.errors() else {}
+    field_name = ".".join(str(item) for item in first_error.get("loc", [])[1:]) or "参数"
+    message = first_error.get("msg", "参数格式不正确。")
+    return error_response(f"{field_name}: {message}", 422)
+
+云寻智慧农业AI工作台软件 1.0.0    第 38 页 / 共 102 页
+async def unexpected_exception_handler(_: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled application error", exc_info=exc)
+    return error_response("服务暂时不可用，请稍后重试。", 500)
+from __future__ import annotations
+import hashlib
+import json
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Any, Callable, Literal
+from backend.app.core.database import get_connection
+IdempotencyState = Literal["acquired", "in_flight", "completed", "conflict"]
+NowProvider = Callable[[], datetime]
+MAX_RESPONSE_BYTES = 512 * 1024
+CLEANUP_BATCH_SIZE = 500
+def build_fingerprint(*parts: Any) -> str:
+    joined = "|".join("" if part is None else str(part) for part in parts)
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+@dataclass(frozen=True)
+class IdempotencyClaim:
+    state: IdempotencyState
+    lease_id: str | None = None
+    response_status: int | None = None
+    response_body: dict[str, Any] | None = None
+class DatabaseIdempotencyStore:
+    def __init__(
+        self,
+        *,
+        now_provider: NowProvider | None = None,
+        max_response_bytes: int = MAX_RESPONSE_BYTES,
+    ) -> None:
+        self._now = now_provider or (lambda: datetime.now(timezone.utc))
+        self._max_response_bytes = max_response_bytes
+    def begin(
+        self,
+        *,
+        owner_id: str,
+        key_hash: str,
+        request_fingerprint: str,
+        ttl_seconds: float,
+    ) -> IdempotencyClaim:
+        self._validate_identity(owner_id, key_hash, request_fingerprint)
+        now = self._now()
+        now_text = self._format_time(now)
+        expires_at = self._format_time(now + timedelta(seconds=ttl_seconds))
+        lease_id = uuid.uuid4().hex
+        with get_connection() as conn:
+            self._cleanup_expired_with_connection(conn, now_text)
+            inserted = conn.execute(
+                """
+
+云寻智慧农业AI工作台软件 1.0.0    第 39 页 / 共 102 页
+                INSERT OR IGNORE INTO idempotency_requests (
+                    owner_id, key_hash, request_fingerprint, status, lease_id,
+                    response_status, response_body, created_at, updated_at, expires_at
+                )
+                VALUES (?, ?, ?, 'in_flight', ?, NULL, NULL, ?, ?, ?)
+                """,
+                (owner_id, key_hash, request_fingerprint, lease_id, now_text, now_text, expires_at),
+            )
+            if inserted.rowcount == 1:
+                return IdempotencyClaim(state="acquired", lease_id=lease_id)
+            row = conn.execute(
+                """
+                SELECT request_fingerprint, status, response_status, response_body
+                FROM idempotency_requests
+                WHERE owner_id = ? AND key_hash = ?
+                """,
+                (owner_id, key_hash),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("idempotency row disappeared during claim")
+            if row["request_fingerprint"] != request_fingerprint:
+                return IdempotencyClaim(state="conflict")
+            if row["status"] == "completed":
+                response_body = json.loads(row["response_body"]) if row["response_body"] else None
+                return IdempotencyClaim(
+                    state="completed",
+                    response_status=row["response_status"],
+                    response_body=response_body,
+                )
+            if row["status"] == "in_flight":
+                return IdempotencyClaim(state="in_flight")
+            restarted = conn.execute(
+                """
+                UPDATE idempotency_requests
+                SET status = 'in_flight', lease_id = ?, response_status = NULL,
+                    response_body = NULL, updated_at = ?, expires_at = ?
+                WHERE owner_id = ? AND key_hash = ? AND status = 'failed'
+                """,
+                (lease_id, now_text, expires_at, owner_id, key_hash),
+            )
+            if restarted.rowcount != 1:
+                return IdempotencyClaim(state="in_flight")
+            return IdempotencyClaim(state="acquired", lease_id=lease_id)
+    def complete(
+        self,
+        *,
+        owner_id: str,
+        key_hash: str,
+        lease_id: str,
+        response_status: int,
+
+云寻智慧农业AI工作台软件 1.0.0    第 40 页 / 共 102 页
+        response_body: dict[str, Any],
+        ttl_seconds: float,
+    ) -> bool:
+        serialized = json.dumps(response_body, ensure_ascii=False, separators=(",", ":"))
+        if len(serialized.encode("utf-8")) > self._max_response_bytes:
+            raise ValueError("idempotency response exceeds configured storage limit")
+        now = self._now()
+        completed_at = self._format_time(now)
+        expires_at = self._format_time(now + timedelta(seconds=ttl_seconds))
+        with get_connection() as conn:
+            updated = conn.execute(
+                """
+                UPDATE idempotency_requests
+                SET status = 'completed', response_status = ?, response_body = ?,
+                    updated_at = ?, expires_at = ?
+                WHERE owner_id = ? AND key_hash = ? AND status = 'in_flight' AND lease_id = ?
+                """,
+                (response_status, serialized, completed_at, expires_at, owner_id, key_hash, lease_id),
+            )
+        return updated.rowcount == 1
+    def fail(self, *, owner_id: str, key_hash: str, lease_id: str) -> bool:
+        updated_at = self._format_time(self._now())
+        with get_connection() as conn:
+            updated = conn.execute(
+                """
+                UPDATE idempotency_requests
+                SET status = 'failed', response_status = NULL, response_body = NULL, updated_at = ?
+                WHERE owner_id = ? AND key_hash = ? AND status = 'in_flight' AND lease_id = ?
+                """,
+                (updated_at, owner_id, key_hash, lease_id),
+            )
+        return updated.rowcount == 1
+    def cleanup_expired(self) -> int:
+        with get_connection() as conn:
+            return self._cleanup_expired_with_connection(conn, self._format_time(self._now()))
+    def reset(self) -> bool:
+        with get_connection() as conn:
+            result = conn.execute("DELETE FROM idempotency_requests")
+        return result.rowcount > 0
+    @staticmethod
+    def _cleanup_expired_with_connection(conn: Any, now_text: str) -> int:
+        result = conn.execute(
+            """
+            DELETE FROM idempotency_requests
+            WHERE rowid IN (
+                SELECT rowid FROM idempotency_requests
+                WHERE expires_at < ?
+                ORDER BY expires_at ASC
+                LIMIT ?
+            )
+
+云寻智慧农业AI工作台软件 1.0.0    第 41 页 / 共 102 页
+            """,
+            (now_text, CLEANUP_BATCH_SIZE),
+        )
+        return result.rowcount
+    @staticmethod
+    def _format_time(value: datetime) -> str:
+        return value.astimezone(timezone.utc).isoformat(timespec="microseconds")
+    @staticmethod
+    def _validate_identity(owner_id: str, key_hash: str, request_fingerprint: str) -> None:
+        if not owner_id.strip() or not key_hash.strip() or not request_fingerprint.strip():
+            raise ValueError("idempotency identity cannot be empty")
+"""分页工具。
+把“解析页码参数 + 边界裁剪 + 组装分页视图”的零散逻辑收口到这里，避免
+在路由和仓储层各自手写 ``offset``/``limit`` 计算。解析阶段刻意允许“未
+请求分页”（返回 ``None``），这样调用方保持原有“一次返回全部”的行为，
+只有显式传参时才走分页路径，对前端完全向后兼容。
+"""
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import Iterable, Any
+import base64
+import json
+@dataclass(frozen=True)
+class PageParams:
+    page: int  # 从 1 开始
+    page_size: int
+    @property
+    def offset(self) -> int:
+        return max(0, (self.page - 1) * self.page_size)
+    @property
+    def limit(self) -> int:
+        return self.page_size
+@dataclass(frozen=True)
+class Page:
+    items: list[Any]
+    page: int
+    page_size: int
+    total: int
+    @property
+    def total_pages(self) -> int:
+        return (self.total + self.page_size - 1) // self.page_size if self.page_size else 0
+    @property
+    def has_prev(self) -> bool:
+        return self.page > 1
+    @property
+    def has_next(self) -> bool:
+        return self.page < self.total_pages
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "page": self.page,
+
+云寻智慧农业AI工作台软件 1.0.0    第 42 页 / 共 102 页
+            "page_size": self.page_size,
+            "total": self.total,
+            "total_pages": self.total_pages,
+            "has_prev": self.has_prev,
+            "has_next": self.has_next,
+        }
+def _to_int(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        raise ValueError("分页参数必须是整数。")
+def parse_page_params(
+    raw_page: str | None,
+    raw_page_size: str | None,
+    *,
+    default_page_size: int,
+    max_page_size: int,
+) -> PageParams | None:
+    """返回 ``None`` 表示调用方未请求分页。
+    任意一个参数缺失即视为“不分页”，保持与历史接口一致；只要显式给了
+    ``page``，就会按 ``default_page_size``（或显式 ``page_size``）分页。
+    """
+    page = _to_int(raw_page)
+    page_size = _to_int(raw_page_size)
+    if page is None and page_size is None:
+        return None
+    resolved_page = page if page is not None else 1
+    resolved_size = page_size if page_size is not None else default_page_size
+    if resolved_page < 1:
+        raise ValueError("page 不能小于 1。")
+    if resolved_size < 1:
+        raise ValueError("page_size 不能小于 1。")
+    if resolved_size > max_page_size:
+        raise ValueError(f"page_size 不能大于 {max_page_size}。")
+    return PageParams(page=resolved_page, page_size=resolved_size)
+def build_page(items: Iterable[Any], total: int, params: PageParams) -> Page:
+    """把已切好片的 ``items`` 组装成 :class:`Page`。"""
+    return Page(items=list(items), page=params.page, page_size=params.page_size, total=total)
+def encode_cursor(created_at: str, item_id: str) -> str:
+    raw = json.dumps([created_at, item_id], separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+def decode_cursor(value: str) -> tuple[str, str]:
+    try:
+        raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+        created_at, item_id = json.loads(raw)
+        if not isinstance(created_at, str) or not isinstance(item_id, str) or not created_at or not item_id:
+            raise ValueError
+        return created_at, item_id
+
+云寻智慧农业AI工作台软件 1.0.0    第 43 页 / 共 102 页
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("cursor 无效。") from exc
+import time
+from collections import deque
+from dataclasses import dataclass
+from threading import RLock
+from typing import Callable, Deque
+from backend.app.core.errors import rate_limited
+TimeProvider = Callable[[], float]
+@dataclass(frozen=True)
+class RateLimitResult:
+    key: str
+    allowed: bool
+    limit: int
+    remaining: int
+    reset_after_seconds: float
+@dataclass
+class RateLimitBucket:
+    attempts: Deque[float]
+    window_seconds: float
+    def prune(self, now: float) -> int:
+        removed = 0
+        while self.attempts and now - self.attempts[0] >= self.window_seconds:
+            self.attempts.popleft()
+            removed += 1
+        return removed
+    def reset_after(self, now: float) -> float:
+        if not self.attempts:
+            return 0.0
+        return max(0.0, self.window_seconds - (now - self.attempts[0]))
+class InMemoryRateLimiter:
+    def __init__(self, time_provider: TimeProvider | None = None) -> None:
+        self._time_provider = time_provider or time.monotonic
+        self._buckets: dict[str, RateLimitBucket] = {}
+        self._lock = RLock()
+    def check(self, key: str, limit: int, window_seconds: float = 60.0) -> RateLimitResult:
+        self._validate_request(key, limit, window_seconds)
+        with self._lock:
+            now = self._time_provider()
+            bucket = self._buckets.get(key)
+            if bucket is None:
+                bucket = RateLimitBucket(attempts=deque(), window_seconds=window_seconds)
+                self._buckets[key] = bucket
+            else:
+                bucket.window_seconds = window_seconds
+            bucket.prune(now)
+            if len(bucket.attempts) >= limit:
+                reset_after = bucket.reset_after(now)
+                raise rate_limited(max(1, int(reset_after)))
+            bucket.attempts.append(now)
+
+云寻智慧农业AI工作台软件 1.0.0    第 44 页 / 共 102 页
+            remaining = max(0, limit - len(bucket.attempts))
+            return RateLimitResult(
+                key=key,
+                allowed=True,
+                limit=limit,
+                remaining=remaining,
+                reset_after_seconds=bucket.reset_after(now),
+            )
+    def cleanup(self, window_seconds: float | None = None) -> int:
+        with self._lock:
+            now = self._time_provider()
+            removed_keys: list[str] = []
+            for key, bucket in self._buckets.items():
+                if window_seconds is not None and not bucket.attempts:
+                    bucket.window_seconds = window_seconds
+                bucket.prune(now)
+                if not bucket.attempts:
+                    removed_keys.append(key)
+            for key in removed_keys:
+                self._buckets.pop(key, None)
+            return len(removed_keys)
+    def reset(self, key: str | None = None) -> bool:
+        with self._lock:
+            if key is None:
+                had_entries = bool(self._buckets)
+                self._buckets.clear()
+                return had_entries
+            return self._buckets.pop(key, None) is not None
+    def snapshot(self) -> dict[str, list[float]]:
+        with self._lock:
+            return {key: list(bucket.attempts) for key, bucket in self._buckets.items()}
+    @staticmethod
+    def _validate_request(key: str, limit: int, window_seconds: float) -> None:
+        if not key or not key.strip():
+            raise ValueError("rate limit key 不能为空。")
+        if limit <= 0:
+            raise ValueError("rate limit limit 必须大于 0。")
+        if window_seconds <= 0:
+            raise ValueError("rate limit window_seconds 必须大于 0。")
+from __future__ import annotations
+import re
+import uuid
+from contextvars import ContextVar
+_REQUEST_ID = ContextVar("request_id", default="")
+_SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
+def normalize_request_id(value: str | None) -> str:
+    candidate = (value or "").strip()
+    return candidate if _SAFE_REQUEST_ID.fullmatch(candidate) else uuid.uuid4().hex
+def set_request_id(value: str):
+    return _REQUEST_ID.set(value)
+
+云寻智慧农业AI工作台软件 1.0.0    第 45 页 / 共 102 页
+def reset_request_id(token) -> None:
+    _REQUEST_ID.reset(token)
+def get_request_id() -> str:
+    return _REQUEST_ID.get()
+import logging
+from typing import Any
+from backend.app.core.config import Settings
+def build_runtime_warnings(settings: Settings) -> list[str]:
+    warnings: list[str] = []
+    if settings.jwt_secret == "change-me-in-production":
+        warnings.append("当前仍使用默认安全密钥，内网试用前建议修改 YUNXUN_JWT_SECRET。")
+    if not settings.allowed_origins_raw.strip():
+        warnings.append("当前未显式配置 CORS 来源，系统会使用本机默认来源；局域网访问前请配置 YUNXUN_ALLOWED_ORIGINS。")
+    if not settings.ai_configured:
+        warnings.append("当前未配置真实模型 Key，系统会进入本地演示模式。")
+    return warnings
+def build_runtime_status(settings: Settings) -> dict[str, Any]:
+    return {
+        "app_name": settings.app_name,
+        "app_version": settings.app_version,
+        "environment": settings.environment,
+        "debug": settings.debug,
+        "host": settings.host,
+        "port": settings.port,
+        "backend_url": settings.backend_url,
+        "mode": "AI 模式" if settings.ai_configured else "本地演示模式",
+        "ai_configured": settings.ai_configured,
+        "model_status": "已配置真实模型 Key" if settings.ai_configured else "未配置真实模型 Key",
+        "available_models": settings.available_models,
+        "database_path": settings.db_path,
+        "allowed_origins": settings.allowed_origins,
+        "max_message_length": settings.max_message_length,
+        "requests_per_minute": settings.requests_per_minute,
+        "token_hours": settings.token_hours,
+        "upload_max_bytes": settings.upload_max_bytes,
+        "request_timeout_seconds": settings.request_timeout_seconds,
+        "ai_timeout_seconds": settings.ai_timeout_seconds,
+        "warnings": build_runtime_warnings(settings),
+    }
+def log_runtime_status(logger: logging.Logger, settings: Settings) -> None:
+    status = build_runtime_status(settings)
+    logger.info(
+        "Runtime status: environment=%s debug=%s host=%s port=%s mode=%s database=%s origins=%s",
+        status["environment"],
+        status["debug"],
+        status["host"],
+        status["port"],
+        status["mode"],
+        status["database_path"],
+        ",".join(status["allowed_origins"]),
+
+云寻智慧农业AI工作台软件 1.0.0    第 46 页 / 共 102 页
+    )
+    for warning in status["warnings"]:
+        logger.warning("Runtime warning: %s", warning)
+import hashlib
+import hmac
+import secrets
+from backend.app.core.config import get_settings
+def hash_password(password: str, salt: str | None = None) -> str:
+    salt_value = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt_value.encode("utf-8"), 120000)
+    return f"{salt_value}${digest.hex()}"
+def verify_password(password: str, password_hash: str) -> bool:
+    salt, _ = password_hash.split("$", 1)
+    return secrets.compare_digest(hash_password(password, salt), password_hash)
+def create_token() -> str:
+    return secrets.token_urlsafe(32)
+def hash_auth_token(raw_token: str) -> str:
+    secret = get_settings().jwt_secret.encode("utf-8")
+    return hmac.new(secret, raw_token.encode("utf-8"), hashlib.sha256).hexdigest()
+def safe_fingerprint(value: str) -> str:
+    secret = get_settings().jwt_secret.encode("utf-8")
+    return hmac.new(secret, value.encode("utf-8"), hashlib.sha256).hexdigest()[:12]
+import base64
+import binascii
+import re
+from dataclasses import dataclass
+from fastapi import HTTPException
+DATA_URL_PATTERN = re.compile(r"^data:(?P<mime>[-\w.]+/[-\w.+]+);base64,(?P<data>.+)$", re.DOTALL)
+MIME_SIGNATURES = {
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/webp": (b"RIFF",),
+}
+DEFAULT_ALLOWED_MIME_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
+@dataclass(frozen=True)
+class ImageUploadPolicy:
+    max_bytes: int
+    allowed_mime_types: frozenset[str] = DEFAULT_ALLOWED_MIME_TYPES
+@dataclass(frozen=True)
+class ValidatedImagePayload:
+    base64_data: str
+    mime_type: str
+    size_bytes: int
+def validate_image_payload(payload: str, policy: ImageUploadPolicy) -> ValidatedImagePayload:
+    normalized = payload.strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="图片内容不能为空。")
+    declared_mime, base64_data = _split_data_url(normalized)
+    if declared_mime and declared_mime not in policy.allowed_mime_types:
+        raise HTTPException(status_code=400, detail=f"仅支持 {', '.join(sorted(policy.allowed_mime_types))} 图片。")
+
+云寻智慧农业AI工作台软件 1.0.0    第 47 页 / 共 102 页
+    raw_bytes = _decode_base64(base64_data)
+    if len(raw_bytes) > policy.max_bytes:
+        raise HTTPException(status_code=413, detail=f"图片不能超过 {_format_bytes(policy.max_bytes)}。")
+    detected_mime = _detect_mime_type(raw_bytes)
+    if detected_mime not in policy.allowed_mime_types:
+        raise HTTPException(status_code=400, detail=f"图片格式不受支持，仅支持 {', '.join(sorted(policy.allowed_mime_types))}。")
+    if declared_mime and declared_mime != detected_mime:
+        raise HTTPException(status_code=400, detail="图片 MIME 类型与实际内容不一致。")
+    return ValidatedImagePayload(base64_data=base64_data, mime_type=detected_mime, size_bytes=len(raw_bytes))
+def _split_data_url(payload: str) -> tuple[str | None, str]:
+    match = DATA_URL_PATTERN.match(payload)
+    if not match:
+        return None, _compact_base64(payload)
+    return match.group("mime").lower(), _compact_base64(match.group("data"))
+def _compact_base64(value: str) -> str:
+    return "".join(value.split())
+def _decode_base64(value: str) -> bytes:
+    try:
+        return base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="图片 Base64 格式不正确。") from exc
+def _detect_mime_type(raw_bytes: bytes) -> str:
+    if raw_bytes.startswith(MIME_SIGNATURES["image/png"][0]):
+        return "image/png"
+    if raw_bytes.startswith(MIME_SIGNATURES["image/jpeg"][0]):
+        return "image/jpeg"
+    if raw_bytes.startswith(MIME_SIGNATURES["image/webp"][0]) and raw_bytes[8:12] == b"WEBP":
+        return "image/webp"
+    raise HTTPException(status_code=400, detail="无法识别图片类型，请上传 JPG、PNG 或 WebP。")
+def _format_bytes(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    return f"{size / 1024 / 1024:.1f} MB"
+"""Yunxun backend application package."""
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
+import "./styles.css";
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
+import { FormEvent, Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
+import { AuthScreen } from "./components/AuthScreen";
+import { ChatWorkspace } from "./components/ChatWorkspace";
+import { ConfirmDialog } from "./components/ConfirmDialog";
+import { Sidebar } from "./components/Sidebar";
+
+云寻智慧农业AI工作台软件 1.0.0    第 48 页 / 共 102 页
+import { TopBar } from "./components/TopBar";
+import { useChatController } from "./features/chat/useChatController";
+import { useAsyncGuard } from "./hooks/useAsyncGuard";
+import { api, getErrorMessage, setAuthToken } from "./lib/api";
+import { fileToBase64, formatFileSize, imageAcceptValue, validateImageFile } from "./lib/imageUpload";
+import { clearStoredAuthToken, persistAuthToken, readStoredAuthToken } from "./lib/tokenStorage";
+import { FeatureKey, HealthPayload, User } from "./types";
+const VisionWorkspace = lazy(() =>
+  import("./components/VisionWorkspace").then((module) => ({ default: module.VisionWorkspace })),
+);
+const DecisionWorkspace = lazy(() =>
+  import("./components/DecisionWorkspace").then((module) => ({ default: module.DecisionWorkspace })),
+);
+export default function App() {
+  const [health, setHealth] = useState<HealthPayload | null>(null);
+  const [bootLoading, setBootLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [token, setToken] = useState(readStoredAuthToken());
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authForm, setAuthForm] = useState({ username: "", password: "", displayName: "" });
+  const [user, setUser] = useState<User | null>(null);
+  const [activeFeature, setActiveFeature] = useState<FeatureKey>("chat");
+  const [settingsName, setSettingsName] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [visionFile, setVisionFile] = useState<File | null>(null);
+  const [visionPreview, setVisionPreview] = useState<string | null>(null);
+  const [visionUploadError, setVisionUploadError] = useState("");
+  const [visionCrop, setVisionCrop] = useState("玉米");
+  const [visionSymptom, setVisionSymptom] = useState("");
+  const [visionResult, setVisionResult] = useState("");
+  const [decisionForm, setDecisionForm] = useState({
+    crop: "玉米",
+    stage: "快速生长期",
+    rainProb: 55,
+    soilMoisture: 42,
+    temperature: 24.5,
+  });
+  const [decisionResult, setDecisionResult] = useState("");
+  const authAction = useAsyncGuard();
+  const settingsAction = useAsyncGuard();
+  const visionAction = useAsyncGuard();
+  const decisionAction = useAsyncGuard();
+  const models = useMemo(() => health?.available_models ?? [], [health]);
+  const handleError = useCallback((message: string) => setError(message), []);
+  const chat = useChatController({ selectedModel, onError: handleError });
+  const loadMe = useCallback(async (availableModels: string[]) => {
+    const response = await api.get<{ success: true; user: User }>("/api/me");
+    setUser(response.data.user);
+
+云寻智慧农业AI工作台软件 1.0.0    第 49 页 / 共 102 页
+    setSettingsName(response.data.user.display_name);
+    setSelectedModel((current) => current || response.data.user.preferred_model || availableModels[0] || "");
+  }, []);
+  useEffect(() => {
+    setAuthToken(token || null);
+    try {
+      persistAuthToken(token);
+    } catch (storageError) {
+      setError(getErrorMessage(storageError));
+    }
+  }, [token]);
+  useEffect(() => {
+    async function bootstrap() {
+      try {
+        const response = await api.get<HealthPayload>("/api/health");
+        setHealth(response.data);
+        if (token) {
+          await Promise.all([loadMe(response.data.available_models), chat.refreshSessions()]);
+        }
+      } catch (requestError) {
+        setError(getErrorMessage(requestError, "后端未连接，请先启动服务。"));
+      } finally {
+        setBootLoading(false);
+      }
+    }
+    void bootstrap();
+  }, [chat.refreshSessions, loadMe, token]);
+  useEffect(() => {
+    if (!visionFile) {
+      setVisionPreview(null);
+      return;
+    }
+    const preview = URL.createObjectURL(visionFile);
+    setVisionPreview(preview);
+    return () => URL.revokeObjectURL(preview);
+  }, [visionFile]);
+  const applyAuthenticatedUser = useCallback(
+    (nextToken: string, nextUser: User) => {
+      setAuthToken(nextToken);
+      setToken(nextToken);
+      setUser(nextUser);
+      setSettingsName(nextUser.display_name);
+      setSelectedModel(nextUser.preferred_model || models[0] || "");
+      setAuthForm({ username: "", password: "", displayName: "" });
+    },
+    [models],
+  );
+  async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await authAction.run(async () => {
+
+云寻智慧农业AI工作台软件 1.0.0    第 50 页 / 共 102 页
+      setError("");
+      try {
+        const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/register";
+        const payload =
+          authMode === "login"
+            ? { username: authForm.username, password: authForm.password }
+            : {
+                username: authForm.username,
+                password: authForm.password,
+                display_name: authForm.displayName,
+              };
+        const response = await api.post<{ success: true; token: string; user: User }>(endpoint, payload);
+        applyAuthenticatedUser(response.data.token, response.data.user);
+        await chat.refreshSessions();
+      } catch (requestError) {
+        setError(getErrorMessage(requestError));
+      }
+    });
+  }
+  async function handleGuestLogin() {
+    await authAction.run(async () => {
+      setError("");
+      try {
+        const response = await api.post<{ success: true; token: string; user: User }>("/api/auth/guest");
+        applyAuthenticatedUser(response.data.token, response.data.user);
+        await chat.refreshSessions();
+      } catch (requestError) {
+        setError(getErrorMessage(requestError));
+      }
+    });
+  }
+  async function handleSaveSettings() {
+    await settingsAction.run(async () => {
+      if (!settingsName.trim()) {
+        setError("显示名称不能为空。");
+        return;
+      }
+      try {
+        const response = await api.patch<{ success: true; user: User }>("/api/me/profile", {
+          display_name: settingsName,
+          preferred_model: selectedModel,
+        });
+        setUser(response.data.user);
+        setSettingsName(response.data.user.display_name);
+        setError("");
+      } catch (requestError) {
+        setError(getErrorMessage(requestError));
+      }
+    });
+  }
+
+云寻智慧农业AI工作台软件 1.0.0    第 51 页 / 共 102 页
+  async function handleLogout() {
+    try {
+      await api.post("/api/auth/logout");
+    } catch {
+    }
+    setAuthToken(null);
+    clearStoredAuthToken();
+    setToken("");
+    setUser(null);
+    chat.reset();
+  }
+  const handleVisionFileChange = useCallback(
+    (file: File | null) => {
+      if (!file) {
+        setVisionFile(null);
+        setVisionUploadError("");
+        return;
+      }
+      const validation = validateImageFile(file, health?.upload_max_bytes);
+      if (!validation.ok) {
+        setVisionFile(null);
+        setVisionUploadError(validation.message);
+        setError(validation.message);
+        return;
+      }
+      setVisionFile(file);
+      setVisionUploadError("");
+      setError("");
+    },
+    [health?.upload_max_bytes],
+  );
+  const handleClearVisionFile = useCallback(() => {
+    setVisionFile(null);
+    setVisionPreview(null);
+    setVisionUploadError("");
+  }, []);
+  async function handleVisionSubmit() {
+    await visionAction.run(async () => {
+      if (!visionFile) {
+        setError("请先选择一张图片。");
+        return;
+      }
+      const validation = validateImageFile(visionFile, health?.upload_max_bytes);
+      if (!validation.ok) {
+        setVisionUploadError(validation.message);
+        setError(validation.message);
+        return;
+      }
+      try {
+        const requestId = crypto.randomUUID();
+
+云寻智慧农业AI工作台软件 1.0.0    第 52 页 / 共 102 页
+        const response = await api.post<{ success: true; reply: string }>(
+          "/api/vision",
+          {
+            image_base64: await fileToBase64(visionFile),
+            crop: visionCrop,
+            symptom: visionSymptom,
+          },
+          { headers: { "X-Idempotency-Key": requestId } },
+        );
+        setVisionResult(response.data.reply);
+        setError("");
+      } catch (requestError) {
+        setError(getErrorMessage(requestError));
+      }
+    });
+  }
+  async function handleDecisionSubmit() {
+    await decisionAction.run(async () => {
+      try {
+        const requestId = crypto.randomUUID();
+        const response = await api.post<{ success: true; reply: string }>(
+          "/api/decision",
+          {
+            crop: decisionForm.crop,
+            stage: decisionForm.stage,
+            rain_prob: decisionForm.rainProb,
+            soil_moisture: decisionForm.soilMoisture,
+            temperature: decisionForm.temperature,
+          },
+          { headers: { "X-Idempotency-Key": requestId } },
+        );
+        setDecisionResult(response.data.reply);
+        setError("");
+      } catch (requestError) {
+        setError(getErrorMessage(requestError));
+      }
+    });
+  }
+  async function confirmDeleteSession() {
+    const deleted = await chat.deleteActiveSession();
+    if (deleted) {
+      setDeleteDialogOpen(false);
+    }
+  }
+  if (bootLoading) {
+    return <div className="app-loading">正在加载云寻AI...</div>;
+  }
+  if (!health) {
+    return <div className="app-loading">{error || "后端未连接，请先启动服务。"}</div>;
+  }
+
+云寻智慧农业AI工作台软件 1.0.0    第 53 页 / 共 102 页
+  if (!user) {
+    return (
+      <div className="app-shell app-shell--auth">
+        {error && <div className="toast-banner">{error}</div>}
+        <AuthScreen
+          mode={authMode}
+          backendMode={health.mode}
+          backendUrl={health.backend_url || api.defaults.baseURL || ""}
+          modelStatus={health.model_status}
+          environment={health.environment}
+          warnings={health.warnings}
+          loading={authAction.busy}
+          form={authForm}
+          onModeChange={setAuthMode}
+          onChange={(field, value) => setAuthForm((current) => ({ ...current, [field]: value }))}
+          onSubmit={handleAuthSubmit}
+          onGuestLogin={() => void handleGuestLogin()}
+        />
+      </div>
+    );
+  }
+  const anyBusy = chat.sendBusy || chat.sessionBusy || settingsAction.busy || visionAction.busy || decisionAction.busy;
+  return (
+    <div className="app-shell">
+      {error && <div className="toast-banner">{error}</div>}
+      <button
+        className={sidebarOpen ? "sidebar-backdrop is-visible" : "sidebar-backdrop"}
+        type="button"
+        aria-label="关闭导航"
+        onClick={() => setSidebarOpen(false)}
+      />
+      <Sidebar
+        user={user}
+        activeFeature={activeFeature}
+        sessions={chat.sessions}
+        activeSessionId={chat.activeSessionId}
+        renameTitle={chat.renameTitle}
+        settingsName={settingsName}
+        selectedModel={selectedModel || models[0] || ""}
+        models={models}
+        mobileOpen={sidebarOpen}
+        sessionBusy={chat.sessionBusy}
+        settingsBusy={settingsAction.busy}
+        onClose={() => setSidebarOpen(false)}
+        onFeatureChange={setActiveFeature}
+        onCreateSession={() => {
+          setActiveFeature("chat");
+          chat.clearActiveChat();
+        }}
+        onSelectSession={(sessionId) => {
+
+云寻智慧农业AI工作台软件 1.0.0    第 54 页 / 共 102 页
+          setActiveFeature("chat");
+          void chat.loadSession(sessionId);
+        }}
+        onRenameTitleChange={chat.setRenameTitle}
+        onRenameSession={() => void chat.renameActiveSession()}
+        onDeleteSession={() => setDeleteDialogOpen(true)}
+        onSettingsNameChange={setSettingsName}
+        onModelChange={setSelectedModel}
+        onSaveSettings={() => void handleSaveSettings()}
+        onLogout={() => void handleLogout()}
+      />
+      <main className="workspace">
+        <TopBar health={health} activeFeature={activeFeature} onOpenNavigation={() => setSidebarOpen(true)} />
+        {anyBusy && <div className="inline-status">正在处理当前操作，请稍候...</div>}
+        {activeFeature === "chat" && (
+          <ChatWorkspace
+            messages={chat.messages}
+            draft={chat.draft}
+            selectedModel={selectedModel || models[0] || "未配置"}
+            maxMessageLength={health.max_message_length}
+            activeSession={chat.activeSession}
+            busy={chat.sendBusy}
+            hasOlderMessages={chat.hasOlderMessages}
+            onLoadOlder={chat.loadOlderMessages}
+            onDraftChange={chat.setDraft}
+            onSend={() => void chat.sendMessage()}
+            onUsePrompt={chat.setDraft}
+            onOpenFeature={setActiveFeature}
+          />
+        )}
+        {activeFeature === "vision" && (
+          <Suspense fallback={<div className="panel panel--loading">正在加载田间诊断模块...</div>}>
+            <VisionWorkspace
+              previewUrl={visionPreview}
+              fileName={visionFile?.name ?? ""}
+              fileSizeText={visionFile ? formatFileSize(visionFile.size) : ""}
+              maxSizeText={formatFileSize(health.upload_max_bytes)}
+              uploadError={visionUploadError}
+              accept={imageAcceptValue()}
+              crop={visionCrop}
+              symptom={visionSymptom}
+              result={visionResult}
+              modelMode={health.mode}
+              aiConfigured={health.ai_configured}
+              busy={visionAction.busy}
+              onFileChange={handleVisionFileChange}
+              onClearFile={handleClearVisionFile}
+              onCropChange={setVisionCrop}
+              onSymptomChange={setVisionSymptom}
+              onSubmit={() => void handleVisionSubmit()}
+
+云寻智慧农业AI工作台软件 1.0.0    第 55 页 / 共 102 页
+            />
+          </Suspense>
+        )}
+        {activeFeature === "decision" && (
+          <Suspense fallback={<div className="panel panel--loading">正在加载今日农活模块...</div>}>
+            <DecisionWorkspace
+              crop={decisionForm.crop}
+              stage={decisionForm.stage}
+              rainProb={decisionForm.rainProb}
+              soilMoisture={decisionForm.soilMoisture}
+              temperature={decisionForm.temperature}
+              result={decisionResult}
+              busy={decisionAction.busy}
+              onChange={(field, value) => setDecisionForm((current) => ({ ...current, [field]: value }))}
+              onSubmit={() => void handleDecisionSubmit()}
+            />
+          </Suspense>
+        )}
+      </main>
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        title="删除当前会话？"
+        description="会话和其中的消息会永久删除，删除后无法恢复。"
+        confirmLabel="确认删除"
+        busy={chat.sessionBusy || chat.sendBusy}
+        onConfirm={() => void confirmDeleteSession()}
+        onCancel={() => setDeleteDialogOpen(false)}
+      />
+    </div>
+  );
+}
+import { Leaf, LockKeyhole, UserRound } from "lucide-react";
+import { FormEvent } from "react";
+interface AuthScreenProps {
+  mode: "login" | "register";
+  backendMode: string;
+  backendUrl: string;
+  modelStatus: string;
+  environment: string;
+  warnings: string[];
+  loading: boolean;
+  form: {
+    username: string;
+    password: string;
+    displayName: string;
+  };
+  onModeChange: (mode: "login" | "register") => void;
+  onChange: (field: "username" | "password" | "displayName", value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onGuestLogin: () => void;
+
+云寻智慧农业AI工作台软件 1.0.0    第 56 页 / 共 102 页
+}
+export function AuthScreen(props: AuthScreenProps) {
+  const {
+    mode,
+    backendMode,
+    backendUrl,
+    modelStatus,
+    environment,
+    warnings,
+    loading,
+    form,
+    onModeChange,
+    onChange,
+    onSubmit,
+    onGuestLogin,
+  } = props;
+  return (
+    <div className="auth-layout">
+      <section className="auth-hero">
+        <div className="auth-hero__backdrop" />
+        <div className="auth-hero__content">
+          <div className="brand-lockup">
+            <div className="brand-mark">
+              <Leaf size={24} />
+            </div>
+            <div>
+              <div className="brand-name">云寻AI</div>
+              <div className="brand-subname">Agronomy workspace</div>
+            </div>
+          </div>
+          <div className="auth-hero__copy">
+            <h1>把农技问答、识病和田间计划，放进一个能落地的工作台。</h1>
+            <p>
+              云寻AI面向农户、合作社和基层农技员，保留历史会话、模型偏好和诊断上下文，
+              让每次回来都能从上次进度继续。
+            </p>
+          </div>
+          <div className="auth-hero__meta">
+            <span>运行模式：{backendMode}</span>
+            <span>模型状态：{modelStatus}</span>
+            <span>环境：{environment}</span>
+            <span>后端地址：{backendUrl}</span>
+          </div>
+          {warnings.length > 0 && (
+            <div className="mode-note" role="status">
+              {warnings.map((warning) => (
+                <div key={warning}>{warning}</div>
+              ))}
+            </div>
+          )}
+
+云寻智慧农业AI工作台软件 1.0.0    第 57 页 / 共 102 页
+        </div>
+      </section>
+      <section className="auth-panel">
+        <form className="auth-card" onSubmit={onSubmit}>
+          <div className="auth-tabs" role="tablist" aria-label="认证模式">
+            <button
+              type="button"
+              className={mode === "login" ? "auth-tab is-active" : "auth-tab"}
+              onClick={() => onModeChange("login")}
+            >
+              登录
+            </button>
+            <button
+              type="button"
+              className={mode === "register" ? "auth-tab is-active" : "auth-tab"}
+              onClick={() => onModeChange("register")}
+            >
+              注册
+            </button>
+          </div>
+          <div className="field-stack">
+            {mode === "register" && (
+              <label className="field">
+                <span>显示名称</span>
+                <div className="field-control">
+                  <UserRound size={18} />
+                  <input
+                    value={form.displayName}
+                    onChange={(event) => onChange("displayName", event.target.value)}
+                    placeholder="例如：老赵"
+                    required
+                  />
+                </div>
+              </label>
+            )}
+            <label className="field">
+              <span>用户名</span>
+              <div className="field-control">
+                <UserRound size={18} />
+                <input
+                  value={form.username}
+                  onChange={(event) => onChange("username", event.target.value)}
+                  placeholder="英文字母、数字或下划线"
+                  required
+                />
+              </div>
+            </label>
+            <label className="field">
+              <span>密码</span>
+              <div className="field-control">
+
+云寻智慧农业AI工作台软件 1.0.0    第 58 页 / 共 102 页
+                <LockKeyhole size={18} />
+                <input
+                  type="password"
+                  value={form.password}
+                  onChange={(event) => onChange("password", event.target.value)}
+                  placeholder="至少 4 位"
+                  required
+                />
+              </div>
+            </label>
+          </div>
+          <button className="primary-button" type="submit" disabled={loading}>
+            {loading ? "处理中..." : mode === "login" ? "登录并继续" : "注册并进入"}
+          </button>
+          <button className="secondary-button auth-guest-button" type="button" onClick={onGuestLogin} disabled={loading}>
+            访客登录
+          </button>
+          <p className="auth-footnote">
+            登录后会保留历史会话、模型偏好和诊断记录。访客登录也能直接进入，但更适合先体验功能。
+          </p>
+        </form>
+      </section>
+    </div>
+  );
+}
+import { ClipboardCopy, SendHorizonal, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MessageItem, SessionItem } from "../types";
+interface ChatWorkspaceProps {
+  messages: MessageItem[];
+  draft: string;
+  selectedModel: string;
+  maxMessageLength: number;
+  activeSession: SessionItem | null;
+  busy: boolean;
+  hasOlderMessages?: boolean;
+  onLoadOlder?: () => Promise<void>;
+  onDraftChange: (value: string) => void;
+  onSend: () => void;
+  onUsePrompt: (prompt: string) => void;
+  onOpenFeature: (feature: "vision" | "decision") => void;
+}
+const prompts = [
+  "帮我整理一份本周巡田重点",
+  "把这段农技建议改成更容易听懂的话",
+  "帮我解释一段代码",
+  "生成一个学习计划",
+];
+export function ChatWorkspace(props: ChatWorkspaceProps) {
+  const {
+
+云寻智慧农业AI工作台软件 1.0.0    第 59 页 / 共 102 页
+    messages,
+    draft,
+    selectedModel,
+    maxMessageLength,
+    activeSession,
+    busy,
+    hasOlderMessages,
+    onLoadOlder,
+    onDraftChange,
+    onSend,
+    onUsePrompt,
+    onOpenFeature,
+  } = props;
+  const threadRef = useRef<HTMLDivElement>(null);
+  const [followLatest, setFollowLatest] = useState(true);
+  const [showLatestButton, setShowLatestButton] = useState(false);
+  const loadingOlderRef = useRef(false);
+  const loadOlder = useCallback(async () => {
+    const thread = threadRef.current;
+    if (!thread || !onLoadOlder || loadingOlderRef.current) return;
+    loadingOlderRef.current = true;
+    const previousHeight = thread.scrollHeight;
+    const previousTop = thread.scrollTop;
+    try {
+      await onLoadOlder();
+      requestAnimationFrame(() => {
+        const current = threadRef.current;
+        if (current) current.scrollTop = previousTop + current.scrollHeight - previousHeight;
+      });
+    } finally {
+      loadingOlderRef.current = false;
+    }
+  }, [onLoadOlder]);
+  const scrollToLatest = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const thread = threadRef.current;
+    if (!thread) {
+      return;
+    }
+    thread.scrollTo({ top: thread.scrollHeight, behavior });
+    setFollowLatest(true);
+    setShowLatestButton(false);
+  }, []);
+  useEffect(() => {
+    if (followLatest) {
+      scrollToLatest(messages.length <= 2 ? "auto" : "smooth");
+    } else if (messages.length > 0) {
+      setShowLatestButton(true);
+    }
+  }, [followLatest, messages, scrollToLatest]);
+  return (
+
+云寻智慧农业AI工作台软件 1.0.0    第 60 页 / 共 102 页
+    <section className="workspace-grid">
+      <div className="panel panel--chat">
+        <div className="panel__header">
+          <div>
+            <h3>对话区</h3>
+            <p>{activeSession ? "当前会话会持续保存在后端。" : "发出第一条消息后，会自动创建会话记录。"}</p>
+          </div>
+          <div className="panel__meta">模型：{selectedModel}</div>
+        </div>
+        <div
+          ref={threadRef}
+          className="chat-thread"
+          aria-live="polite"
+          onScroll={() => {
+            const thread = threadRef.current;
+            if (!thread) {
+              return;
+            }
+            const nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 96;
+            setFollowLatest(nearBottom);
+            if (nearBottom) {
+              setShowLatestButton(false);
+            }
+          }}
+        >
+          {hasOlderMessages && (
+            <button className="ghost-button" type="button" onClick={() => void loadOlder()}>
+              加载更早消息
+            </button>
+          )}
+          {messages.length === 0 ? (
+            <div className="empty-surface">
+              <Sparkles size={20} />
+              <p>先试一个示例问题，或者直接输入你自己的内容。</p>
+              <div className="prompt-grid">
+                {prompts.map((prompt) => (
+                  <button key={prompt} className="prompt-chip" type="button" onClick={() => onUsePrompt(prompt)}>
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            messages.map((message) => (
+              <article
+                key={message.id}
+                className={message.role === "user" ? "message-row message-row--user" : "message-row"}
+              >
+                <div
+                  className={`message-bubble${message.delivery_status ? ` message-bubble--${message.delivery_status}` : ""}`}
+
+云寻智慧农业AI工作台软件 1.0.0    第 61 页 / 共 102 页
+                >
+                  <div className="message-bubble__role">{message.role === "user" ? "你" : "云寻AI"}</div>
+                  <div className="message-bubble__content">{message.content}</div>
+                  {message.delivery_status === "pending" && <div className="message-state">处理中</div>}
+                  {message.delivery_status === "failed" && <div className="message-state">未完成</div>}
+                  {message.role === "assistant" && !message.delivery_status && (
+                    <button
+                      className="ghost-button message-copy"
+                      type="button"
+                      onClick={() => navigator.clipboard.writeText(message.content)}
+                    >
+                      <ClipboardCopy size={15} />
+                      复制
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+        {showLatestButton && (
+          <button className="latest-message-button" type="button" onClick={() => scrollToLatest()}>
+            回到最新消息
+          </button>
+        )}
+        <div className="composer">
+          <textarea
+            value={draft}
+            onChange={(event) => onDraftChange(event.target.value)}
+            placeholder="输入你的问题。Enter 发送，Shift + Enter 换行。"
+            maxLength={maxMessageLength}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                if (draft.trim() && !busy) {
+                  onSend();
+                }
+              }
+            }}
+          />
+          <div className="composer__footer">
+            <span>单次输入上限 {maxMessageLength} 字</span>
+            <button className="primary-button" type="button" onClick={onSend} disabled={busy || !draft.trim()}>
+              <SendHorizonal size={16} />
+              {busy ? "生成中…" : "发送"}
+            </button>
+          </div>
+        </div>
+      </div>
+      <aside className="panel panel--side">
+
+云寻智慧农业AI工作台软件 1.0.0    第 62 页 / 共 102 页
+        <div className="panel__header">
+          <div>
+            <h3>当前上下文</h3>
+            <p>把会话状态、常用问题和执行提醒集中在一边，便于持续操作。</p>
+          </div>
+        </div>
+        <div className="stat-list">
+          <div className="stat-card">
+            <span>会话标题</span>
+            <strong>{activeSession?.title || "尚未创建"}</strong>
+          </div>
+          <div className="stat-card">
+            <span>消息条数</span>
+            <strong>{messages.length}</strong>
+          </div>
+          <div className="stat-card">
+            <span>推荐做法</span>
+            <strong>先给结论，再说原因，最后给今天能做的操作</strong>
+          </div>
+          <div className="stat-card">
+            <span>田间诊断</span>
+            <strong>上传作物照片，结合现场描述做初步判断。</strong>
+            <button className="secondary-button" type="button" onClick={() => onOpenFeature("vision")}>
+              去诊断台
+            </button>
+          </div>
+          <div className="stat-card">
+            <span>今日农活</span>
+            <strong>把降雨、墒情和气温合成当日可执行建议。</strong>
+            <button className="secondary-button" type="button" onClick={() => onOpenFeature("decision")}>
+              去计划台
+            </button>
+          </div>
+        </div>
+      </aside>
+    </section>
+  );
+}
+import { useEffect, useRef } from "react";
+interface ConfirmDialogProps {
+  open: boolean;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+export function ConfirmDialog({
+  open,
+
+云寻智慧农业AI工作台软件 1.0.0    第 63 页 / 共 102 页
+  title,
+  description,
+  confirmLabel,
+  busy = false,
+  onConfirm,
+  onCancel,
+}: ConfirmDialogProps) {
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    cancelButtonRef.current?.focus();
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) {
+        onCancel();
+      }
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [busy, onCancel, open]);
+  if (!open) {
+    return null;
+  }
+  return (
+    <div className="dialog-backdrop" role="presentation" onMouseDown={() => !busy && onCancel()}>
+      <section
+        className="confirm-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
+        aria-describedby="confirm-dialog-description"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <h3 id="confirm-dialog-title">{title}</h3>
+        <p id="confirm-dialog-description">{description}</p>
+        <div className="inline-actions confirm-dialog__actions">
+          <button ref={cancelButtonRef} className="secondary-button" type="button" onClick={onCancel} disabled={busy}>
+            取消
+          </button>
+          <button className="primary-button danger-button" type="button" onClick={onConfirm} disabled={busy}>
+            {busy ? "正在删除…" : confirmLabel}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+import { CalendarCheck2 } from "lucide-react";
+interface DecisionWorkspaceProps {
+
+云寻智慧农业AI工作台软件 1.0.0    第 64 页 / 共 102 页
+  crop: string;
+  stage: string;
+  rainProb: number;
+  soilMoisture: number;
+  temperature: number;
+  result: string;
+  busy: boolean;
+  onChange: (field: "crop" | "stage" | "rainProb" | "soilMoisture" | "temperature", value: string | number) => void;
+  onSubmit: () => void;
+}
+const crops = ["玉米", "水稻", "小麦", "大豆", "番茄", "黄瓜", "辣椒", "苹果", "柑橘"];
+const stages = ["播种出苗期", "苗期", "快速生长期", "开花坐果期", "灌浆成熟期", "采收期"];
+export function DecisionWorkspace(props: DecisionWorkspaceProps) {
+  const { crop, stage, rainProb, soilMoisture, temperature, result, busy, onChange, onSubmit } = props;
+  return (
+    <section className="workspace-grid workspace-grid--decision">
+      <div className="panel">
+        <div className="panel__header">
+          <div>
+            <h3>田间条件</h3>
+            <p>把天气、墒情和生长期作为统一输入，让今天的建议更可执行。</p>
+          </div>
+        </div>
+        <div className="field-grid">
+          <label className="field">
+            <span>作物</span>
+            <div className="field-control field-control--select">
+              <select value={crop} onChange={(event) => onChange("crop", event.target.value)}>
+                {crops.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </label>
+          <label className="field">
+            <span>生长期</span>
+            <div className="field-control field-control--select">
+              <select value={stage} onChange={(event) => onChange("stage", event.target.value)}>
+                {stages.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </label>
+          <label className="field">
+            <span>气温 ℃</span>
+
+云寻智慧农业AI工作台软件 1.0.0    第 65 页 / 共 102 页
+            <div className="field-control">
+              <input
+                type="number"
+                value={temperature}
+                min={-20}
+                max={55}
+                step={0.5}
+                onChange={(event) => onChange("temperature", Number(event.target.value))}
+              />
+            </div>
+          </label>
+          <label className="field">
+            <span>未来降雨概率 {rainProb}%</span>
+            <div className="field-control field-control--range">
+              <input
+                type="range"
+                value={rainProb}
+                min={0}
+                max={100}
+                onChange={(event) => onChange("rainProb", Number(event.target.value))}
+              />
+            </div>
+          </label>
+          <label className="field">
+            <span>土壤湿度 {soilMoisture}%</span>
+            <div className="field-control field-control--range">
+              <input
+                type="range"
+                value={soilMoisture}
+                min={0}
+                max={100}
+                onChange={(event) => onChange("soilMoisture", Number(event.target.value))}
+              />
+            </div>
+          </label>
+        </div>
+        <button className="primary-button" type="button" onClick={onSubmit} disabled={busy}>
+          <CalendarCheck2 size={16} />
+          {busy ? "生成中…" : "生成今日建议"}
+        </button>
+      </div>
+      <div className="panel">
+        <div className="panel__header">
+          <div>
+            <h3>输出结果</h3>
+            <p>适合直接给农户说明，也适合留作当天巡田计划。</p>
+          </div>
+        </div>
+        <div className="report-block">{result || "填写条件后，这里会生成建议。"}</div>
+      </div>
+
+云寻智慧农业AI工作台软件 1.0.0    第 66 页 / 共 102 页
+    </section>
+  );
+}
+import { MessageSquareText, NotebookTabs, ScanSearch, Settings2, Sprout, Trash2, X } from "lucide-react";
+import { memo } from "react";
+import { FeatureKey, SessionItem, User } from "../types";
+const featureLabels: Record<FeatureKey, string> = {
+  chat: "智能问答",
+  vision: "田间诊断",
+  decision: "今日农活",
+};
+interface SidebarProps {
+  user: User;
+  activeFeature: FeatureKey;
+  sessions: SessionItem[];
+  activeSessionId: string | null;
+  renameTitle: string;
+  settingsName: string;
+  selectedModel: string;
+  models: string[];
+  mobileOpen: boolean;
+  sessionBusy: boolean;
+  settingsBusy: boolean;
+  onClose: () => void;
+  onFeatureChange: (feature: FeatureKey) => void;
+  onCreateSession: () => void;
+  onSelectSession: (sessionId: string) => void;
+  onRenameTitleChange: (value: string) => void;
+  onRenameSession: () => void;
+  onDeleteSession: () => void;
+  onSettingsNameChange: (value: string) => void;
+  onModelChange: (value: string) => void;
+  onSaveSettings: () => void;
+  onLogout: () => void;
+}
+export const Sidebar = memo(function Sidebar(props: SidebarProps) {
+  const {
+    user,
+    activeFeature,
+    sessions,
+    activeSessionId,
+    renameTitle,
+    settingsName,
+    selectedModel,
+    models,
+    mobileOpen,
+    sessionBusy,
+    settingsBusy,
+    onClose,
+    onFeatureChange,
+
+云寻智慧农业AI工作台软件 1.0.0    第 67 页 / 共 102 页
+    onCreateSession,
+    onSelectSession,
+    onRenameTitleChange,
+    onRenameSession,
+    onDeleteSession,
+    onSettingsNameChange,
+    onModelChange,
+    onSaveSettings,
+    onLogout,
+  } = props;
+  return (
+    <aside id="app-sidebar" className={mobileOpen ? "sidebar is-open" : "sidebar"} aria-label="主导航">
+      <button className="sidebar__close" type="button" onClick={onClose} aria-label="关闭导航">
+        <X size={20} />
+      </button>
+      <div className="sidebar__brand">
+        <div className="brand-mark">
+          <Sprout size={20} />
+        </div>
+        <div>
+          <div className="brand-name">云寻AI</div>
+          <div className="brand-subname">Agronomy cockpit</div>
+        </div>
+      </div>
+      <button
+        className="primary-button sidebar__new"
+        type="button"
+        onClick={() => {
+          onCreateSession();
+          onClose();
+        }}
+        disabled={sessionBusy}
+      >
+        <MessageSquareText size={16} />
+        新建会话
+      </button>
+      <nav className="feature-nav" aria-label="功能菜单">
+        {(["chat", "vision", "decision"] as FeatureKey[]).map((feature) => (
+          <button
+            key={feature}
+            type="button"
+            className={activeFeature === feature ? "feature-nav__item is-active" : "feature-nav__item"}
+            onClick={() => {
+              onFeatureChange(feature);
+              onClose();
+            }}
+          >
+            {feature === "chat" && <MessageSquareText size={18} />}
+            {feature === "vision" && <ScanSearch size={18} />}
+            {feature === "decision" && <NotebookTabs size={18} />}
+
+云寻智慧农业AI工作台软件 1.0.0    第 68 页 / 共 102 页
+            <span>{featureLabels[feature]}</span>
+          </button>
+        ))}
+      </nav>
+      <section className="sidebar__section">
+        <div className="sidebar__section-title">历史会话</div>
+        <div className="session-list">
+          {sessions.length === 0 && <p className="sidebar__empty">发出第一条消息后，这里会保留会话记录。</p>}
+          {sessions.map((session) => (
+            <button
+              key={session.id}
+              type="button"
+              className={activeSessionId === session.id ? "session-card is-active" : "session-card"}
+              onClick={() => {
+                onSelectSession(session.id);
+                onClose();
+              }}
+              disabled={sessionBusy}
+            >
+              <div className="session-card__title">{session.title}</div>
+              <div className="session-card__meta">{session.model_name}</div>
+              <div className="session-card__preview">{session.last_message || "还没有消息"}</div>
+            </button>
+          ))}
+        </div>
+      </section>
+      {activeFeature === "chat" && activeSessionId && (
+        <section className="sidebar__section">
+          <div className="sidebar__section-title">当前会话</div>
+          <label className="field">
+            <span>会话标题</span>
+            <div className="field-control">
+              <input value={renameTitle} onChange={(event) => onRenameTitleChange(event.target.value)} />
+            </div>
+          </label>
+          <div className="inline-actions">
+            <button className="secondary-button" type="button" onClick={onRenameSession} disabled={sessionBusy}>
+              保存标题
+            </button>
+            <button className="ghost-button danger" type="button" onClick={onDeleteSession} disabled={sessionBusy}>
+              <Trash2 size={16} />
+              删除
+            </button>
+          </div>
+        </section>
+      )}
+      <section className="sidebar__section sidebar__section--footer">
+        <div className="sidebar__section-title">
+          <Settings2 size={16} />
+          个人设置
+
+云寻智慧农业AI工作台软件 1.0.0    第 69 页 / 共 102 页
+        </div>
+        <label className="field">
+          <span>显示名称</span>
+          <div className="field-control">
+            <input value={settingsName} onChange={(event) => onSettingsNameChange(event.target.value)} />
+          </div>
+        </label>
+        <label className="field">
+          <span>默认模型</span>
+          <div className="field-control field-control--select">
+            <select value={selectedModel} onChange={(event) => onModelChange(event.target.value)}>
+              {models.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </div>
+        </label>
+        <div className="profile-card">
+          <div className="profile-card__name">{user.display_name}</div>
+          <div className="profile-card__meta">@{user.username}</div>
+        </div>
+        <div className="inline-actions">
+          <button className="secondary-button" type="button" onClick={onSaveSettings} disabled={settingsBusy}>
+            {settingsBusy ? "保存中…" : "保存设置"}
+          </button>
+          <button className="ghost-button" type="button" onClick={onLogout}>
+            退出登录
+          </button>
+        </div>
+      </section>
+    </aside>
+  );
+});
+import { CloudSun, Gauge, LineChart, Menu, ShieldCheck } from "lucide-react";
+import { memo } from "react";
+import { FeatureKey, HealthPayload } from "../types";
+const featureTitles: Record<FeatureKey, { title: string; subtitle: string }> = {
+  chat: {
+    title: "智能问答工作台",
+    subtitle: "保留上下文的农技问答区，适合持续沟通、方案整理和知识解释。",
+  },
+  vision: {
+    title: "田间诊断台",
+    subtitle: "把作物照片和现场描述一起提交，统一由后端代理模型做识别与建议。",
+  },
+  decision: {
+    title: "今日农活计划",
+    subtitle: "结合天气、墒情和生长期，快速生成今天能执行的田间安排。",
+
+云寻智慧农业AI工作台软件 1.0.0    第 70 页 / 共 102 页
+  },
+};
+interface TopBarProps {
+  health: HealthPayload;
+  activeFeature: FeatureKey;
+  onOpenNavigation: () => void;
+}
+export const TopBar = memo(function TopBar({ health, activeFeature, onOpenNavigation }: TopBarProps) {
+  const today = new Intl.DateTimeFormat("zh-CN", {
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  }).format(new Date());
+  const copy = featureTitles[activeFeature];
+  return (
+    <header className="topbar">
+      <div className="topbar__title">
+        <button
+          className="mobile-menu-button"
+          type="button"
+          onClick={onOpenNavigation}
+          aria-label="打开导航"
+          aria-controls="app-sidebar"
+        >
+          <Menu size={20} />
+        </button>
+        <div>
+        <div className="eyebrow">云寻AI</div>
+        <h2>{copy.title}</h2>
+        <p>{copy.subtitle}</p>
+        </div>
+      </div>
+      <div className="topbar__chips">
+        {health.warnings.length > 0 && (
+          <details className="runtime-warning">
+            <summary className="status-chip status-chip--warning status-chip--wide">
+              <ShieldCheck size={16} />
+              <span>{health.warnings.length} 条运行提醒</span>
+            </summary>
+            <div className="runtime-warning__panel" role="status">
+              {health.warnings.map((warning) => (
+                <div key={warning}>{warning}</div>
+              ))}
+            </div>
+          </details>
+        )}
+        <div className="status-chip">
+          <CloudSun size={16} />
+          <span>{today}</span>
+        </div>
+
+云寻智慧农业AI工作台软件 1.0.0    第 71 页 / 共 102 页
+        <div className={health.ai_configured ? "status-chip" : "status-chip status-chip--warning"}>
+          <ShieldCheck size={16} />
+          <span>{health.model_status}</span>
+        </div>
+        <div className="status-chip">
+          <LineChart size={16} />
+          <span>{health.available_models.length} 个可用模型</span>
+        </div>
+        <div className="status-chip">
+          <LineChart size={16} />
+          <span>{health.backend_url}</span>
+        </div>
+        <div className="status-chip">
+          <Gauge size={16} />
+          <span>{health.requests_per_minute}/分钟</span>
+        </div>
+      </div>
+    </header>
+  );
+});
+import { ImagePlus, ScanSearch, X } from "lucide-react";
+interface VisionWorkspaceProps {
+  previewUrl: string | null;
+  fileName: string;
+  fileSizeText: string;
+  maxSizeText: string;
+  uploadError: string;
+  accept: string;
+  crop: string;
+  symptom: string;
+  result: string;
+  modelMode: string;
+  aiConfigured: boolean;
+  busy: boolean;
+  onFileChange: (file: File | null) => void;
+  onClearFile: () => void;
+  onCropChange: (value: string) => void;
+  onSymptomChange: (value: string) => void;
+  onSubmit: () => void;
+}
+const crops = ["玉米", "水稻", "小麦", "大豆", "番茄", "黄瓜", "辣椒", "苹果", "柑橘"];
+export function VisionWorkspace(props: VisionWorkspaceProps) {
+  const {
+    previewUrl,
+    fileName,
+    fileSizeText,
+    maxSizeText,
+    uploadError,
+    accept,
+    crop,
+
+云寻智慧农业AI工作台软件 1.0.0    第 72 页 / 共 102 页
+    symptom,
+    result,
+    modelMode,
+    aiConfigured,
+    busy,
+    onFileChange,
+    onClearFile,
+    onCropChange,
+    onSymptomChange,
+    onSubmit,
+  } = props;
+  return (
+    <section className="workspace-grid workspace-grid--vision">
+      <div className="panel">
+        <div className="panel__header">
+          <div>
+            <h3>上传作物照片</h3>
+            <p>浏览器端只把图片传给你自己的后端，不会直接暴露 API Key。</p>
+          </div>
+        </div>
+        <label className="upload-zone">
+          <input
+            type="file"
+            accept={accept}
+            disabled={busy}
+            onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
+          />
+          {previewUrl ? (
+            <img src={previewUrl} alt="作物预览" />
+          ) : (
+            <div className="upload-zone__empty">
+              <ImagePlus size={24} />
+              <span>拖拽或选择 JPG / PNG / WebP 图片</span>
+            </div>
+          )}
+        </label>
+        <div className="upload-summary">
+          {fileName ? (
+            <>
+              <div>
+                <strong>{fileName}</strong>
+                <span>{fileSizeText}</span>
+              </div>
+              <button className="ghost-button upload-summary__clear" type="button" onClick={onClearFile} disabled={busy}>
+                <X size={15} />
+                清除
+              </button>
+            </>
+          ) : (
+            <span>单张图片最大 {maxSizeText}，浏览器会先检查格式和大小。</span>
+
+云寻智慧农业AI工作台软件 1.0.0    第 73 页 / 共 102 页
+          )}
+        </div>
+        {uploadError && <div className="form-error">{uploadError}</div>}
+      </div>
+      <div className="panel">
+        <div className="panel__header">
+          <div>
+            <h3>诊断信息</h3>
+            <p>把作物和现场描述一并带上，模型判断会稳定很多。</p>
+          </div>
+        </div>
+        <div className="field-grid">
+          <label className="field">
+            <span>作物</span>
+            <div className="field-control field-control--select">
+              <select value={crop} onChange={(event) => onCropChange(event.target.value)}>
+                {crops.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </label>
+          <label className="field field--full">
+            <span>情况描述</span>
+            <div className="field-control field-control--textarea">
+              <textarea
+                value={symptom}
+                onChange={(event) => onSymptomChange(event.target.value)}
+                placeholder="例如：叶片边缘发黄，最近下过两天雨，出现褐色斑点。"
+              />
+            </div>
+          </label>
+        </div>
+        <button className="primary-button" type="button" onClick={onSubmit} disabled={busy || !fileName}>
+          <ScanSearch size={16} />
+          {busy ? "诊断中…" : "开始诊断"}
+        </button>
+      </div>
+      <div className="panel panel--full">
+        <div className="panel__header">
+          <div>
+            <h3>诊断结果</h3>
+            <p>
+              当前为{modelMode}。{aiConfigured ? "会调用已配置的视觉模型。" : "此时不会进行真实图片识别，只返回补拍和排查建议。"}
+            </p>
+          </div>
+        </div>
+        <div className="report-block">{result || "上传图片后，这里会显示诊断内容。"}</div>
+
+云寻智慧农业AI工作台软件 1.0.0    第 74 页 / 共 102 页
+      </div>
+    </section>
+  );
+}
+import { useCallback, useRef, useState } from "react";
+export function useAsyncGuard() {
+  const inFlightRef = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const run = useCallback(async <T>(operation: () => Promise<T>): Promise<T | undefined> => {
+    if (inFlightRef.current) {
+      return undefined;
+    }
+    inFlightRef.current = true;
+    setBusy(true);
+    try {
+      return await operation();
+    } finally {
+      inFlightRef.current = false;
+      setBusy(false);
+    }
+  }, []);
+  const isRunning = useCallback(() => inFlightRef.current, []);
+  return { busy, run, isRunning };
+}
+import axios, { AxiosError } from "axios";
+const configuredBaseURL = import.meta.env.VITE_YUNXUN_API_BASE_URL?.trim().replace(/\/+$/, "");
+const baseURL = configuredBaseURL || "http://127.0.0.1:8001";
+const REQUEST_TIMEOUT_MS = 45000;
+export const api = axios.create({
+  baseURL,
+  timeout: REQUEST_TIMEOUT_MS,
+});
+export function setAuthToken(token: string | null): void {
+  if (!token) {
+    delete api.defaults.headers.common.Authorization;
+    return;
+  }
+  api.defaults.headers.common.Authorization = `Bearer ${token}`;
+}
+interface ApiErrorPayload {
+  success?: false;
+  error?: string;
+  code?: string;
+  detail?: unknown;
+}
+export interface ApiErrorInfo {
+  code?: string;
+  message: string;
+  status?: number;
+  requestId?: string;
+
+云寻智慧农业AI工作台软件 1.0.0    第 75 页 / 共 102 页
+  retryable: boolean;
+}
+function isApiErrorPayload(value: unknown): value is ApiErrorPayload {
+  return typeof value === "object" && value !== null;
+}
+function messageByStatus(status: number | undefined): string {
+  if (status === 401) {
+    return "登录已失效，请重新登录。";
+  }
+  if (status === 403) {
+    return "你没有权限执行这个操作。";
+  }
+  if (status === 404) {
+    return "要访问的内容不存在或已被删除。";
+  }
+  if (status === 413) {
+    return "上传内容过大，请压缩后再试。";
+  }
+  if (status === 422) {
+    return "提交内容格式不正确，请检查后再试。";
+  }
+  if (status === 429) {
+    return "操作太频繁了，请稍后再试。";
+  }
+  if (status && status >= 500) {
+    return "后端服务暂时不可用，请稍后重试。";
+  }
+  return "请求失败，请稍后重试。";
+}
+function axiosErrorMessage(error: AxiosError, fallback: string): string {
+  if (error.code === "ECONNABORTED") {
+    return "请求超时，请检查网络或稍后重试。";
+  }
+  if (!error.response) {
+    return "无法连接后端服务，请确认后端已启动。";
+  }
+  const payload = error.response.data;
+  if (isApiErrorPayload(payload) && typeof payload.error === "string" && payload.error.trim()) {
+    return payload.error;
+  }
+  return messageByStatus(error.response.status) || fallback;
+}
+export function getErrorMessage(error: unknown, fallback = "请求失败，请稍后重试。"): string {
+  return getApiErrorInfo(error, fallback).message;
+}
+export function getApiErrorInfo(error: unknown, fallback = "请求失败，请稍后重试。"): ApiErrorInfo {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    const payload = error.response?.data;
+    return {
+
+云寻智慧农业AI工作台软件 1.0.0    第 76 页 / 共 102 页
+      code: isApiErrorPayload(payload) && typeof payload.code === "string" ? payload.code : undefined,
+      message: axiosErrorMessage(error, fallback),
+      status,
+      requestId: error.response?.headers?.["x-request-id"],
+      retryable: !status || status === 408 || status === 429 || status >= 500,
+    };
+  }
+  if (error instanceof Error && error.message) {
+    return { message: error.message, retryable: false };
+  }
+  return { message: fallback, retryable: false };
+}
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+export type AllowedImageType = (typeof ALLOWED_IMAGE_TYPES)[number];
+export interface ImageValidationResult {
+  ok: boolean;
+  message: string;
+}
+export function imageAcceptValue(): string {
+  return ALLOWED_IMAGE_TYPES.join(",");
+}
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+export function validateImageFile(file: File | null, maxBytes = MAX_IMAGE_BYTES): ImageValidationResult {
+  if (!file) {
+    return { ok: false, message: "请先选择一张图片。" };
+  }
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type as AllowedImageType)) {
+    return { ok: false, message: "仅支持 JPG、PNG 或 WebP 图片。" };
+  }
+  if (file.size <= 0) {
+    return { ok: false, message: "图片文件为空，请重新选择。" };
+  }
+  if (file.size > maxBytes) {
+    return { ok: false, message: `图片不能超过 ${formatFileSize(maxBytes)}。` };
+  }
+  return { ok: true, message: "" };
+}
+export function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+
+云寻智慧农业AI工作台软件 1.0.0    第 77 页 / 共 102 页
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const [, base64 = ""] = result.split(",", 2);
+      if (!base64) {
+        reject(new Error("图片转换失败，请重新选择。"));
+        return;
+      }
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error("图片读取失败。"));
+    reader.readAsDataURL(file);
+  });
+}
+const TOKEN_STORAGE_KEY = "yunxun.auth.token";
+export function readStoredAuthToken(): string {
+  try {
+    return window.localStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+export function persistAuthToken(token: string): void {
+  try {
+    if (!token) {
+      window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  } catch {
+    throw new Error("浏览器无法保存登录状态，请检查隐私模式或存储权限。");
+  }
+}
+export function clearStoredAuthToken(): void {
+  try {
+    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  } catch {
+  }
+}
+import { MessageItem } from "../../types";
+export interface OptimisticMessagePair {
+  requestId: string;
+  messages: MessageItem[];
+}
+export function createOptimisticMessagePair(
+  content: string,
+  requestId: string,
+  createdAt = new Date().toISOString(),
+): OptimisticMessagePair {
+  return {
+    requestId,
+    messages: [
+
+云寻智慧农业AI工作台软件 1.0.0    第 78 页 / 共 102 页
+      {
+        id: `local-user-${requestId}`,
+        role: "user",
+        content,
+        created_at: createdAt,
+        delivery_status: "pending",
+        client_request_id: requestId,
+      },
+      {
+        id: `local-assistant-${requestId}`,
+        role: "assistant",
+        content: "正在生成回复…",
+        created_at: createdAt,
+        delivery_status: "pending",
+        client_request_id: requestId,
+      },
+    ],
+  };
+}
+export function commitOptimisticMessages(
+  messages: MessageItem[],
+  requestId: string,
+  committedMessages: MessageItem[],
+): MessageItem[] {
+  const remaining = messages.filter((message) => message.client_request_id !== requestId);
+  return [...remaining, ...committedMessages];
+}
+export function failOptimisticMessages(messages: MessageItem[], requestId: string): MessageItem[] {
+  return messages.map((message) => {
+    if (message.client_request_id !== requestId) {
+      return message;
+    }
+    if (message.role === "assistant") {
+      return {
+        ...message,
+        content: "回复失败，原问题已放回输入框，可以直接重试。",
+        delivery_status: "failed",
+      };
+    }
+    return { ...message, delivery_status: "failed" };
+  });
+}
+export function removeOptimisticMessages(messages: MessageItem[], requestId: string): MessageItem[] {
+  return messages.filter((message) => message.client_request_id !== requestId);
+}
+export function mergeOlderMessages(current: MessageItem[], older: MessageItem[]): MessageItem[] {
+  const existing = new Set(current.map((message) => message.id));
+  return [...older.filter((message) => !existing.has(message.id)), ...current];
+}
+export function restoreDraftAfterFailure(currentDraft: string, failedPrompt: string): string {
+
+云寻智慧农业AI工作台软件 1.0.0    第 79 页 / 共 102 页
+  return currentDraft || failedPrompt;
+}
+export function shouldApplySessionResponse(activeSessionId: string | null, responseSessionId: string): boolean {
+  return activeSessionId === responseSessionId;
+}
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAsyncGuard } from "../../hooks/useAsyncGuard";
+import { api, getErrorMessage } from "../../lib/api";
+import { MessageItem, SessionItem } from "../../types";
+import {
+  commitOptimisticMessages,
+  createOptimisticMessagePair,
+  failOptimisticMessages,
+  removeOptimisticMessages,
+  mergeOlderMessages,
+  restoreDraftAfterFailure,
+  shouldApplySessionResponse,
+} from "./chatState";
+const DEFAULT_SESSION_TITLE = "新会话";
+interface ChatControllerOptions {
+  selectedModel: string;
+  onError: (message: string) => void;
+}
+function upsertSession(sessions: SessionItem[], nextSession: SessionItem): SessionItem[] {
+  return [nextSession, ...sessions.filter((session) => session.id !== nextSession.id)];
+}
+export function useChatController({ selectedModel, onError }: ChatControllerOptions) {
+  const [sessions, setSessions] = useState<SessionItem[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<MessageItem[]>([]);
+  const [renameTitle, setRenameTitle] = useState(DEFAULT_SESSION_TITLE);
+  const [draft, setDraft] = useState("");
+  const [messageCursor, setMessageCursor] = useState<string | null>(null);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const sendAction = useAsyncGuard();
+  const sessionAction = useAsyncGuard();
+  const activeSessionIdRef = useRef<string | null>(null);
+  const loadControllerRef = useRef<AbortController | null>(null);
+  const retryRef = useRef<{ prompt: string; requestId: string } | null>(null);
+  const sessionsVersionRef = useRef(0);
+  const loadingCursorRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
+  useEffect(() => () => loadControllerRef.current?.abort(), []);
+  const activeSession = useMemo(
+    () => sessions.find((item) => item.id === activeSessionId) ?? null,
+    [activeSessionId, sessions],
+  );
+  const syncSession = useCallback((nextSession: SessionItem) => {
+
+云寻智慧农业AI工作台软件 1.0.0    第 80 页 / 共 102 页
+    sessionsVersionRef.current += 1;
+    setSessions((current) => upsertSession(current, nextSession));
+  }, []);
+  const clearActiveChat = useCallback(() => {
+    setActiveSessionId(null);
+    setMessages([]);
+    setRenameTitle(DEFAULT_SESSION_TITLE);
+  }, []);
+  const reset = useCallback(() => {
+    setSessions([]);
+    setDraft("");
+    clearActiveChat();
+  }, [clearActiveChat]);
+  const refreshSessions = useCallback(async () => {
+    const startedAtVersion = sessionsVersionRef.current;
+    const response = await api.get<{ success: true; sessions: SessionItem[] }>("/api/chat/sessions", {
+      params: { feature: "chat" },
+    });
+    if (sessionsVersionRef.current !== startedAtVersion) return;
+    setSessions(response.data.sessions);
+    setActiveSessionId((current) => {
+      if (current && !response.data.sessions.some((item) => item.id === current)) {
+        setMessages([]);
+        setRenameTitle(DEFAULT_SESSION_TITLE);
+        return null;
+      }
+      return current;
+    });
+  }, []);
+  const loadSession = useCallback(
+    async (sessionId: string) => {
+      loadControllerRef.current?.abort();
+      const controller = new AbortController();
+      loadControllerRef.current = controller;
+      activeSessionIdRef.current = sessionId;
+      setActiveSessionId(sessionId);
+      try {
+          const response = await api.get<{ success: true; session: SessionItem; messages: MessageItem[]; message_pagination: { has_more: boolean; next_cursor: string | null } }>(
+            `/api/chat/sessions/${sessionId}`,
+            { signal: controller.signal, params: { message_limit: 100 } },
+          );
+          if (controller.signal.aborted || loadControllerRef.current !== controller) return;
+          setMessages(response.data.messages);
+          setRenameTitle(response.data.session.title);
+          setHasOlderMessages(response.data.message_pagination.has_more);
+          setMessageCursor(response.data.message_pagination.next_cursor);
+          onError("");
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          onError(getErrorMessage(error));
+
+云寻智慧农业AI工作台软件 1.0.0    第 81 页 / 共 102 页
+        } finally {
+          if (loadControllerRef.current === controller) loadControllerRef.current = null;
+        }
+    },
+    [onError],
+  );
+  const ensureSession = useCallback(async () => {
+    if (activeSessionId) {
+      return activeSessionId;
+    }
+    const response = await api.post<{ success: true; session: SessionItem }>("/api/chat/sessions", {
+      title: DEFAULT_SESSION_TITLE,
+      feature: "chat",
+      model_name: selectedModel,
+    });
+    setActiveSessionId(response.data.session.id);
+    activeSessionIdRef.current = response.data.session.id;
+    setRenameTitle(response.data.session.title);
+    syncSession(response.data.session);
+    return response.data.session.id;
+  }, [activeSessionId, selectedModel, syncSession]);
+  const sendMessage = useCallback(async () => {
+    await sendAction.run(async () => {
+      const prompt = draft.trim();
+      if (!prompt) {
+        return;
+      }
+      const retry = retryRef.current?.prompt === prompt ? retryRef.current : null;
+      const requestId = retry?.requestId ?? crypto.randomUUID();
+      retryRef.current = null;
+      const optimistic = createOptimisticMessagePair(prompt, requestId);
+      setMessages((current) => [...removeOptimisticMessages(current, requestId), ...optimistic.messages]);
+      setDraft("");
+      onError("");
+      let targetSessionId: string | null = activeSessionId;
+      try {
+        const sessionId = await ensureSession();
+        targetSessionId = sessionId;
+        const response = await api.post<{
+          success: true;
+          user_message: MessageItem;
+          assistant_message: MessageItem;
+          session: SessionItem;
+        }>(
+          `/api/chat/sessions/${sessionId}/messages`,
+          { message: prompt, model_name: selectedModel },
+          { headers: { "X-Idempotency-Key": requestId } },
+        );
+        if (shouldApplySessionResponse(activeSessionIdRef.current, sessionId)) {
+          setMessages((current) =>
+
+云寻智慧农业AI工作台软件 1.0.0    第 82 页 / 共 102 页
+            commitOptimisticMessages(current, requestId, [response.data.user_message, response.data.assistant_message]),
+          );
+          setRenameTitle(response.data.session.title);
+        }
+        syncSession(response.data.session);
+      } catch (error) {
+        if (!targetSessionId || activeSessionIdRef.current === targetSessionId) {
+          setMessages((current) => failOptimisticMessages(current, requestId));
+          setDraft((current) => restoreDraftAfterFailure(current, prompt));
+        }
+        retryRef.current = { prompt, requestId };
+        onError(getErrorMessage(error));
+      }
+    });
+  }, [draft, ensureSession, onError, selectedModel, sendAction, syncSession]);
+  const renameActiveSession = useCallback(async () => {
+    if (!activeSessionId) {
+      return;
+    }
+    await sessionAction.run(async () => {
+      try {
+        const response = await api.patch<{ success: true; session: SessionItem }>(
+          `/api/chat/sessions/${activeSessionId}`,
+          { title: renameTitle },
+        );
+        syncSession(response.data.session);
+        setRenameTitle(response.data.session.title);
+        onError("");
+      } catch (error) {
+        onError(getErrorMessage(error));
+      }
+    });
+  }, [activeSessionId, onError, renameTitle, sessionAction, syncSession]);
+  const deleteActiveSession = useCallback(async () => {
+    if (!activeSessionId || sendAction.isRunning()) {
+      return false;
+    }
+    const deleted = await sessionAction.run(async () => {
+      try {
+        await api.delete(`/api/chat/sessions/${activeSessionId}`);
+        setSessions((current) => current.filter((session) => session.id !== activeSessionId));
+        clearActiveChat();
+        onError("");
+        return true;
+      } catch (error) {
+        onError(getErrorMessage(error));
+        return false;
+      }
+    });
+    return deleted ?? false;
+
+云寻智慧农业AI工作台软件 1.0.0    第 83 页 / 共 102 页
+  }, [activeSessionId, clearActiveChat, onError, sendAction, sessionAction]);
+  const updateDraft = useCallback((value: string) => {
+    if (retryRef.current && value.trim() !== retryRef.current.prompt) retryRef.current = null;
+    setDraft(value);
+  }, []);
+  const loadOlderMessages = useCallback(async () => {
+    const sessionId = activeSessionIdRef.current;
+    if (!sessionId || !messageCursor || loadingCursorRef.current === messageCursor) return;
+    loadingCursorRef.current = messageCursor;
+    try {
+      const response = await api.get<{ success: true; messages: MessageItem[]; message_pagination: { has_more: boolean; next_cursor: string | null } }>(
+        `/api/chat/sessions/${sessionId}`,
+        { params: { message_limit: 100, message_cursor: messageCursor } },
+      );
+      if (activeSessionIdRef.current !== sessionId) return;
+      setMessages((current) => mergeOlderMessages(current, response.data.messages));
+      setHasOlderMessages(response.data.message_pagination.has_more);
+      setMessageCursor(response.data.message_pagination.next_cursor);
+    } catch (error) {
+      onError(getErrorMessage(error));
+    } finally {
+      loadingCursorRef.current = null;
+    }
+  }, [messageCursor, onError]);
+  return {
+    sessions,
+    activeSessionId,
+    activeSession,
+    messages,
+    renameTitle,
+    draft,
+    sendBusy: sendAction.busy,
+    sessionBusy: sessionAction.busy,
+    hasOlderMessages,
+    setRenameTitle,
+    setDraft: updateDraft,
+    refreshSessions,
+    loadSession,
+    loadOlderMessages,
+    sendMessage,
+    renameActiveSession,
+    deleteActiveSession,
+    clearActiveChat,
+    reset,
+  };
+}
+export type FeatureKey = "chat" | "vision" | "decision";
+export interface HealthPayload {
+  success: boolean;
+  mode: string;
+
+云寻智慧农业AI工作台软件 1.0.0    第 84 页 / 共 102 页
+  ai_configured: boolean;
+  model_status: string;
+  environment: string;
+  backend_url: string;
+  available_models: string[];
+  max_message_length: number;
+  requests_per_minute: number;
+  upload_max_bytes: number;
+  debug: boolean;
+  database_path: string;
+  allowed_origins: string[];
+  warnings: string[];
+  error?: string;
+}
+export interface User {
+  id: string;
+  username: string;
+  display_name: string;
+  preferred_model: string;
+  created_at: string;
+}
+export interface SessionItem {
+  id: string;
+  title: string;
+  feature: string;
+  model_name: string;
+  created_at: string;
+  updated_at: string;
+  last_message: string;
+}
+export interface MessageItem {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+  delivery_status?: "pending" | "failed";
+  client_request_id?: string;
+}
+export interface ApiError {
+  success: false;
+  error: string;
+}
+:root {
+  color-scheme: light;
+  font-family: "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #203028;
+  background: #eef1eb;
+  font-synthesis: none;
+
+云寻智慧农业AI工作台软件 1.0.0    第 85 页 / 共 102 页
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --bg: #eff2ec;
+  --surface: rgba(255, 255, 255, 0.9);
+  --surface-strong: rgba(255, 255, 255, 0.96);
+  --surface-soft: rgba(248, 250, 246, 0.9);
+  --panel-border: rgba(42, 63, 54, 0.08);
+  --panel-shadow: 0 16px 40px rgba(32, 48, 40, 0.08);
+  --sidebar: #1f2b28;
+  --sidebar-surface: rgba(255, 255, 255, 0.06);
+  --text: #213028;
+  --text-muted: #5f6d66;
+  --green: #5f8258;
+  --green-deep: #355344;
+  --green-soft: #e9efe3;
+  --gold-soft: #efe4cf;
+  --danger: #b85b5b;
+  --line: #d9e0d4;
+  --radius: 8px;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background:
+    radial-gradient(circle at top left, rgba(222, 232, 219, 0.8), transparent 36%),
+    linear-gradient(180deg, #f5f7f2 0%, var(--bg) 100%);
+  color: var(--text);
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+
+云寻智慧农业AI工作台软件 1.0.0    第 86 页 / 共 102 页
+  opacity: 0.58;
+}
+button:disabled:hover {
+  transform: none;
+}
+.app-shell {
+  display: grid;
+  grid-template-columns: 292px minmax(0, 1fr);
+  min-height: 100%;
+}
+.app-shell--auth {
+  display: block;
+}
+.app-loading {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  color: var(--text-muted);
+}
+.toast-banner {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  z-index: 50;
+  transform: translateX(-50%);
+  padding: 12px 18px;
+  border: 1px solid rgba(184, 91, 91, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 245, 245, 0.96);
+  color: #7e3e3e;
+  box-shadow: 0 10px 30px rgba(126, 62, 62, 0.1);
+}
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 100vh;
+  padding: 24px 18px;
+  background:
+    linear-gradient(180deg, rgba(18, 30, 27, 0.98) 0%, rgba(33, 45, 41, 0.98) 100%),
+    var(--sidebar);
+  color: #f3f5f0;
+}
+.sidebar__close,
+.sidebar-backdrop,
+.mobile-menu-button {
+  display: none;
+}
+.sidebar__brand,
+.brand-lockup {
+
+云寻智慧农业AI工作台软件 1.0.0    第 87 页 / 共 102 页
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: rgba(114, 153, 102, 0.18);
+  color: #b8d0b0;
+}
+.brand-name {
+  font-size: 1rem;
+  font-weight: 700;
+}
+.brand-subname {
+  color: rgba(243, 245, 240, 0.66);
+  font-size: 0.83rem;
+}
+.sidebar__new {
+  justify-content: center;
+}
+.feature-nav {
+  display: grid;
+  gap: 10px;
+}
+.feature-nav__item,
+.session-card,
+.ghost-button,
+.secondary-button,
+.primary-button {
+  border-radius: var(--radius);
+  transition: transform 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+}
+.feature-nav__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 14px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.04);
+  color: #f3f5f0;
+}
+.feature-nav__item:hover,
+.session-card:hover,
+.primary-button:hover,
+.secondary-button:hover,
+
+云寻智慧农业AI工作台软件 1.0.0    第 88 页 / 共 102 页
+.ghost-button:hover {
+  transform: translateY(-1px);
+}
+.feature-nav__item.is-active {
+  border-color: rgba(168, 202, 150, 0.26);
+  background: rgba(120, 156, 105, 0.2);
+}
+.sidebar__section {
+  display: grid;
+  gap: 12px;
+}
+.sidebar__section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(243, 245, 240, 0.82);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.session-list {
+  display: grid;
+  gap: 10px;
+  overflow: auto;
+  padding-right: 2px;
+}
+.session-card {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f3f5f0;
+  text-align: left;
+}
+.session-card.is-active {
+  border-color: rgba(175, 205, 159, 0.28);
+  background: rgba(116, 153, 102, 0.18);
+}
+.session-card__title {
+  font-weight: 600;
+}
+.session-card__meta,
+.session-card__preview,
+.sidebar__empty {
+  color: rgba(243, 245, 240, 0.66);
+  font-size: 0.82rem;
+}
+.sidebar__section--footer {
+  margin-top: auto;
+}
+
+云寻智慧农业AI工作台软件 1.0.0    第 89 页 / 共 102 页
+.profile-card {
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.04);
+}
+.profile-card__name {
+  font-weight: 600;
+}
+.profile-card__meta {
+  color: rgba(243, 245, 240, 0.66);
+  font-size: 0.84rem;
+}
+.workspace {
+  min-width: 0;
+  padding: 26px;
+}
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+.topbar__title {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.topbar h2 {
+  margin: 6px 0 10px;
+  font-size: 1.9rem;
+  line-height: 1.1;
+}
+.topbar p,
+.eyebrow,
+.panel__header p,
+.panel__meta,
+.composer__footer span {
+  color: var(--text-muted);
+}
+.eyebrow {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.topbar__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+
+云寻智慧农业AI工作台软件 1.0.0    第 90 页 / 共 102 页
+}
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 42px;
+  max-width: min(100%, 280px);
+  padding: 0 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(32, 48, 40, 0.04);
+  color: var(--text-muted);
+}
+.status-chip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-chip--warning {
+  border-color: rgba(184, 91, 91, 0.2);
+  background: rgba(255, 245, 235, 0.96);
+  color: #7e4a2f;
+}
+.status-chip--wide {
+  max-width: min(100%, 340px);
+}
+.runtime-warning {
+  position: relative;
+}
+.runtime-warning > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.runtime-warning > summary::-webkit-details-marker {
+  display: none;
+}
+.runtime-warning__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 8px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid rgba(184, 91, 91, 0.18);
+  border-radius: var(--radius);
+
+云寻智慧农业AI工作台软件 1.0.0    第 91 页 / 共 102 页
+  background: rgba(255, 248, 241, 0.98);
+  box-shadow: var(--shadow);
+  color: #7e4a2f;
+  line-height: 1.45;
+}
+.mode-note {
+  display: grid;
+  gap: 6px;
+  max-width: 620px;
+  padding: 12px 14px;
+  border: 1px solid rgba(184, 91, 91, 0.18);
+  border-radius: var(--radius);
+  background: rgba(255, 245, 235, 0.9);
+  color: #7e4a2f;
+}
+.inline-status {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid rgba(95, 130, 88, 0.15);
+  border-radius: var(--radius);
+  background: rgba(233, 239, 227, 0.8);
+  color: #45634b;
+}
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(280px, 0.9fr);
+  gap: 18px;
+}
+.workspace-grid--vision,
+.workspace-grid--decision {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.panel {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--surface-strong) 0%, var(--surface-soft) 100%);
+  box-shadow: var(--panel-shadow);
+}
+.panel--full {
+  grid-column: 1 / -1;
+}
+.panel__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+
+云寻智慧农业AI工作台软件 1.0.0    第 92 页 / 共 102 页
+  align-items: flex-start;
+}
+.panel__header h3 {
+  margin: 0 0 6px;
+  font-size: 1.1rem;
+}
+.chat-thread {
+  display: grid;
+  gap: 16px;
+  min-height: 440px;
+  max-height: 62vh;
+  overflow: auto;
+  padding-right: 2px;
+}
+.message-row {
+  display: flex;
+}
+.message-row--user {
+  justify-content: flex-end;
+}
+.message-bubble {
+  display: grid;
+  gap: 10px;
+  max-width: min(100%, 720px);
+  padding: 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.84);
+}
+.message-row--user .message-bubble {
+  background: rgba(230, 238, 229, 0.92);
+}
+.message-bubble--pending {
+  border-style: dashed;
+  background: rgba(239, 244, 235, 0.78);
+}
+.message-bubble--failed {
+  border-color: rgba(184, 91, 91, 0.28);
+  background: rgba(255, 245, 245, 0.9);
+}
+.message-state {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+.message-bubble--pending .message-state::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  border-radius: 999px;
+
+云寻智慧农业AI工作台软件 1.0.0    第 93 页 / 共 102 页
+  background: var(--accent);
+  content: "";
+  animation: pending-pulse 1.1s ease-in-out infinite;
+}
+.latest-message-button {
+  justify-self: center;
+  margin-top: -6px;
+  padding: 8px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--text-muted);
+  box-shadow: 0 8px 20px rgba(32, 48, 40, 0.08);
+}
+@keyframes pending-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.message-bubble__role {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+.message-bubble__content {
+  white-space: pre-wrap;
+}
+.message-copy {
+  justify-self: flex-start;
+}
+.empty-surface {
+  display: grid;
+  place-items: start;
+  gap: 12px;
+  min-height: 220px;
+  padding: 24px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--text-muted);
+}
+.prompt-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+
+云寻智慧农业AI工作台软件 1.0.0    第 94 页 / 共 102 页
+}
+.prompt-chip {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--text);
+}
+.composer {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.84);
+}
+.composer textarea,
+.field-control input,
+.field-control textarea,
+.field-control select {
+  width: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+}
+.composer textarea {
+  min-height: 116px;
+  resize: vertical;
+}
+.composer__footer,
+.inline-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.stat-list {
+  display: grid;
+  gap: 12px;
+}
+.stat-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.82);
+}
+.stat-card span {
+
+云寻智慧农业AI工作台软件 1.0.0    第 95 页 / 共 102 页
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+.upload-zone {
+  display: grid;
+  place-items: center;
+  min-height: 360px;
+  overflow: hidden;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.72);
+}
+.upload-zone input {
+  display: none;
+}
+.upload-zone img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.upload-zone__empty {
+  display: grid;
+  gap: 10px;
+  place-items: center;
+  color: var(--text-muted);
+}
+.upload-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+.upload-summary div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.upload-summary strong {
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.upload-summary__clear {
+  flex: 0 0 auto;
+}
+.form-error {
+
+云寻智慧农业AI工作台软件 1.0.0    第 96 页 / 共 102 页
+  min-height: 22px;
+  color: #9b2c2c;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.field-grid,
+.field-stack {
+  display: grid;
+  gap: 14px;
+}
+.field-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.field--full {
+  grid-column: 1 / -1;
+}
+.field span {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+.field-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.9);
+}
+.field-control--textarea {
+  align-items: flex-start;
+  min-height: 128px;
+  padding: 14px;
+}
+.field-control--textarea textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+.field-control--range {
+  padding: 6px 14px;
+}
+.field-control input::placeholder,
+.field-control textarea::placeholder {
+  color: #91a099;
+}
+.report-block {
+  min-height: 180px;
+
+云寻智慧农业AI工作台软件 1.0.0    第 97 页 / 共 102 页
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.82);
+  white-space: pre-wrap;
+}
+.primary-button,
+.secondary-button,
+.ghost-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  font-weight: 600;
+}
+.primary-button {
+  background: var(--green);
+  color: #ffffff;
+}
+.secondary-button {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+}
+.ghost-button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+.ghost-button.danger {
+  color: var(--danger);
+}
+.auth-layout {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  min-height: 100vh;
+}
+.auth-hero {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(244, 247, 240, 0.62) 0%, rgba(244, 247, 240, 0.88) 56%, rgba(244, 247, 240, 0.96) 100%),
+    linear-gradient(140deg, rgba(132, 170, 117, 0.24), rgba(65, 102, 80, 0.12) 38%, rgba(255, 255, 255, 0) 64%),
+    repeating-linear-gradient(
+      -24deg,
+      rgba(171, 196, 146, 0.18) 0,
+      rgba(171, 196, 146, 0.18) 26px,
+
+云寻智慧农业AI工作台软件 1.0.0    第 98 页 / 共 102 页
+      rgba(233, 239, 227, 0.08) 26px,
+      rgba(233, 239, 227, 0.08) 68px
+    ),
+    linear-gradient(180deg, #e6eee0 0%, #d6e4d8 100%);
+}
+.auth-hero__backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.82), transparent 34%),
+    radial-gradient(circle at 18% 82%, rgba(255, 255, 255, 0.42), transparent 26%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.08));
+}
+.auth-hero__content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 24px;
+  align-content: space-between;
+  min-height: 100%;
+  padding: 42px 48px;
+}
+.auth-hero__copy {
+  max-width: 620px;
+}
+.auth-hero__copy h1 {
+  margin: 0 0 16px;
+  font-size: clamp(2.4rem, 3vw, 4rem);
+  line-height: 1.02;
+}
+.auth-hero__copy p,
+.auth-hero__meta {
+  color: #4f6258;
+  font-size: 1rem;
+}
+.auth-hero__meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.auth-hero__meta span {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.auth-panel {
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+云寻智慧农业AI工作台软件 1.0.0    第 99 页 / 共 102 页
+.auth-card {
+  display: grid;
+  gap: 22px;
+  width: min(100%, 460px);
+  padding: 28px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 22px 48px rgba(32, 48, 40, 0.08);
+}
+.auth-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.auth-tab {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.auth-tab.is-active {
+  border-color: rgba(95, 130, 88, 0.22);
+  background: rgba(233, 239, 227, 0.92);
+  color: var(--text);
+}
+.auth-footnote {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+.auth-guest-button {
+  width: 100%;
+}
+.panel--loading {
+  min-height: 320px;
+  place-items: center;
+  color: var(--text-muted);
+}
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(20, 31, 28, 0.48);
+  backdrop-filter: blur(3px);
+
+云寻智慧农业AI工作台软件 1.0.0    第 100 页 / 共 102 页
+}
+.confirm-dialog {
+  width: min(100%, 440px);
+  padding: 24px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+  box-shadow: var(--shadow);
+}
+.confirm-dialog h3 {
+  margin: 0 0 10px;
+}
+.confirm-dialog p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.65;
+}
+.confirm-dialog__actions {
+  justify-content: flex-end;
+  margin-top: 22px;
+}
+.danger-button {
+  background: #a84f4f;
+}
+@media (max-width: 1200px) {
+  .workspace-grid,
+  .workspace-grid--vision,
+  .workspace-grid--decision {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 1024px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 70;
+    width: min(88vw, 330px);
+    height: 100dvh;
+    min-height: 0;
+    overflow-y: auto;
+    transform: translateX(-102%);
+    transition: transform 0.22s ease;
+  }
+  .sidebar.is-open {
+    transform: translateX(0);
+  }
+  .sidebar__close {
+
+云寻智慧农业AI工作台软件 1.0.0    第 101 页 / 共 102 页
+    position: absolute;
+    top: 18px;
+    right: 16px;
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #f3f5f0;
+  }
+  .sidebar-backdrop.is-visible {
+    position: fixed;
+    inset: 0;
+    z-index: 65;
+    display: block;
+    width: 100%;
+    border: 0;
+    background: rgba(20, 31, 28, 0.42);
+  }
+  .mobile-menu-button {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    background: var(--surface-strong);
+    color: var(--text);
+  }
+  .auth-layout {
+    grid-template-columns: 1fr;
+  }
+  .auth-hero {
+    min-height: 340px;
+  }
+}
+@media (max-width: 720px) {
+  .workspace {
+    padding: 18px;
+  }
+  .topbar,
+  .topbar__chips,
+  .panel__header,
+  .composer__footer,
+  .inline-actions,
+  .auth-hero__meta {
+    display: grid;
+
+云寻智慧农业AI工作台软件 1.0.0    第 102 页 / 共 102 页
+  }
+  .field-grid {
+    grid-template-columns: 1fr;
+  }
+  .auth-hero__content,
+  .auth-panel {
+    padding: 24px 20px;
+  }
+}

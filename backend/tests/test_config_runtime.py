@@ -42,7 +42,34 @@ class ConfigRuntimeTestCase(unittest.TestCase):
             validate_startup_settings(make_settings(environment="production", jwt_secret="x" * 32, allowed_origins_raw="*"))
 
     def test_production_accepts_secure_settings(self) -> None:
-        validate_startup_settings(make_settings(environment="production", jwt_secret="x" * 32, allowed_origins_raw="https://example.com"))
+        validate_startup_settings(make_settings(environment="production", jwt_secret="x" * 32, allowed_origins_raw="https://example.com", cookie_secure=True))
+
+    def test_production_byok_requires_independent_encryption_key(self) -> None:
+        with self.assertRaises(ValueError):
+            validate_startup_settings(
+                make_settings(
+                    environment="production",
+                    jwt_secret="x" * 32,
+                    allowed_origins_raw="https://example.com",
+                    cookie_secure=True,
+                    byok_enabled=True,
+                    byok_allowed_providers_raw="openai",
+                )
+            )
+
+    def test_production_compatible_provider_requires_allowlist(self) -> None:
+        with self.assertRaises(ValueError):
+            validate_startup_settings(
+                make_settings(
+                    environment="production",
+                    jwt_secret="x" * 32,
+                    allowed_origins_raw="https://example.com",
+                    cookie_secure=True,
+                    byok_enabled=True,
+                    credential_encryption_key="configured-separately",
+                    byok_allowed_providers_raw="openai-compatible",
+                )
+            )
 
     def test_example_api_key_is_not_treated_as_configured(self) -> None:
         self.assertFalse(has_real_api_key(""))

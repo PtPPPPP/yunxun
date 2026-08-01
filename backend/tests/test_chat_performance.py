@@ -19,7 +19,12 @@ class ChatDataScaleTestCase(unittest.TestCase):
                 conn = sqlite3.connect(db_path)
                 sessions = [(f"s{i:03}", "u1", "title", "chat", "model", f"2026-01-01T00:{i // 60:02}:{i % 60:02}+00:00", f"2026-01-01T00:{i // 60:02}:{i % 60:02}+00:00") for i in range(100)]
                 conn.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)", ("u1", "user", "hash", "User", "model", "2026", "2026"))
-                conn.executemany("INSERT INTO chat_sessions VALUES (?, ?, ?, ?, ?, ?, ?)", sessions)
+                conn.executemany(
+                    """INSERT INTO chat_sessions
+                       (id, user_id, title, feature, model_name, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    sessions,
+                )
                 messages = []
                 for session_index in range(100):
                     for message_index in range(100):

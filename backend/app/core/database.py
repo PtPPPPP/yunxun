@@ -10,7 +10,7 @@ from backend.app.core.config import get_settings
 
 
 logger = logging.getLogger("yunxun.backend.database")
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def get_db_path() -> Path:
@@ -93,8 +93,51 @@ def _apply_schema_v1(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_tokens_expires_at ON auth_tokens(expires_at)")
 
 
+def _apply_schema_v2(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_model_credentials (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            model TEXT NOT NULL,
+            base_url TEXT NOT NULL,
+            encrypted_api_key BLOB NOT NULL,
+            key_fingerprint TEXT NOT NULL,
+            is_default INTEGER NOT NULL DEFAULT 0 CHECK(is_default IN (0, 1)),
+            is_enabled INTEGER NOT NULL DEFAULT 1 CHECK(is_enabled IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_verified_at TEXT,
+            last_verify_status TEXT,
+            last_verify_error_code TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_model_credentials_user_updated "
+        "ON user_model_credentials(user_id, updated_at DESC)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_model_credentials_one_default "
+        "ON user_model_credentials(user_id) WHERE is_default = 1"
+    )
+    if "model_config_id" not in _table_columns(conn, "chat_sessions"):
+        conn.execute(
+            "ALTER TABLE chat_sessions ADD COLUMN model_config_id TEXT "
+            "REFERENCES user_model_credentials(id) ON DELETE SET NULL"
+        )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chat_sessions_model_config "
+        "ON chat_sessions(model_config_id)"
+    )
+
+
 def migrate_schema(conn: sqlite3.Connection) -> tuple[int, list[str]]:
     current = int(conn.execute("PRAGMA user_version").fetchone()[0])
+    starting_version = current
     if current > SCHEMA_VERSION:
         raise sqlite3.DatabaseError(
             f"数据库 Schema 版本 {current} 高于当前代码支持的 {SCHEMA_VERSION}。"
@@ -110,7 +153,18 @@ def migrate_schema(conn: sqlite3.Connection) -> tuple[int, list[str]]:
             conn.rollback()
             raise
         applied.append("1_initial_secure_schema")
-    return current, applied
+        current = 1
+    if current < 2:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            _apply_schema_v2(conn)
+            conn.execute("PRAGMA user_version = 2")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        applied.append("2_user_model_credentials")
+    return starting_version, applied
 
 
 def init_db() -> None:

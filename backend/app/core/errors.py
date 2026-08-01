@@ -35,6 +35,17 @@ class ErrorCode:
     NOT_FOUND = "NOT_FOUND"
     BAD_REQUEST = "BAD_REQUEST"
     RATE_LIMITED = "RATE_LIMITED"
+    MODEL_CONFIG_NOT_FOUND = "MODEL_CONFIG_NOT_FOUND"
+    MODEL_PROVIDER_UNSUPPORTED = "MODEL_PROVIDER_UNSUPPORTED"
+    MODEL_BASE_URL_NOT_ALLOWED = "MODEL_BASE_URL_NOT_ALLOWED"
+    MODEL_KEY_REQUIRED = "MODEL_KEY_REQUIRED"
+    MODEL_KEY_INVALID = "MODEL_KEY_INVALID"
+    MODEL_AUTH_FAILED = "MODEL_AUTH_FAILED"
+    MODEL_RATE_LIMITED = "MODEL_RATE_LIMITED"
+    MODEL_TIMEOUT = "MODEL_TIMEOUT"
+    MODEL_RESPONSE_INVALID = "MODEL_RESPONSE_INVALID"
+    MODEL_CONFIG_CONFLICT = "MODEL_CONFIG_CONFLICT"
+    CREDENTIAL_ENCRYPTION_UNAVAILABLE = "CREDENTIAL_ENCRYPTION_UNAVAILABLE"
 
 
 class AppError(HTTPException):
@@ -109,3 +120,7 @@ def rate_limited(retry_after: int) -> AppError:
 
 def not_found(message: str = "资源不存在或已被删除。") -> AppError:
     return AppError(code=ErrorCode.NOT_FOUND, message=message, status_code=404)
+
+
+def model_config_error(code: str, message: str, status_code: int) -> AppError:
+    return AppError(code=code, message=message, status_code=status_code)

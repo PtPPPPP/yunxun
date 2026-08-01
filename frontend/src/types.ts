@@ -1,4 +1,28 @@
-export type FeatureKey = "chat" | "vision" | "decision";
+export type FeatureKey = "chat" | "vision" | "decision" | "models";
+
+export interface ModelConfig {
+  id: string;
+  provider: string;
+  display_name: string;
+  model: string;
+  base_url: string;
+  masked_key: string;
+  is_default: boolean;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+  last_verified_at: string | null;
+  last_verify_status: string | null;
+  last_verify_error_code: string | null;
+}
+
+export interface ModelConfigStatus {
+  enabled: boolean;
+  persistence_enabled: boolean;
+  allowed_providers: string[];
+  system_model_available: boolean;
+  configs: ModelConfig[];
+}
 
 export interface HealthPayload {
   success: boolean;
@@ -31,6 +55,7 @@ export interface SessionItem {
   title: string;
   feature: string;
   model_name: string;
+  model_config_id: string | null;
   created_at: string;
   updated_at: string;
   last_message: string;

@@ -3,14 +3,14 @@ import { FormEvent, Suspense, lazy, useCallback, useEffect, useMemo, useState } 
 import { AuthScreen } from "./components/AuthScreen";
 import { ChatWorkspace } from "./components/ChatWorkspace";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { ModelSettings } from "./components/ModelSettings";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { useChatController } from "./features/chat/useChatController";
 import { useAsyncGuard } from "./hooks/useAsyncGuard";
-import { api, getErrorMessage, setAuthToken } from "./lib/api";
+import { api, getErrorMessage } from "./lib/api";
 import { fileToBase64, formatFileSize, imageAcceptValue, validateImageFile } from "./lib/imageUpload";
-import { clearStoredAuthToken, persistAuthToken, readStoredAuthToken } from "./lib/tokenStorage";
-import { FeatureKey, HealthPayload, User } from "./types";
+import { FeatureKey, HealthPayload, ModelConfigStatus, User } from "./types";
 
 const VisionWorkspace = lazy(() =>
   import("./components/VisionWorkspace").then((module) => ({ default: module.VisionWorkspace })),
@@ -23,13 +23,14 @@ export default function App() {
   const [health, setHealth] = useState<HealthPayload | null>(null);
   const [bootLoading, setBootLoading] = useState(true);
   const [error, setError] = useState("");
-  const [token, setToken] = useState(readStoredAuthToken());
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authForm, setAuthForm] = useState({ username: "", password: "", displayName: "" });
   const [user, setUser] = useState<User | null>(null);
   const [activeFeature, setActiveFeature] = useState<FeatureKey>("chat");
   const [settingsName, setSettingsName] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
+  const [selectedModelConfigId, setSelectedModelConfigId] = useState<string | null>(null);
+  const [modelConfigStatus, setModelConfigStatus] = useState<ModelConfigStatus | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
@@ -54,7 +55,20 @@ export default function App() {
   const decisionAction = useAsyncGuard();
   const models = useMemo(() => health?.available_models ?? [], [health]);
   const handleError = useCallback((message: string) => setError(message), []);
-  const chat = useChatController({ selectedModel, onError: handleError });
+  const chat = useChatController({ selectedModel, selectedModelConfigId, onError: handleError });
+
+  const applyModelConfigStatus = useCallback((status: ModelConfigStatus) => {
+    setModelConfigStatus(status);
+    setSelectedModelConfigId((current) => {
+      if (current && status.configs.some((config) => config.id === current && config.is_enabled)) return current;
+      return status.configs.find((config) => config.is_default && config.is_enabled)?.id ?? null;
+    });
+  }, []);
+
+  const loadModelConfigs = useCallback(async () => {
+    const response = await api.get<ModelConfigStatus & { success: true }>("/api/model-configs");
+    applyModelConfigStatus(response.data);
+  }, [applyModelConfigStatus]);
 
   const loadMe = useCallback(async (availableModels: string[]) => {
     const response = await api.get<{ success: true; user: User }>("/api/me");
@@ -64,21 +78,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    setAuthToken(token || null);
-    try {
-      persistAuthToken(token);
-    } catch (storageError) {
-      setError(getErrorMessage(storageError));
-    }
-  }, [token]);
-
-  useEffect(() => {
     async function bootstrap() {
       try {
         const response = await api.get<HealthPayload>("/api/health");
         setHealth(response.data);
-        if (token) {
-          await Promise.all([loadMe(response.data.available_models), chat.refreshSessions()]);
+        await api.get("/api/auth/csrf");
+        try {
+          await Promise.all([loadMe(response.data.available_models), chat.refreshSessions(), loadModelConfigs()]);
+        } catch {
+          // 未登录时 /api/me 返回 401；保留认证界面即可。
         }
       } catch (requestError) {
         setError(getErrorMessage(requestError, "后端未连接，请先启动服务。"));
@@ -88,7 +96,7 @@ export default function App() {
     }
 
     void bootstrap();
-  }, [chat.refreshSessions, loadMe, token]);
+  }, [chat.refreshSessions, loadMe, loadModelConfigs]);
 
   useEffect(() => {
     if (!visionFile) {
@@ -101,9 +109,7 @@ export default function App() {
   }, [visionFile]);
 
   const applyAuthenticatedUser = useCallback(
-    (nextToken: string, nextUser: User) => {
-      setAuthToken(nextToken);
-      setToken(nextToken);
+    (_nextToken: string, nextUser: User) => {
       setUser(nextUser);
       setSettingsName(nextUser.display_name);
       setSelectedModel(nextUser.preferred_model || models[0] || "");
@@ -129,6 +135,7 @@ export default function App() {
         const response = await api.post<{ success: true; token: string; user: User }>(endpoint, payload);
         applyAuthenticatedUser(response.data.token, response.data.user);
         await chat.refreshSessions();
+        await loadModelConfigs();
       } catch (requestError) {
         setError(getErrorMessage(requestError));
       }
@@ -142,6 +149,7 @@ export default function App() {
         const response = await api.post<{ success: true; token: string; user: User }>("/api/auth/guest");
         applyAuthenticatedUser(response.data.token, response.data.user);
         await chat.refreshSessions();
+        await loadModelConfigs();
       } catch (requestError) {
         setError(getErrorMessage(requestError));
       }
@@ -174,10 +182,9 @@ export default function App() {
     } catch {
       // 本地状态仍需清理，避免失效后端阻止用户退出。
     }
-    setAuthToken(null);
-    clearStoredAuthToken();
-    setToken("");
     setUser(null);
+    setModelConfigStatus(null);
+    setSelectedModelConfigId(null);
     chat.reset();
   }
 
@@ -317,6 +324,8 @@ export default function App() {
         settingsName={settingsName}
         selectedModel={selectedModel || models[0] || ""}
         models={models}
+        modelConfigs={modelConfigStatus?.configs ?? []}
+        selectedModelConfigId={selectedModelConfigId}
         mobileOpen={sidebarOpen}
         sessionBusy={chat.sessionBusy}
         settingsBusy={settingsAction.busy}
@@ -335,6 +344,7 @@ export default function App() {
         onDeleteSession={() => setDeleteDialogOpen(true)}
         onSettingsNameChange={setSettingsName}
         onModelChange={setSelectedModel}
+        onModelConfigChange={setSelectedModelConfigId}
         onSaveSettings={() => void handleSaveSettings()}
         onLogout={() => void handleLogout()}
       />
@@ -347,7 +357,12 @@ export default function App() {
           <ChatWorkspace
             messages={chat.messages}
             draft={chat.draft}
-            selectedModel={selectedModel || models[0] || "未配置"}
+            selectedModel={
+              modelConfigStatus?.configs.find((config) => config.id === selectedModelConfigId)?.model
+              || selectedModel
+              || models[0]
+              || "未配置"
+            }
             maxMessageLength={health.max_message_length}
             activeSession={chat.activeSession}
             busy={chat.sendBusy}
@@ -399,6 +414,8 @@ export default function App() {
             />
           </Suspense>
         )}
+
+        {activeFeature === "models" && <ModelSettings onStatusChange={applyModelConfigStatus} />}
       </main>
 
       <ConfirmDialog

@@ -59,7 +59,9 @@ async def create_chat_session_api(
     request: ChatSessionCreateRequest,
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:
-    session = create_user_session(user["id"], request.title, request.feature, request.model_name)
+    session = create_user_session(
+        user["id"], request.title, request.feature, request.model_name, request.model_config_id
+    )
     return success_payload(session=session)
 
 
@@ -111,6 +113,7 @@ async def create_chat_message_api(
         user=user,
         message_text=request.message,
         model_name=request.model_name,
+        model_config_id=request.model_config_id,
         client_host=http_request.client.host if http_request.client else "local",
         idempotency_key=idempotency_key,
     )

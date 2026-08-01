@@ -1,12 +1,13 @@
 import { MessageSquareText, NotebookTabs, ScanSearch, Settings2, Sprout, Trash2, X } from "lucide-react";
 import { memo } from "react";
 
-import { FeatureKey, SessionItem, User } from "../types";
+import { FeatureKey, ModelConfig, SessionItem, User } from "../types";
 
 const featureLabels: Record<FeatureKey, string> = {
   chat: "智能问答",
   vision: "田间诊断",
   decision: "今日农活",
+  models: "模型设置",
 };
 
 interface SidebarProps {
@@ -18,6 +19,8 @@ interface SidebarProps {
   settingsName: string;
   selectedModel: string;
   models: string[];
+  modelConfigs: ModelConfig[];
+  selectedModelConfigId: string | null;
   mobileOpen: boolean;
   sessionBusy: boolean;
   settingsBusy: boolean;
@@ -30,6 +33,7 @@ interface SidebarProps {
   onDeleteSession: () => void;
   onSettingsNameChange: (value: string) => void;
   onModelChange: (value: string) => void;
+  onModelConfigChange: (value: string | null) => void;
   onSaveSettings: () => void;
   onLogout: () => void;
 }
@@ -44,6 +48,8 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
     settingsName,
     selectedModel,
     models,
+    modelConfigs,
+    selectedModelConfigId,
     mobileOpen,
     sessionBusy,
     settingsBusy,
@@ -56,6 +62,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
     onDeleteSession,
     onSettingsNameChange,
     onModelChange,
+    onModelConfigChange,
     onSaveSettings,
     onLogout,
   } = props;
@@ -89,7 +96,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
       </button>
 
       <nav className="feature-nav" aria-label="功能菜单">
-        {(["chat", "vision", "decision"] as FeatureKey[]).map((feature) => (
+        {(["chat", "vision", "decision", "models"] as FeatureKey[]).map((feature) => (
           <button
             key={feature}
             type="button"
@@ -102,6 +109,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
             {feature === "chat" && <MessageSquareText size={18} />}
             {feature === "vision" && <ScanSearch size={18} />}
             {feature === "decision" && <NotebookTabs size={18} />}
+            {feature === "models" && <Settings2 size={18} />}
             <span>{featureLabels[feature]}</span>
           </button>
         ))}
@@ -165,12 +173,34 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
         <label className="field">
           <span>默认模型</span>
           <div className="field-control field-control--select">
-            <select value={selectedModel} onChange={(event) => onModelChange(event.target.value)}>
-              {models.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
+            <select
+              value={selectedModelConfigId ? `config:${selectedModelConfigId}` : `system:${selectedModel}`}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (value.startsWith("config:")) {
+                  onModelConfigChange(value.slice(7));
+                } else {
+                  onModelConfigChange(null);
+                  onModelChange(value.slice(7));
+                }
+              }}
+            >
+              <optgroup label="系统模型">
+                {models.map((model) => (
+                  <option key={model} value={`system:${model}`}>
+                    {model}
+                  </option>
+                ))}
+              </optgroup>
+              {modelConfigs.length > 0 && (
+                <optgroup label="我的模型">
+                  {modelConfigs.filter((config) => config.is_enabled).map((config) => (
+                    <option key={config.id} value={`config:${config.id}`}>
+                      {config.display_name} · {config.model}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </div>
         </label>

@@ -1,0 +1,105 @@
+{
+  "baseline": "v1.0.0 / b952778 / Schema 1",
+  "screenshots": [
+    {
+      "number": 1,
+      "fileName": "01-登录页.png",
+      "description": "登录入口、软件品牌和运行状态"
+    },
+    {
+      "number": 2,
+      "fileName": "02-用户注册.png",
+      "description": "注册字段与虚构示例数据"
+    },
+    {
+      "number": 3,
+      "fileName": "03-访客首页.png",
+      "description": "访客登录后的完整工作台"
+    },
+    {
+      "number": 4,
+      "fileName": "04-农技问答空状态.png",
+      "description": "问答示例、上下文卡片与输入区"
+    },
+    {
+      "number": 5,
+      "fileName": "05-新建农技会话.png",
+      "description": "新会话问题准备状态"
+    },
+    {
+      "number": 6,
+      "fileName": "06-消息发送中.png",
+      "description": "消息乐观展示和处理中状态"
+    },
+    {
+      "number": 7,
+      "fileName": "07-演示模式回复.png",
+      "description": "V1.0 演示模式固定回复与安全提示"
+    },
+    {
+      "number": 8,
+      "fileName": "08-会话历史列表.png",
+      "description": "多个虚构农技会话的历史记录"
+    },
+    {
+      "number": 9,
+      "fileName": "09-会话重命名.png",
+      "description": "当前会话标题修改完成状态"
+    },
+    {
+      "number": 10,
+      "fileName": "10-会话删除确认.png",
+      "description": "删除会话前的二次确认对话框"
+    },
+    {
+      "number": 11,
+      "fileName": "11-长会话历史.png",
+      "description": "长会话分页和更早消息入口"
+    },
+    {
+      "number": 12,
+      "fileName": "12-发送失败恢复.png",
+      "description": "消息失败、错误提示和输入恢复状态"
+    },
+    {
+      "number": 13,
+      "fileName": "13-图片诊断入口.png",
+      "description": "图片上传、作物选择和现场描述入口"
+    },
+    {
+      "number": 14,
+      "fileName": "14-图片校验提示.png",
+      "description": "不支持文件格式的前端校验提示"
+    },
+    {
+      "number": 15,
+      "fileName": "15-图片初步诊断结果.png",
+      "description": "演示图片的初步排查建议与安全边界"
+    },
+    {
+      "number": 16,
+      "fileName": "16-今日农活输入.png",
+      "description": "虚构田间条件输入界面"
+    },
+    {
+      "number": 17,
+      "fileName": "17-今日农活建议.png",
+      "description": "根据虚构条件生成的当日农活建议"
+    },
+    {
+      "number": 18,
+      "fileName": "18-用户资料设置.png",
+      "description": "显示名称、默认模型和退出入口"
+    },
+    {
+      "number": 19,
+      "fileName": "19-后端健康检查.png",
+      "description": "V1.0 后端健康状态 JSON"
+    },
+    {
+      "number": 20,
+      "fileName": "20-移动端导航.png",
+      "description": "390 x 844 移动端导航与响应式布局"
+    }
+  ]
+}

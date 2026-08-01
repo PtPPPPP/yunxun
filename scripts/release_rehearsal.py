@@ -86,7 +86,7 @@ def main() -> None:
         run([npm, "run", "build"], project / "frontend")
         database = workspace / "rehearsal.db"
         env = os.environ.copy()
-        env.update({"YUNXUN_ENV": "production", "YUNXUN_DEBUG": "false", "YUNXUN_PORT": str(PORT),
+        env.update({"YUNXUN_ENV": "production", "YUNXUN_DEBUG": "false", "YUNXUN_COOKIE_SECURE": "true", "YUNXUN_PORT": str(PORT),
             "YUNXUN_HOST": "127.0.0.1", "YUNXUN_DB_PATH": str(database),
             "YUNXUN_JWT_SECRET": "release-rehearsal-secret-1234567890", "YUNXUN_ALLOWED_ORIGINS": "https://example.com", "DOUBAO_API_KEY": ""})
         run([str(python), "scripts/check_release.py"], project, env)

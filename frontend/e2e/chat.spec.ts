@@ -62,6 +62,39 @@ test("移动端导航、输入和布局", async ({ page }) => {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
+test("模型设置不持久化原始 API Key", async ({ page }) => {
+  await guestLogin(page);
+  const testKey = "sk-e2e-placeholder-not-real";
+  await page.route("**/api/model-configs/test", async (route) => {
+    const payload = route.request().postDataJSON();
+    expect(payload.api_key).toBe(testKey);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, status: "success", provider: "openai", model: "gpt-test", elapsed_ms: 8 }) });
+  });
+
+  await page.getByRole("button", { name: "模型设置" }).click();
+  await expect(page.getByRole("heading", { name: "模型设置" })).toBeVisible();
+  await page.getByLabel("配置名称").fill("E2E OpenAI");
+  await page.getByLabel("模型名称").fill("gpt-test");
+  const keyInput = page.getByLabel("API Key");
+  await keyInput.fill(testKey);
+  await page.getByRole("button", { name: "测试连接" }).click();
+  await expect(keyInput).toHaveValue("");
+
+  await keyInput.fill(testKey);
+  await page.getByRole("button", { name: "保存配置" }).click();
+  await expect(page.locator(".model-card h3", { hasText: "E2E OpenAI" })).toBeVisible();
+  await expect(page.getByText(testKey)).toHaveCount(0);
+  await page.reload();
+  await page.getByRole("button", { name: "模型设置" }).click();
+  await expect(page.getByText(/已配置 · [a-f0-9]{10}/)).toBeVisible();
+  await expect(page.getByText(testKey)).toHaveCount(0);
+  expect(await page.evaluate((key) => JSON.stringify(localStorage).includes(key), testKey)).toBe(false);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "删除" }).click();
+  await expect(page.locator(".model-card h3", { hasText: "E2E OpenAI" })).toHaveCount(0);
+});
+
 test("消息失败后恢复输入并用同一幂等键重试", async ({ page }) => {
   await guestLogin(page);
   const keys: string[] = [];
@@ -90,8 +123,8 @@ test("消息失败后恢复输入并用同一幂等键重试", async ({ page }) 
 test("长会话暂停跟随、回到最新并保持历史加载位置", async ({ page }) => {
   test.setTimeout(60_000);
   await guestLogin(page);
-  const token = await page.evaluate(() => localStorage.getItem("yunxun.auth.token"));
-  const headers = { Authorization: `Bearer ${token}` };
+  const csrfToken = await page.evaluate(() => document.cookie.split(";").map((item) => item.trim()).find((item) => item.startsWith("yunxun_csrf="))?.split("=", 2)[1]);
+  const headers = { "X-CSRF-Token": csrfToken ?? "" };
   const created = await page.request.post("http://127.0.0.1:8011/api/chat/sessions", {
     headers, data: { title: "滚动测试", feature: "chat", model_name: "doubao-seed-1-6-250615" },
   });

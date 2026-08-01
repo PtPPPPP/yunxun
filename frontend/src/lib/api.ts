@@ -7,6 +7,20 @@ const REQUEST_TIMEOUT_MS = 45000;
 export const api = axios.create({
   baseURL,
   timeout: REQUEST_TIMEOUT_MS,
+  withCredentials: true,
+});
+
+function readCookie(name: string): string {
+  const prefix = `${name}=`;
+  return document.cookie.split(";").map((item) => item.trim()).find((item) => item.startsWith(prefix))?.slice(prefix.length) ?? "";
+}
+
+api.interceptors.request.use((config) => {
+  if (config.method && !["get", "head", "options"].includes(config.method.toLowerCase())) {
+    const csrfToken = readCookie("yunxun_csrf");
+    if (csrfToken) config.headers.set("X-CSRF-Token", csrfToken);
+  }
+  return config;
 });
 
 export function setAuthToken(token: string | null): void {
