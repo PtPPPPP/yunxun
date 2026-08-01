@@ -1,4 +1,4 @@
-import { ClipboardCopy, SendHorizonal, Sparkles } from "lucide-react";
+import { ClipboardCopy, RotateCcw, SendHorizonal, Sparkles, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MessageItem, SessionItem } from "../types";
@@ -16,6 +16,10 @@ interface ChatWorkspaceProps {
   onSend: () => void;
   onUsePrompt: (prompt: string) => void;
   onOpenFeature: (feature: "vision" | "decision") => void;
+  onClearSession: () => void;
+  onRegenerate: () => void;
+  regenerateBusy: boolean;
+  onExport: (format: "txt" | "md") => void;
 }
 
 const prompts = [
@@ -39,12 +43,33 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
     onSend,
     onUsePrompt,
     onOpenFeature,
+    onClearSession,
+    onRegenerate,
+    regenerateBusy,
+    onExport,
   } = props;
 
   const threadRef = useRef<HTMLDivElement>(null);
   const [followLatest, setFollowLatest] = useState(true);
   const [showLatestButton, setShowLatestButton] = useState(false);
   const loadingOlderRef = useRef(false);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [copyErrorMessageId, setCopyErrorMessageId] = useState<string | null>(null);
+  const latestAssistantId = [...messages].reverse().find((message) => message.role === "assistant")?.id;
+
+  const copyReply = useCallback(async (message: MessageItem) => {
+    try {
+      const { copyTextToClipboard } = await import("../lib/clipboard");
+      await copyTextToClipboard(message.content);
+      setCopyErrorMessageId(null);
+      setCopiedMessageId(message.id);
+      window.setTimeout(() => setCopiedMessageId((current) => current === message.id ? null : current), 1600);
+    } catch {
+      setCopiedMessageId(null);
+      setCopyErrorMessageId(message.id);
+      window.setTimeout(() => setCopyErrorMessageId((current) => current === message.id ? null : current), 2400);
+    }
+  }, []);
 
   const loadOlder = useCallback(async () => {
     const thread = threadRef.current;
@@ -90,6 +115,15 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
             <p>{activeSession ? "当前会话会持续保存在后端。" : "发出第一条消息后，会自动创建会话记录。"}</p>
           </div>
           <div className="panel__meta">模型：{selectedModel}</div>
+        </div>
+
+        <div className="chat-toolbar">
+          <select aria-label="导出当前会话格式" value="" onChange={(event) => { if (event.target.value) onExport(event.target.value as "txt" | "md"); }} disabled={messages.length === 0}>
+            <option value="">导出</option>
+            <option value="txt">TXT</option>
+            <option value="md">Markdown</option>
+          </select>
+          <button className="ghost-button" type="button" onClick={onClearSession} disabled={!activeSession || messages.length === 0 || busy || regenerateBusy} aria-label="清空当前会话"><Trash2 size={15} />清空</button>
         </div>
 
         <div
@@ -139,14 +173,20 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
                   {message.delivery_status === "pending" && <div className="message-state">处理中</div>}
                   {message.delivery_status === "failed" && <div className="message-state">未完成</div>}
                   {message.role === "assistant" && !message.delivery_status && (
+                    <div className="message-actions">
+                    {copyErrorMessageId === message.id && <span className="message-copy-feedback">复制失败，请手动选择文本</span>}
                     <button
                       className="ghost-button message-copy"
                       type="button"
-                      onClick={() => navigator.clipboard.writeText(message.content)}
+                      onClick={() => void copyReply(message)}
+                      aria-label="复制 AI 回复"
                     >
                       <ClipboardCopy size={15} />
                       复制
                     </button>
+                    {copiedMessageId === message.id && <span className="message-copy-feedback">已复制</span>}
+                    {message.id === latestAssistantId && <button className="ghost-button message-copy" type="button" onClick={onRegenerate} disabled={regenerateBusy || busy} aria-label="重新生成最近回复"><RotateCcw size={15} />重新生成</button>}
+                    </div>
                   )}
                 </div>
               </article>

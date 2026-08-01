@@ -197,13 +197,6 @@ class Settings:
     idempotency_window_seconds: float = 10.0
     cookie_secure: bool = False
     cookie_same_site: str = "lax"
-    byok_enabled: bool = False
-    byok_allow_persistence: bool = True
-    byok_allowed_providers_raw: str = "openai,deepseek,openai-compatible"
-    byok_allowed_base_urls_raw: str = ""
-    credential_encryption_key: str = ""
-    byok_allow_http: bool = False
-    byok_test_requests_per_minute: int = 5
 
     @property
     def idempotency_enabled(self) -> bool:
@@ -270,15 +263,6 @@ class Settings:
     def is_production(self) -> bool:
         return self.environment.strip().lower() == "production"
 
-    @property
-    def byok_allowed_providers(self) -> list[str]:
-        return [item.lower() for item in _parse_csv("BYOK_ALLOWED_PROVIDERS", self.byok_allowed_providers_raw)]
-
-    @property
-    def byok_allowed_base_urls(self) -> list[str]:
-        return _parse_csv("BYOK_ALLOWED_BASE_URLS", self.byok_allowed_base_urls_raw)
-
-
 def validate_startup_settings(settings: Settings) -> None:
     environment = settings.environment.strip().lower()
     if not settings.jwt_secret.strip():
@@ -292,14 +276,6 @@ def validate_startup_settings(settings: Settings) -> None:
             raise ValueError("生产环境必须配置明确的 YUNXUN_ALLOWED_ORIGINS，禁止使用通配符。")
         if not settings.cookie_secure:
             raise ValueError("生产环境必须启用 YUNXUN_COOKIE_SECURE。")
-        if settings.byok_enabled and settings.byok_allow_persistence and not settings.credential_encryption_key:
-            raise ValueError("生产环境启用 BYOK 持久化时必须配置 YUNXUN_CREDENTIAL_ENCRYPTION_KEY。")
-        if (
-            settings.byok_enabled
-            and "openai-compatible" in settings.byok_allowed_providers
-            and not settings.byok_allowed_base_urls
-        ):
-            raise ValueError("生产环境允许 openai-compatible 时必须配置 BYOK_ALLOWED_BASE_URLS 白名单。")
     settings.normalized_log_level
 
 
@@ -368,27 +344,4 @@ def get_settings() -> Settings:
         ),
         cookie_secure=_parse_bool("YUNXUN_COOKIE_SECURE", _getenv("YUNXUN_COOKIE_SECURE"), default=False),
         cookie_same_site=_parse_optional_str("YUNXUN_COOKIE_SAME_SITE", _getenv("YUNXUN_COOKIE_SAME_SITE"), default="lax").lower(),
-        byok_enabled=_parse_bool("BYOK_ENABLED", _getenv("BYOK_ENABLED"), default=False),
-        byok_allow_persistence=_parse_bool("BYOK_ALLOW_PERSISTENCE", _getenv("BYOK_ALLOW_PERSISTENCE"), default=True),
-        byok_allowed_providers_raw=_parse_optional_str(
-            "BYOK_ALLOWED_PROVIDERS",
-            _getenv("BYOK_ALLOWED_PROVIDERS"),
-            default="openai,deepseek,openai-compatible",
-        ),
-        byok_allowed_base_urls_raw=_parse_optional_str(
-            "BYOK_ALLOWED_BASE_URLS", _getenv("BYOK_ALLOWED_BASE_URLS"), default=""
-        ),
-        credential_encryption_key=_parse_optional_str(
-            "YUNXUN_CREDENTIAL_ENCRYPTION_KEY",
-            _getenv("YUNXUN_CREDENTIAL_ENCRYPTION_KEY"),
-            default="",
-        ),
-        byok_allow_http=_parse_bool("BYOK_ALLOW_HTTP", _getenv("BYOK_ALLOW_HTTP"), default=False),
-        byok_test_requests_per_minute=_parse_int(
-            "BYOK_TEST_REQUESTS_PER_MINUTE",
-            _getenv("BYOK_TEST_REQUESTS_PER_MINUTE"),
-            default=5,
-            minimum=1,
-            maximum=60,
-        ),
     )

@@ -10,7 +10,7 @@ from backend.app.core.config import get_settings
 
 
 logger = logging.getLogger("yunxun.backend.database")
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 
 
 def get_db_path() -> Path:
@@ -135,6 +135,39 @@ def _apply_schema_v2(conn: sqlite3.Connection) -> None:
     )
 
 
+def _apply_schema_v3(conn: sqlite3.Connection) -> None:
+    """Remove the user-managed model credential surface while preserving all user data."""
+    if "user_model_credentials" in _table_names(conn):
+        count = conn.execute("SELECT COUNT(*) FROM user_model_credentials").fetchone()[0]
+        logger.info("Removing legacy user model credentials rows=%s", count)
+    conn.execute("DROP INDEX IF EXISTS idx_chat_sessions_model_config")
+    if "model_config_id" in _table_columns(conn, "chat_sessions"):
+        conn.execute("ALTER TABLE chat_sessions DROP COLUMN model_config_id")
+    conn.execute("DROP INDEX IF EXISTS idx_model_credentials_user_updated")
+    conn.execute("DROP INDEX IF EXISTS idx_model_credentials_one_default")
+    conn.execute("DROP TABLE IF EXISTS user_model_credentials")
+
+
+def _apply_schema_v4(conn: sqlite3.Connection) -> None:
+    columns = _table_columns(conn, "chat_sessions")
+    if "is_pinned" not in columns:
+        conn.execute(
+            "ALTER TABLE chat_sessions ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0 "
+            "CHECK(is_pinned IN (0, 1))"
+        )
+    if "pinned_at" not in columns:
+        conn.execute("ALTER TABLE chat_sessions ADD COLUMN pinned_at TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_feature_pinned_updated "
+        "ON chat_sessions(user_id, feature, is_pinned DESC, pinned_at DESC, updated_at DESC, id DESC)"
+    )
+
+
+def _table_names(conn: sqlite3.Connection) -> set[str]:
+    rows = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+    return {row[0] for row in rows}
+
+
 def migrate_schema(conn: sqlite3.Connection) -> tuple[int, list[str]]:
     current = int(conn.execute("PRAGMA user_version").fetchone()[0])
     starting_version = current
@@ -164,6 +197,28 @@ def migrate_schema(conn: sqlite3.Connection) -> tuple[int, list[str]]:
             conn.rollback()
             raise
         applied.append("2_user_model_credentials")
+        current = 2
+    if current < 3:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            _apply_schema_v3(conn)
+            conn.execute("PRAGMA user_version = 3")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        applied.append("3_remove_user_model_credentials")
+        current = 3
+    if current < 4:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            _apply_schema_v4(conn)
+            conn.execute("PRAGMA user_version = 4")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        applied.append("4_session_pinning")
     return starting_version, applied
 
 

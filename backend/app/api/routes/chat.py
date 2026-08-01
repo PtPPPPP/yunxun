@@ -4,15 +4,18 @@ from backend.app.api.deps import get_current_user
 from backend.app.core.config import get_settings
 from backend.app.core.exceptions import success_payload
 from backend.app.core.pagination import build_page, decode_cursor, parse_page_params
-from backend.app.schemas import ChatMessageRequest, ChatSessionCreateRequest, ChatSessionRenameRequest
+from backend.app.schemas import ChatMessageRequest, ChatSessionCreateRequest, ChatSessionPinRequest, ChatSessionRenameRequest
 from backend.app.services.chat import (
     build_session_stats,
+    clear_user_session,
     create_session_message,
     create_user_session,
     delete_user_session,
     get_session_detail,
     list_user_sessions,
     list_user_sessions_page,
+    pin_user_session,
+    regenerate_latest_reply,
     rename_user_session,
 )
 
@@ -59,9 +62,7 @@ async def create_chat_session_api(
     request: ChatSessionCreateRequest,
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:
-    session = create_user_session(
-        user["id"], request.title, request.feature, request.model_name, request.model_config_id
-    )
+    session = create_user_session(user["id"], request.title, request.feature, request.model_name)
     return success_payload(session=session)
 
 
@@ -100,6 +101,40 @@ async def delete_chat_session_api(
     return success_payload(message="会话已删除。")
 
 
+@router.patch("/sessions/{session_id}/pin")
+async def pin_chat_session_api(
+    session_id: str,
+    request: ChatSessionPinRequest,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    return success_payload(session=pin_user_session(session_id, user["id"], request.is_pinned))
+
+
+@router.post("/sessions/{session_id}/clear")
+async def clear_chat_session_api(
+    session_id: str,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    return success_payload(**clear_user_session(session_id, user["id"]))
+
+
+@router.post("/sessions/{session_id}/regenerate")
+async def regenerate_chat_message_api(
+    session_id: str,
+    http_request: Request,
+    idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    return success_payload(
+        **await regenerate_latest_reply(
+            session_id,
+            user,
+            http_request.client.host if http_request.client else "local",
+            idempotency_key,
+        )
+    )
+
+
 @router.post("/sessions/{session_id}/messages")
 async def create_chat_message_api(
     session_id: str,
@@ -113,7 +148,6 @@ async def create_chat_message_api(
         user=user,
         message_text=request.message,
         model_name=request.model_name,
-        model_config_id=request.model_config_id,
         client_host=http_request.client.host if http_request.client else "local",
         idempotency_key=idempotency_key,
     )

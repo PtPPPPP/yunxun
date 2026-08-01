@@ -26,43 +26,19 @@ class ChatSessionCreateRequest(BaseModel):
     title: str = Field("新会话", min_length=1, max_length=48)
     feature: str = Field("chat", min_length=1, max_length=20)
     model_name: str = Field("", max_length=64)
-    model_config_id: str | None = Field(None, max_length=64)
 
 
 class ChatMessageRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=settings.max_message_length)
     model_name: str = Field("", max_length=64)
-    model_config_id: str | None = Field(None, max_length=64)
-
-
-class ModelConfigCreateRequest(BaseModel):
-    provider: str = Field(..., min_length=1, max_length=32)
-    display_name: str = Field(..., min_length=1, max_length=64)
-    model: str = Field(..., min_length=1, max_length=128)
-    base_url: str = Field("", max_length=512)
-    api_key: str = Field(..., min_length=8, max_length=512)
-    is_default: bool = False
-
-
-class ModelConfigUpdateRequest(BaseModel):
-    provider: str = Field(..., min_length=1, max_length=32)
-    display_name: str = Field(..., min_length=1, max_length=64)
-    model: str = Field(..., min_length=1, max_length=128)
-    base_url: str = Field("", max_length=512)
-    api_key: str | None = Field(None, min_length=8, max_length=512)
-    replace_api_key: bool = False
-    is_enabled: bool = True
-
-
-class ModelConfigTestRequest(BaseModel):
-    provider: str = Field(..., min_length=1, max_length=32)
-    model: str = Field(..., min_length=1, max_length=128)
-    base_url: str = Field("", max_length=512)
-    api_key: str = Field(..., min_length=8, max_length=512)
 
 
 class ChatSessionRenameRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=48)
+
+
+class ChatSessionPinRequest(BaseModel):
+    is_pinned: bool
 
 
 class VisionRequest(BaseModel):

@@ -12,6 +12,8 @@ def build_health_payload() -> dict[str, object]:
     settings = get_settings()
     status = build_runtime_status(settings)
     return {
+        "app_name": status["app_name"],
+        "app_version": status["app_version"],
         "mode": status["mode"],
         "ai_configured": status["ai_configured"],
         "model_status": status["model_status"],

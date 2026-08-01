@@ -44,7 +44,8 @@ def public_session(record: dict[str, Any], last_message: str = "") -> dict[str, 
         "title": record["title"],
         "feature": record["feature"],
         "model_name": record["model_name"],
-        "model_config_id": record.get("model_config_id"),
+        "is_pinned": bool(record.get("is_pinned", 0)),
+        "pinned_at": record.get("pinned_at"),
         "created_at": record["created_at"],
         "updated_at": record["updated_at"],
         "last_message": last_message,
@@ -142,7 +143,6 @@ def create_session(
     title: str,
     feature: str,
     model_name: str,
-    model_config_id: str | None = None,
 ) -> dict[str, Any]:
     session_id = uuid.uuid4().hex
     timestamp = now_iso()
@@ -150,10 +150,10 @@ def create_session(
         conn.execute(
             """
             INSERT INTO chat_sessions
-                (id, user_id, title, feature, model_name, model_config_id, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, user_id, title, feature, model_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (session_id, user_id, title, feature, model_name, model_config_id, timestamp, timestamp),
+            (session_id, user_id, title, feature, model_name, timestamp, timestamp),
         )
         row = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
     return dict(row)
@@ -178,7 +178,7 @@ def list_sessions(user_id: str, feature: str) -> list[dict[str, Any]]:
                 ) AS last_message
             FROM chat_sessions s
             WHERE s.user_id = ? AND s.feature = ?
-            ORDER BY s.updated_at DESC, s.id DESC
+            ORDER BY s.is_pinned DESC, s.pinned_at DESC, s.updated_at DESC, s.id DESC
             """,
             (user_id, feature),
         ).fetchall()
@@ -203,7 +203,7 @@ def _session_list_query() -> str:
             ) AS last_message
         FROM chat_sessions s
         WHERE s.user_id = ? AND s.feature = ?
-        ORDER BY s.updated_at DESC, s.id DESC
+        ORDER BY s.is_pinned DESC, s.pinned_at DESC, s.updated_at DESC, s.id DESC
     """
 
 
@@ -273,21 +273,78 @@ def rename_session(session_id: str, title: str) -> dict[str, Any]:
     return dict(row)
 
 
-def set_session_model_config(
-    session_id: str,
-    model_config_id: str | None,
-    model_name: str,
-) -> dict[str, Any]:
-    updated_at = now_iso()
+def set_session_pinned(session_id: str, is_pinned: bool) -> dict[str, Any]:
     with get_connection() as conn:
+        current = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
+        if current is None:
+            raise LookupError("chat session disappeared while changing pin state")
+        if bool(current["is_pinned"]) == is_pinned:
+            return dict(current)
+        pinned_at = now_iso() if is_pinned else None
+        updated_at = now_iso()
         conn.execute(
-            "UPDATE chat_sessions SET model_config_id = ?, model_name = ?, updated_at = ? WHERE id = ?",
-            (model_config_id, model_name, updated_at, session_id),
+            "UPDATE chat_sessions SET is_pinned = ?, pinned_at = ?, updated_at = ? WHERE id = ?",
+            (int(is_pinned), pinned_at, updated_at, session_id),
         )
         row = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
     if row is None:
-        raise LookupError("chat session disappeared while changing model configuration")
+        raise LookupError("chat session disappeared while changing pin state")
     return dict(row)
+
+
+def clear_session_messages(session_id: str) -> tuple[dict[str, Any], int]:
+    updated_at = now_iso()
+    with get_connection() as conn:
+        session_row = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
+        if session_row is None:
+            raise LookupError("chat session disappeared while clearing messages")
+        count = int(
+            conn.execute("SELECT COUNT(*) FROM chat_messages WHERE session_id = ?", (session_id,)).fetchone()[0]
+        )
+        conn.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
+        conn.execute("UPDATE chat_sessions SET updated_at = ? WHERE id = ?", (updated_at, session_id))
+        updated_session = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
+    return dict(updated_session), count
+
+
+def latest_session_exchange(session_id: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT 2",
+            (session_id,),
+        ).fetchall()
+    latest = dict(rows[0]) if rows else None
+    previous = dict(rows[1]) if len(rows) > 1 else None
+    return previous, latest
+
+
+def replace_latest_assistant_message(
+    session_id: str,
+    assistant_message_id: str | None,
+    content: str,
+    model_name: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    updated_at = now_utc().isoformat(timespec="microseconds")
+    with get_connection() as conn:
+        session_row = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
+        if session_row is None:
+            raise LookupError("chat session disappeared while saving regenerated reply")
+        if assistant_message_id:
+            conn.execute(
+                "UPDATE chat_messages SET content = ?, created_at = ? WHERE id = ? AND session_id = ? AND role = 'assistant'",
+                (content, updated_at, assistant_message_id, session_id),
+            )
+            message_row = conn.execute("SELECT * FROM chat_messages WHERE id = ?", (assistant_message_id,)).fetchone()
+        else:
+            message_id = uuid.uuid4().hex
+            conn.execute(
+                "INSERT INTO chat_messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)",
+                (message_id, session_id, content, updated_at),
+            )
+            message_row = conn.execute("SELECT * FROM chat_messages WHERE id = ?", (message_id,)).fetchone()
+        conn.execute("UPDATE chat_sessions SET model_name = ?, updated_at = ? WHERE id = ?", (model_name, updated_at, session_id))
+        updated_session = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
+    return public_message(dict(message_row)), dict(updated_session)
 
 
 def delete_session(session_id: str) -> None:
@@ -301,7 +358,6 @@ def save_chat_exchange(
     user_content: str,
     assistant_content: str,
     model_name: str,
-    model_config_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """在一个事务中保存一轮完整对话并更新会话元数据。"""
     exchange_time = now_utc()
@@ -336,10 +392,10 @@ def save_chat_exchange(
         conn.execute(
             """
             UPDATE chat_sessions
-            SET title = ?, model_name = ?, model_config_id = ?, updated_at = ?
+            SET title = ?, model_name = ?, updated_at = ?
             WHERE id = ?
             """,
-            (next_title, model_name, model_config_id, assistant_created_at, session_id),
+            (next_title, model_name, assistant_created_at, session_id),
         )
         user_row = conn.execute("SELECT * FROM chat_messages WHERE id = ?", (user_message_id,)).fetchone()
         assistant_row = conn.execute("SELECT * FROM chat_messages WHERE id = ?", (assistant_message_id,)).fetchone()

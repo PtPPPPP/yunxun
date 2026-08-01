@@ -5,8 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api.routes import auth, chat, model_configs, system, tools
-from backend.app.core.byok_security import CredentialCipher
+from backend.app.api.routes import auth, chat, system, tools
 from backend.app.core.config import get_settings, validate_startup_settings
 from backend.app.core.database import init_db
 from backend.app.core.exceptions import (
@@ -26,8 +25,6 @@ logger = logging.getLogger("yunxun.backend")
 def create_app() -> FastAPI:
     settings = get_settings()
     validate_startup_settings(settings)
-    if settings.is_production and settings.byok_enabled and settings.byok_allow_persistence:
-        CredentialCipher(settings.credential_encryption_key)
     log_runtime_status(logger, settings)
     init_db()
 
@@ -89,7 +86,6 @@ def create_app() -> FastAPI:
     app.include_router(system.router)
     app.include_router(auth.router)
     app.include_router(chat.router)
-    app.include_router(model_configs.router)
     app.include_router(tools.router)
 
     logger.info("Application initialized", extra={"host": settings.host, "port": settings.port})

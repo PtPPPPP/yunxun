@@ -3,14 +3,14 @@ import { FormEvent, Suspense, lazy, useCallback, useEffect, useMemo, useState } 
 import { AuthScreen } from "./components/AuthScreen";
 import { ChatWorkspace } from "./components/ChatWorkspace";
 import { ConfirmDialog } from "./components/ConfirmDialog";
-import { ModelSettings } from "./components/ModelSettings";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { useChatController } from "./features/chat/useChatController";
 import { useAsyncGuard } from "./hooks/useAsyncGuard";
 import { api, getErrorMessage } from "./lib/api";
 import { fileToBase64, formatFileSize, imageAcceptValue, validateImageFile } from "./lib/imageUpload";
-import { FeatureKey, HealthPayload, ModelConfigStatus, User } from "./types";
+import { buildSessionExport, downloadTextFile } from "./lib/sessionExport";
+import { FeatureKey, HealthPayload, User } from "./types";
 
 const VisionWorkspace = lazy(() =>
   import("./components/VisionWorkspace").then((module) => ({ default: module.VisionWorkspace })),
@@ -29,10 +29,11 @@ export default function App() {
   const [activeFeature, setActiveFeature] = useState<FeatureKey>("chat");
   const [settingsName, setSettingsName] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
-  const [selectedModelConfigId, setSelectedModelConfigId] = useState<string | null>(null);
-  const [modelConfigStatus, setModelConfigStatus] = useState<ModelConfigStatus | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [sessionQuery, setSessionQuery] = useState("");
+  const [infoPanel, setInfoPanel] = useState<"help" | "about" | null>(null);
 
   const [visionFile, setVisionFile] = useState<File | null>(null);
   const [visionPreview, setVisionPreview] = useState<string | null>(null);
@@ -55,20 +56,12 @@ export default function App() {
   const decisionAction = useAsyncGuard();
   const models = useMemo(() => health?.available_models ?? [], [health]);
   const handleError = useCallback((message: string) => setError(message), []);
-  const chat = useChatController({ selectedModel, selectedModelConfigId, onError: handleError });
-
-  const applyModelConfigStatus = useCallback((status: ModelConfigStatus) => {
-    setModelConfigStatus(status);
-    setSelectedModelConfigId((current) => {
-      if (current && status.configs.some((config) => config.id === current && config.is_enabled)) return current;
-      return status.configs.find((config) => config.is_default && config.is_enabled)?.id ?? null;
-    });
-  }, []);
-
-  const loadModelConfigs = useCallback(async () => {
-    const response = await api.get<ModelConfigStatus & { success: true }>("/api/model-configs");
-    applyModelConfigStatus(response.data);
-  }, [applyModelConfigStatus]);
+  const chat = useChatController({ selectedModel, onError: handleError });
+  const filteredSessions = useMemo(() => {
+    const query = sessionQuery.trim().toLocaleLowerCase();
+    if (!query) return chat.sessions;
+    return chat.sessions.filter((session) => session.title.trim().toLocaleLowerCase().includes(query));
+  }, [chat.sessions, sessionQuery]);
 
   const loadMe = useCallback(async (availableModels: string[]) => {
     const response = await api.get<{ success: true; user: User }>("/api/me");
@@ -84,7 +77,7 @@ export default function App() {
         setHealth(response.data);
         await api.get("/api/auth/csrf");
         try {
-          await Promise.all([loadMe(response.data.available_models), chat.refreshSessions(), loadModelConfigs()]);
+          await Promise.all([loadMe(response.data.available_models), chat.refreshSessions()]);
         } catch {
           // 未登录时 /api/me 返回 401；保留认证界面即可。
         }
@@ -96,7 +89,7 @@ export default function App() {
     }
 
     void bootstrap();
-  }, [chat.refreshSessions, loadMe, loadModelConfigs]);
+  }, [chat.refreshSessions, loadMe]);
 
   useEffect(() => {
     if (!visionFile) {
@@ -135,7 +128,6 @@ export default function App() {
         const response = await api.post<{ success: true; token: string; user: User }>(endpoint, payload);
         applyAuthenticatedUser(response.data.token, response.data.user);
         await chat.refreshSessions();
-        await loadModelConfigs();
       } catch (requestError) {
         setError(getErrorMessage(requestError));
       }
@@ -149,7 +141,6 @@ export default function App() {
         const response = await api.post<{ success: true; token: string; user: User }>("/api/auth/guest");
         applyAuthenticatedUser(response.data.token, response.data.user);
         await chat.refreshSessions();
-        await loadModelConfigs();
       } catch (requestError) {
         setError(getErrorMessage(requestError));
       }
@@ -183,8 +174,6 @@ export default function App() {
       // 本地状态仍需清理，避免失效后端阻止用户退出。
     }
     setUser(null);
-    setModelConfigStatus(null);
-    setSelectedModelConfigId(null);
     chat.reset();
   }
 
@@ -276,6 +265,25 @@ export default function App() {
     }
   }
 
+  async function confirmClearSession() {
+    const cleared = await chat.clearActiveSession();
+    if (cleared) setClearDialogOpen(false);
+  }
+
+  function handleExport(format: "txt" | "md") {
+    if (!chat.activeSession || chat.messages.length === 0) {
+      setError("当前会话没有可导出的消息。");
+      return;
+    }
+    try {
+      const exported = buildSessionExport(chat.activeSession, chat.messages, format);
+      downloadTextFile(exported.filename, exported.content, exported.mimeType);
+      setError("");
+    } catch {
+      setError("导出失败，请稍后重试。");
+    }
+  }
+
   if (bootLoading) {
     return <div className="app-loading">正在加载云寻AI...</div>;
   }
@@ -318,14 +326,12 @@ export default function App() {
       <Sidebar
         user={user}
         activeFeature={activeFeature}
-        sessions={chat.sessions}
+        sessions={filteredSessions}
         activeSessionId={chat.activeSessionId}
         renameTitle={chat.renameTitle}
         settingsName={settingsName}
         selectedModel={selectedModel || models[0] || ""}
         models={models}
-        modelConfigs={modelConfigStatus?.configs ?? []}
-        selectedModelConfigId={selectedModelConfigId}
         mobileOpen={sidebarOpen}
         sessionBusy={chat.sessionBusy}
         settingsBusy={settingsAction.busy}
@@ -344,7 +350,11 @@ export default function App() {
         onDeleteSession={() => setDeleteDialogOpen(true)}
         onSettingsNameChange={setSettingsName}
         onModelChange={setSelectedModel}
-        onModelConfigChange={setSelectedModelConfigId}
+        sessionQuery={sessionQuery}
+        onSessionQueryChange={setSessionQuery}
+        onPinSession={(sessionId, isPinned) => void chat.pinSession(sessionId, isPinned)}
+        onOpenHelp={() => setInfoPanel("help")}
+        onOpenAbout={() => setInfoPanel("about")}
         onSaveSettings={() => void handleSaveSettings()}
         onLogout={() => void handleLogout()}
       />
@@ -358,8 +368,7 @@ export default function App() {
             messages={chat.messages}
             draft={chat.draft}
             selectedModel={
-              modelConfigStatus?.configs.find((config) => config.id === selectedModelConfigId)?.model
-              || selectedModel
+              selectedModel
               || models[0]
               || "未配置"
             }
@@ -372,6 +381,10 @@ export default function App() {
             onSend={() => void chat.sendMessage()}
             onUsePrompt={chat.setDraft}
             onOpenFeature={setActiveFeature}
+            onClearSession={() => setClearDialogOpen(true)}
+            onRegenerate={() => void chat.regenerateLatestReply()}
+            regenerateBusy={chat.regenerateBusy}
+            onExport={handleExport}
           />
         )}
 
@@ -415,7 +428,6 @@ export default function App() {
           </Suspense>
         )}
 
-        {activeFeature === "models" && <ModelSettings onStatusChange={applyModelConfigStatus} />}
       </main>
 
       <ConfirmDialog
@@ -427,6 +439,16 @@ export default function App() {
         onConfirm={() => void confirmDeleteSession()}
         onCancel={() => setDeleteDialogOpen(false)}
       />
+      <ConfirmDialog
+        open={clearDialogOpen}
+        title="清空当前会话"
+        description="只删除当前会话中的消息，保留会话标题、模型和置顶状态。此操作不能撤销。"
+        confirmLabel="确认清空"
+        busy={chat.sessionBusy || chat.sendBusy || chat.regenerateBusy}
+        onConfirm={() => void confirmClearSession()}
+        onCancel={() => setClearDialogOpen(false)}
+      />
+      {infoPanel && <div className="dialog-backdrop" role="presentation" onMouseDown={() => setInfoPanel(null)}><section className="confirm-dialog info-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="ghost-button info-dialog__close" type="button" onClick={() => setInfoPanel(null)} aria-label="关闭">关闭</button>{infoPanel === "help" ? <><h3>使用帮助</h3><p>注册、登录或使用访客模式后，可以新建会话并发送农业问题。</p><ul><li>历史会话支持搜索、重命名、置顶和删除。</li><li>图片诊断用于上传作物图片并获得初步判断。</li><li>今日农活根据输入的天气和墒情生成建议。</li><li>AI 回复支持复制、导出和重新生成。</li><li>清空会话只删除消息，不删除会话本身。</li><li>未配置系统模型时，应用会使用本地演示模式。</li></ul></> : <><h3>关于软件</h3><p>软件全称：{health.app_name}</p><p>软件简称：云寻 AI</p><p>软件版本：V{health.app_version}</p><p>当前运行模式：{health.mode}</p><p>主要功能：智能问答、会话管理、图片诊断和今日农活计划。</p></>}</section></div>}
     </div>
   );
 }

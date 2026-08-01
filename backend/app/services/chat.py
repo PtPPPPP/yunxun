@@ -22,6 +22,7 @@ from backend.app.repositories import (
     count_messages_for_user,
     count_sessions,
     count_sessions_by_feature,
+    clear_session_messages,
     create_session,
     delete_session,
     get_session,
@@ -29,14 +30,15 @@ from backend.app.repositories import (
     list_messages_page,
     list_sessions,
     list_sessions_page,
+    latest_session_exchange,
     public_session,
     rename_session,
+    replace_latest_assistant_message,
     save_chat_exchange,
+    set_session_pinned,
     safe_text,
 )
 from backend.app.services.assistant import build_local_chat_reply, create_chat_reply
-from backend.app.services.byok_provider import call_chat_completion
-from backend.app.services.model_configs import resolve_runtime_model_config
 
 
 rate_limiter = InMemoryRateLimiter()
@@ -58,24 +60,15 @@ def create_user_session(
     title: str,
     feature: str,
     model_name: str,
-    model_config_id: str | None = None,
 ) -> dict[str, str]:
     settings = get_settings()
     normalized_title = safe_text(title, "新会话")
-    explicit_system_model = model_config_id is None and bool(model_name.strip())
-    runtime_config = None if explicit_system_model else resolve_runtime_model_config(user_id, model_config_id, None)
-    normalized_model = (
-        runtime_config["model"]
-        if runtime_config
-        else choose_model(model_name, settings.available_models, settings.chat_endpoint)
-    )
-    selected_config_id = runtime_config["id"] if runtime_config else None
+    normalized_model = choose_model(model_name, settings.available_models, settings.chat_endpoint)
     session_record = create_session(
         user_id,
         normalized_title,
         feature.strip(),
         normalized_model,
-        selected_config_id,
     )
     log_event(
         logger,
@@ -84,7 +77,6 @@ def create_user_session(
         session_id=session_record["id"],
         feature=feature.strip(),
         model_name=normalized_model,
-        config_id=selected_config_id,
     )
     return public_session(session_record)
 
@@ -144,9 +136,92 @@ def delete_user_session(session_id: str, user_id: str) -> None:
     log_event(logger, "chat_session_delete", user_id=user_id, session_id=session_id)
 
 
+def pin_user_session(session_id: str, user_id: str, is_pinned: bool) -> dict[str, str]:
+    require_session_owner(session_id, user_id)
+    session_record = set_session_pinned(session_id, is_pinned)
+    log_event(logger, "chat_session_pin", user_id=user_id, session_id=session_id, is_pinned=is_pinned)
+    return public_session(session_record)
+
+
+def clear_user_session(session_id: str, user_id: str) -> dict[str, object]:
+    require_session_owner(session_id, user_id)
+    session_record, cleared_count = clear_session_messages(session_id)
+    log_event(logger, "chat_session_clear", user_id=user_id, session_id=session_id, cleared_count=cleared_count)
+    return {"session": public_session(session_record), "cleared_count": cleared_count}
+
+
 def build_history(session_id: str) -> list[dict[str, str]]:
     history = list_messages(session_id)
     return [{"role": item["role"], "content": item["content"]} for item in history[-12:]]
+
+
+async def regenerate_latest_reply(
+    session_id: str,
+    user: dict[str, str],
+    client_host: str,
+    idempotency_key: str | None = None,
+) -> dict[str, object]:
+    settings = get_settings()
+    session_record = require_session_owner(session_id, user["id"])
+    rate_limiter.check(f"{user['id']}:{client_host}", settings.requests_per_minute)
+    previous, latest = latest_session_exchange(session_id)
+    if latest is None or latest["role"] != "user":
+        if latest is None or latest["role"] != "assistant" or previous is None or previous["role"] != "user":
+            raise HTTPException(status_code=400, detail="当前会话没有可重新生成的 AI 回复。")
+        user_message = previous
+        assistant_id = latest["id"]
+    else:
+        user_message = latest
+        assistant_id = None
+    selected_model = choose_model(
+        session_record["model_name"] or user["preferred_model"],
+        settings.available_models,
+        settings.chat_endpoint,
+    )
+    key_hash = build_fingerprint("regenerate", user["id"], session_id, user_message["id"])
+    request_hash = build_fingerprint(user_message["id"], user_message["content"], selected_model)
+    lease_id: str | None = None
+    if settings.idempotency_enabled:
+        claim = idempotency_store.begin(
+            owner_id=user["id"],
+            key_hash=key_hash if not idempotency_key else build_fingerprint("regenerate", user["id"], session_id, idempotency_key),
+            request_fingerprint=request_hash,
+            ttl_seconds=max(settings.idempotency_window_seconds, settings.ai_timeout_seconds + 5),
+        )
+        if claim.state == "completed":
+            if claim.response_body is None:
+                raise duplicate_request()
+            return claim.response_body
+        if claim.state in {"in_flight", "conflict"}:
+            raise duplicate_request() if claim.state == "in_flight" else idempotency_conflict()
+        lease_id = claim.lease_id
+        key_hash = key_hash if not idempotency_key else build_fingerprint("regenerate", user["id"], session_id, idempotency_key)
+    try:
+        history = build_history(session_id)
+        if assistant_id and history and history[-1]["role"] == "assistant":
+            history.pop()
+        if not history or history[-1]["role"] != "user":
+            history.append({"role": "user", "content": user_message["content"]})
+        reply = await create_chat_reply(history, selected_model) if settings.ai_configured else build_local_chat_reply(user_message["content"])
+        assistant_message, updated_session = replace_latest_assistant_message(
+            session_id, assistant_id, reply, selected_model
+        )
+    except HTTPException:
+        if lease_id:
+            idempotency_store.fail(owner_id=user["id"], key_hash=key_hash, lease_id=lease_id)
+        raise
+    except Exception as exc:
+        if lease_id:
+            idempotency_store.fail(owner_id=user["id"], key_hash=key_hash, lease_id=lease_id)
+        raise model_unavailable() from exc
+    payload = {"assistant_message": assistant_message, "session": public_session(updated_session)}
+    if lease_id:
+        idempotency_store.complete(
+            owner_id=user["id"], key_hash=key_hash, lease_id=lease_id,
+            response_status=200, response_body=payload, ttl_seconds=settings.idempotency_window_seconds,
+        )
+    log_event(logger, "chat_message_regenerate", user_id=user["id"], session_id=session_id, model_name=selected_model)
+    return payload
 
 
 async def create_session_message(
@@ -156,7 +231,6 @@ async def create_session_message(
     model_name: str,
     client_host: str,
     idempotency_key: str | None = None,
-    model_config_id: str | None = None,
 ) -> dict[str, object]:
     settings = get_settings()
     session_record = require_session_owner(session_id, user["id"])
@@ -179,33 +253,14 @@ async def create_session_message(
 
     # 显式请求标识用于网络重试；旧客户端没有标识时仍按消息内容防双击。
     explicit_key = idempotency_key.strip() if idempotency_key and idempotency_key.strip() else None
-    explicit_system_model = model_config_id is None and bool(model_name.strip())
-    runtime_config = (
-        None
-        if explicit_system_model
-        else resolve_runtime_model_config(
-            user["id"],
-            model_config_id,
-            session_record.get("model_config_id"),
-        )
+    selected_model = choose_model(
+        model_name or session_record["model_name"] or user["preferred_model"],
+        settings.available_models,
+        settings.chat_endpoint,
     )
-    selected_model = (
-        runtime_config["model"]
-        if runtime_config
-        else choose_model(
-            model_name or session_record["model_name"] or user["preferred_model"],
-            settings.available_models,
-            settings.chat_endpoint,
-        )
-    )
-    selected_config_id = runtime_config["id"] if runtime_config else None
     request_identity = explicit_key or normalized_message
     key_hash = build_fingerprint("chat", user["id"], session_id, request_identity)
-    request_hash = (
-        build_fingerprint(normalized_message, selected_model, selected_config_id)
-        if selected_config_id
-        else build_fingerprint(normalized_message, selected_model)
-    )
+    request_hash = build_fingerprint(normalized_message, selected_model)
     lease_id: str | None = None
     if settings.idempotency_enabled:
         claim = idempotency_store.begin(
@@ -225,16 +280,7 @@ async def create_session_message(
             raise idempotency_conflict()
         lease_id = claim.lease_id
     try:
-        if runtime_config:
-            history = build_history(session_id)
-            history.append({"role": "user", "content": normalized_message})
-            reply, _ = await call_chat_completion(
-                base_url=runtime_config["base_url"],
-                api_key=runtime_config["api_key"],
-                model=selected_model,
-                history=history,
-            )
-        elif settings.ai_configured:
+        if settings.ai_configured:
             history = build_history(session_id)
             history.append({"role": "user", "content": normalized_message})
             reply = await create_chat_reply(history, selected_model)
@@ -248,7 +294,6 @@ async def create_session_message(
             normalized_message,
             reply,
             selected_model,
-            selected_config_id,
         )
     except HTTPException:
         if lease_id:
@@ -264,7 +309,6 @@ async def create_session_message(
         user_id=user["id"],
         session_id=session_id,
         model_name=selected_model,
-        config_id=selected_config_id,
         reply_length=len(reply),
     )
     payload = {

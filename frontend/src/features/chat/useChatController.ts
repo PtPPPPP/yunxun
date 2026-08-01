@@ -17,15 +17,21 @@ const DEFAULT_SESSION_TITLE = "新会话";
 
 interface ChatControllerOptions {
   selectedModel: string;
-  selectedModelConfigId: string | null;
   onError: (message: string) => void;
 }
 
 function upsertSession(sessions: SessionItem[], nextSession: SessionItem): SessionItem[] {
-  return [nextSession, ...sessions.filter((session) => session.id !== nextSession.id)];
+  return [nextSession, ...sessions.filter((session) => session.id !== nextSession.id)].sort((left, right) => {
+    if (left.is_pinned !== right.is_pinned) return left.is_pinned ? -1 : 1;
+    const leftPinnedAt = left.pinned_at ?? "";
+    const rightPinnedAt = right.pinned_at ?? "";
+    if (leftPinnedAt !== rightPinnedAt) return rightPinnedAt.localeCompare(leftPinnedAt);
+    if (left.updated_at !== right.updated_at) return right.updated_at.localeCompare(left.updated_at);
+    return right.id.localeCompare(left.id);
+  });
 }
 
-export function useChatController({ selectedModel, selectedModelConfigId, onError }: ChatControllerOptions) {
+export function useChatController({ selectedModel, onError }: ChatControllerOptions) {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageItem[]>([]);
@@ -35,6 +41,7 @@ export function useChatController({ selectedModel, selectedModelConfigId, onErro
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const sendAction = useAsyncGuard();
   const sessionAction = useAsyncGuard();
+  const regenerateAction = useAsyncGuard();
   const activeSessionIdRef = useRef<string | null>(null);
   const loadControllerRef = useRef<AbortController | null>(null);
   const retryRef = useRef<{ prompt: string; requestId: string } | null>(null);
@@ -59,6 +66,7 @@ export function useChatController({ selectedModel, selectedModelConfigId, onErro
 
   const clearActiveChat = useCallback(() => {
     setActiveSessionId(null);
+    activeSessionIdRef.current = null;
     setMessages([]);
     setRenameTitle(DEFAULT_SESSION_TITLE);
   }, []);
@@ -122,14 +130,13 @@ export function useChatController({ selectedModel, selectedModelConfigId, onErro
       title: DEFAULT_SESSION_TITLE,
       feature: "chat",
       model_name: selectedModel,
-      model_config_id: selectedModelConfigId,
     });
     setActiveSessionId(response.data.session.id);
     activeSessionIdRef.current = response.data.session.id;
     setRenameTitle(response.data.session.title);
     syncSession(response.data.session);
     return response.data.session.id;
-  }, [activeSessionId, selectedModel, selectedModelConfigId, syncSession]);
+  }, [activeSessionId, selectedModel, syncSession]);
 
   const sendMessage = useCallback(async () => {
     await sendAction.run(async () => {
@@ -157,7 +164,7 @@ export function useChatController({ selectedModel, selectedModelConfigId, onErro
           session: SessionItem;
         }>(
           `/api/chat/sessions/${sessionId}/messages`,
-          { message: prompt, model_name: selectedModel, model_config_id: selectedModelConfigId },
+          { message: prompt, model_name: selectedModel },
           { headers: { "X-Idempotency-Key": requestId } },
         );
 
@@ -177,7 +184,7 @@ export function useChatController({ selectedModel, selectedModelConfigId, onErro
         onError(getErrorMessage(error));
       }
     });
-  }, [draft, ensureSession, onError, selectedModel, selectedModelConfigId, sendAction, syncSession]);
+  }, [draft, ensureSession, onError, selectedModel, sendAction, syncSession]);
 
   const renameActiveSession = useCallback(async () => {
     if (!activeSessionId) {
@@ -217,6 +224,70 @@ export function useChatController({ selectedModel, selectedModelConfigId, onErro
     return deleted ?? false;
   }, [activeSessionId, clearActiveChat, onError, sendAction, sessionAction]);
 
+  const pinSession = useCallback(async (sessionId: string, isPinned: boolean) => {
+    await sessionAction.run(async () => {
+      try {
+        const response = await api.patch<{ success: true; session: SessionItem }>(
+          `/api/chat/sessions/${sessionId}/pin`,
+          { is_pinned: isPinned },
+        );
+        syncSession(response.data.session);
+        onError("");
+      } catch (error) {
+        onError(getErrorMessage(error));
+      }
+    });
+  }, [onError, sessionAction, syncSession]);
+
+  const clearActiveSession = useCallback(async () => {
+    if (!activeSessionId || sendAction.isRunning() || regenerateAction.isRunning()) return false;
+    const cleared = await sessionAction.run(async () => {
+      try {
+        const response = await api.post<{ success: true; session: SessionItem; cleared_count: number }>(
+          `/api/chat/sessions/${activeSessionId}/clear`,
+        );
+        if (activeSessionIdRef.current !== activeSessionId) return false;
+        setMessages([]);
+        syncSession(response.data.session);
+        onError("");
+        return true;
+      } catch (error) {
+        onError(getErrorMessage(error));
+        return false;
+      }
+    });
+    return cleared ?? false;
+  }, [activeSessionId, onError, regenerateAction, sendAction, sessionAction, syncSession]);
+
+  const regenerateLatestReply = useCallback(async () => {
+    if (!activeSessionId || sendAction.isRunning() || sessionAction.isRunning() || regenerateAction.isRunning()) return false;
+    const regenerated = await regenerateAction.run(async () => {
+      try {
+        const requestId = crypto.randomUUID();
+        const response = await api.post<{ success: true; assistant_message: MessageItem; session: SessionItem }>(
+          `/api/chat/sessions/${activeSessionId}/regenerate`,
+          undefined,
+          { headers: { "X-Idempotency-Key": requestId } },
+        );
+        if (activeSessionIdRef.current !== activeSessionId) return false;
+        setMessages((current) => {
+          const index = current.findIndex((message) => message.id === response.data.assistant_message.id);
+          if (index < 0) return [...current, response.data.assistant_message];
+          const next = [...current];
+          next[index] = response.data.assistant_message;
+          return next;
+        });
+        syncSession(response.data.session);
+        onError("");
+        return true;
+      } catch (error) {
+        onError(getErrorMessage(error));
+        return false;
+      }
+    });
+    return regenerated ?? false;
+  }, [activeSessionId, onError, regenerateAction, sendAction, sessionAction, syncSession]);
+
   const updateDraft = useCallback((value: string) => {
     if (retryRef.current && value.trim() !== retryRef.current.prompt) retryRef.current = null;
     setDraft(value);
@@ -250,6 +321,7 @@ export function useChatController({ selectedModel, selectedModelConfigId, onErro
     renameTitle,
     draft,
     sendBusy: sendAction.busy,
+    regenerateBusy: regenerateAction.busy,
     sessionBusy: sessionAction.busy,
     hasOlderMessages,
     setRenameTitle,
@@ -260,6 +332,9 @@ export function useChatController({ selectedModel, selectedModelConfigId, onErro
     sendMessage,
     renameActiveSession,
     deleteActiveSession,
+    pinSession,
+    clearActiveSession,
+    regenerateLatestReply,
     clearActiveChat,
     reset,
   };

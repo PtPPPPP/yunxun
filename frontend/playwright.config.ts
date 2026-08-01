@@ -26,10 +26,6 @@ export default defineConfig({
         YUNXUN_ALLOWED_ORIGINS: "http://127.0.0.1:5174",
         YUNXUN_REQUESTS_PER_MINUTE: "600",
         DOUBAO_API_KEY: "",
-        BYOK_ENABLED: "true",
-        BYOK_ALLOW_PERSISTENCE: "true",
-        BYOK_ALLOWED_PROVIDERS: "openai",
-        YUNXUN_CREDENTIAL_ENCRYPTION_KEY: "ZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWU=",
       },
     },
     {
