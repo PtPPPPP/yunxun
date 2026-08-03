@@ -10,6 +10,7 @@ import { useAsyncGuard } from "./hooks/useAsyncGuard";
 import { api, getErrorMessage } from "./lib/api";
 import { fileToBase64, formatFileSize, imageAcceptValue, validateImageFile } from "./lib/imageUpload";
 import { buildSessionExport, downloadTextFile } from "./lib/sessionExport";
+import { formatAppVersion } from "./lib/appVersion";
 import { FeatureKey, HealthPayload, User } from "./types";
 
 const VisionWorkspace = lazy(() =>
@@ -448,7 +449,7 @@ export default function App() {
         onConfirm={() => void confirmClearSession()}
         onCancel={() => setClearDialogOpen(false)}
       />
-      {infoPanel && <div className="dialog-backdrop" role="presentation" onMouseDown={() => setInfoPanel(null)}><section className="confirm-dialog info-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="ghost-button info-dialog__close" type="button" onClick={() => setInfoPanel(null)} aria-label="关闭">关闭</button>{infoPanel === "help" ? <><h3>使用帮助</h3><p>注册、登录或使用访客模式后，可以新建会话并发送农业问题。</p><ul><li>历史会话支持搜索、重命名、置顶和删除。</li><li>图片诊断用于上传作物图片并获得初步判断。</li><li>今日农活根据输入的天气和墒情生成建议。</li><li>AI 回复支持复制、导出和重新生成。</li><li>清空会话只删除消息，不删除会话本身。</li><li>未配置系统模型时，应用会使用本地演示模式。</li></ul></> : <><h3>关于软件</h3><p>软件全称：{health.app_name}</p><p>软件简称：云寻 AI</p><p>软件版本：V{health.app_version}</p><p>当前运行模式：{health.mode}</p><p>主要功能：智能问答、会话管理、图片诊断和今日农活计划。</p></>}</section></div>}
+      {infoPanel && <div className="dialog-backdrop" role="presentation" onMouseDown={() => setInfoPanel(null)}><section className="confirm-dialog info-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="ghost-button info-dialog__close" type="button" onClick={() => setInfoPanel(null)} aria-label="关闭">关闭</button>{infoPanel === "help" ? <><h3>使用帮助</h3><p>注册、登录或使用访客模式后，可以新建会话并发送农业问题。</p><ul><li>历史会话支持搜索、重命名、置顶和删除。</li><li>图片诊断用于上传作物图片并获得初步判断。</li><li>今日农活根据输入的天气和墒情生成建议。</li><li>AI 回复支持复制、导出和重新生成。</li><li>清空会话只删除消息，不删除会话本身。</li><li>未配置系统模型时，应用会使用本地演示模式。</li></ul></> : <><h3>关于软件</h3><p>软件全称：{health.app_name}</p><p>软件简称：云寻 AI</p><p>软件版本：{formatAppVersion(health.app_version)}</p><p>当前运行模式：{health.mode}</p><p>主要功能：智能问答、会话管理、图片诊断和今日农活计划。</p></>}</section></div>}
     </div>
   );
 }

@@ -9,6 +9,7 @@ async function guestLogin(page: Page) {
 test("访客可以进入聊天工作台", async ({ page }) => {
   await guestLogin(page);
   await expect(page.getByRole("main")).toBeVisible();
+  await expect(page.locator(".app-version")).toHaveText(/^V\d+(?:\.\d+)+$/);
 });
 
 test("可以发送演示消息并刷新会话", async ({ page }) => {
