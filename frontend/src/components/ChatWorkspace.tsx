@@ -169,7 +169,12 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
                   className={`message-bubble${message.delivery_status ? ` message-bubble--${message.delivery_status}` : ""}`}
                 >
                   <div className="message-bubble__role">{message.role === "user" ? "你" : "云寻AI"}</div>
-                  <div className="message-bubble__content">{message.content}</div>
+                  <div className="message-bubble__content">
+                    {message.content}
+                    {message.role === "assistant" && message.delivery_status === "pending" && (
+                      <span className="streaming-cursor" aria-hidden="true" />
+                    )}
+                  </div>
                   {message.delivery_status === "pending" && <div className="message-state">处理中</div>}
                   {message.delivery_status === "failed" && <div className="message-state">未完成</div>}
                   {message.role === "assistant" && !message.delivery_status && (

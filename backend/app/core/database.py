@@ -10,7 +10,7 @@ from backend.app.core.config import get_settings
 
 
 logger = logging.getLogger("yunxun.backend.database")
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def get_db_path() -> Path:
@@ -163,6 +163,29 @@ def _apply_schema_v4(conn: sqlite3.Connection) -> None:
     )
 
 
+def _apply_schema_v5(conn: sqlite3.Connection) -> None:
+    """Persist image diagnosis and farm decision records for the user stats panel."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tool_records (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK(kind IN ('vision','decision')),
+            crop TEXT NOT NULL,
+            payload TEXT,
+            result TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_records_user_kind_created "
+        "ON tool_records(user_id, kind, created_at DESC, id DESC)"
+    )
+
+
 def _table_names(conn: sqlite3.Connection) -> set[str]:
     rows = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
     return {row[0] for row in rows}
@@ -219,6 +242,17 @@ def migrate_schema(conn: sqlite3.Connection) -> tuple[int, list[str]]:
             conn.rollback()
             raise
         applied.append("4_session_pinning")
+        current = 4
+    if current < 5:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            _apply_schema_v5(conn)
+            conn.execute("PRAGMA user_version = 5")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        applied.append("5_tool_records")
     return starting_version, applied
 
 

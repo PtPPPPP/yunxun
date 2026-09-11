@@ -8,6 +8,7 @@ const featureTitles: Record<FeatureKey, { title: string; subtitle: string }> = {
   chat: { title: "智能问答工作台", subtitle: "围绕农业问题持续沟通、整理方案和解释知识。" },
   vision: { title: "田间诊断台", subtitle: "提交作物照片和现场描述，获得初步判断与建议。" },
   decision: { title: "今日农活计划", subtitle: "结合天气、墒情和生长期生成今天可执行的安排。" },
+  stats: { title: "统计面板", subtitle: "回顾诊断、农活建议和问答的使用情况。" },
 };
 
 interface TopBarProps {

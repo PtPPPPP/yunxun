@@ -15,16 +15,18 @@
 | 系统模型聊天、超时、重试和错误处理 | 已实现并验证 | `backend/app/services/assistant.py`、聊天测试 |
 | 图片初步诊断 | 已实现并验证 | `backend/app/api/routes/tools.py`、视觉测试 |
 | 今日农活建议 | 已实现并验证 | `backend/app/services/decision.py` |
+| 诊断历史统计面板（tool_records 落库 + 统计接口 + 前端面板） | 已实现并验证 | `backend/app/core/database.py`（Schema 5）、`backend/app/api/routes/tools.py`、`backend/tests/test_tool_records.py`、`frontend/src/components/StatsWorkspace.tsx` |
+| 聊天流式输出（发送 + 重新生成，SSE） | 已实现并验证 | `backend/app/services/chat.py`、`backend/app/api/routes/chat.py`、`backend/tests/test_chat_stream.py`、`frontend/src/lib/streaming.ts` |
 | 系统模型环境配置 | 已实现并验证 | `backend/app/core/config.py`、系统测试 |
 | 用户手动接入模型 API Key | 已废弃 | 代码、路由、数据库表和前端入口已移除 |
 | PostgreSQL、Redis、Docker、公网 SaaS、计费、多租户 | 未实现 | 不在本轮范围 |
 
 ## 数据与风险
 
-- 迁移版本从 Schema 2 经过 Schema 3 前进到 Schema 4，移除旧凭据表和会话关联列，并增加会话置顶字段，保留用户、会话、消息、Token、幂等和审计数据。
+- 迁移版本从 Schema 2 经过 Schema 3、Schema 4 前进到 Schema 5，移除旧凭据表和会话关联列，增加会话置顶字段，新增 tool_records 表保存图片诊断与农活建议历史，保留用户、会话、消息、Token、幂等和审计数据。
 - 当前正式数据库中的旧凭据行数为 0；审计不输出任何密钥内容。
 - SQLite 适用于单机部署；公网和多实例能力不在 V1.0。
 
 ## 唯一下一方向
 
-完成本轮迁移、测试和交付审计后停止，不继续扩展业务功能。
+V1.0 交付后新增两个功能（诊断历史统计面板、聊天流式输出），已完成迁移、测试与回归。继续扩展业务功能需新的需求与安全评审。

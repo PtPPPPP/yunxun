@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -444,3 +445,120 @@ def list_messages_page(
     selected = rows[:limit]
     selected.reverse()
     return [public_message(dict(row)) for row in selected], has_more
+
+
+def public_tool_record(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": record["id"],
+        "kind": record["kind"],
+        "crop": record["crop"],
+        "result": record["result"],
+        "mode": record["mode"],
+        "created_at": record["created_at"],
+    }
+
+
+def create_tool_record(
+    user_id: str,
+    kind: str,
+    crop: str,
+    payload: dict[str, Any] | None,
+    result: str,
+    mode: str,
+) -> dict[str, Any]:
+    record_id = uuid.uuid4().hex
+    created_at = now_iso()
+
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO tool_records (id, user_id, kind, crop, payload, result, mode, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record_id,
+                user_id,
+                kind,
+                crop,
+                json.dumps(payload, ensure_ascii=False) if payload else None,
+                result,
+                mode,
+                created_at,
+            ),
+        )
+        row = conn.execute("SELECT * FROM tool_records WHERE id = ?", (record_id,)).fetchone()
+    return public_tool_record(dict(row))
+
+
+def list_tool_records_page(
+    user_id: str,
+    *,
+    kind: str | None = None,
+    limit: int = 20,
+    cursor: tuple[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
+    conditions = ["user_id = ?"]
+    params: list[Any] = [user_id]
+    if kind:
+        conditions.append("kind = ?")
+        params.append(kind)
+    if cursor:
+        conditions.append("(created_at < ? OR (created_at = ? AND id < ?))")
+        params.extend([cursor[0], cursor[0], cursor[1]])
+    params.append(limit + 1)
+    where_sql = " AND ".join(conditions)
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM tool_records WHERE " + where_sql
+            + " ORDER BY created_at DESC, id DESC LIMIT ?",
+            tuple(params),
+        ).fetchall()
+    has_more = len(rows) > limit
+    return [public_tool_record(dict(row)) for row in rows[:limit]], has_more
+
+
+def count_tool_records_by_kind(user_id: str) -> dict[str, int]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT kind, COUNT(*) AS total
+            FROM tool_records
+            WHERE user_id = ?
+            GROUP BY kind
+            """,
+            (user_id,),
+        ).fetchall()
+    return {str(row["kind"]): int(row["total"]) for row in rows}
+
+
+def summarize_tool_records(user_id: str, *, days: int = 14, top_crops: int = 5) -> dict[str, Any]:
+    """近 N 天按日计数与作物 Top K 汇总，供统计面板展示。"""
+    since = (now_utc() - timedelta(days=days - 1)).date().isoformat()
+    with get_connection() as conn:
+        day_rows = conn.execute(
+            """
+            SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS total
+            FROM tool_records
+            WHERE user_id = ? AND created_at >= ?
+            GROUP BY day
+            """,
+            (user_id, since),
+        ).fetchall()
+        crop_rows = conn.execute(
+            """
+            SELECT crop, COUNT(*) AS total
+            FROM tool_records
+            WHERE user_id = ?
+            GROUP BY crop
+            ORDER BY total DESC, crop ASC
+            LIMIT ?
+            """,
+            (user_id, top_crops),
+        ).fetchall()
+    by_day = {str(row["day"]): int(row["total"]) for row in day_rows}
+    return {
+        "since": since,
+        "days": days,
+        "by_day": by_day,
+        "top_crops": [{"crop": str(row["crop"]), "total": int(row["total"])} for row in crop_rows],
+    }

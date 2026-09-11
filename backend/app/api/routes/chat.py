@@ -1,4 +1,7 @@
+import json
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 
 from backend.app.api.deps import get_current_user
 from backend.app.core.config import get_settings
@@ -12,15 +15,37 @@ from backend.app.services.chat import (
     create_user_session,
     delete_user_session,
     get_session_detail,
+    iter_regenerate_stream,
+    iter_session_message_stream,
     list_user_sessions,
     list_user_sessions_page,
     pin_user_session,
+    prepare_regenerate_stream,
+    prepare_session_message_stream,
     regenerate_latest_reply,
     rename_user_session,
 )
 
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+
+def _sse_response(events) -> StreamingResponse:
+    """把 (event, payload) 序列包装为 SSE 响应。"""
+
+    async def encode():
+        async for kind, data in events:
+            yield f"event: {kind}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        encode(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+async def _single_done_event(payload: dict[str, object]):
+    yield "done", payload
 
 
 @router.get("/sessions")
@@ -152,3 +177,43 @@ async def create_chat_message_api(
         idempotency_key=idempotency_key,
     )
     return success_payload(**payload)
+
+
+@router.post("/sessions/{session_id}/messages/stream")
+async def create_chat_message_stream_api(
+    session_id: str,
+    request: ChatMessageRequest,
+    http_request: Request,
+    idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
+    user: dict[str, str] = Depends(get_current_user),
+) -> StreamingResponse:
+    # 校验与幂等领取在返回 SSE 响应前完成，失败时仍返回标准 HTTP 错误。
+    context = prepare_session_message_stream(
+        session_id=session_id,
+        user=user,
+        message_text=request.message,
+        model_name=request.model_name,
+        client_host=http_request.client.host if http_request.client else "local",
+        idempotency_key=idempotency_key,
+    )
+    if context.cached_payload is not None:
+        return _sse_response(_single_done_event(context.cached_payload))
+    return _sse_response(iter_session_message_stream(context))
+
+
+@router.post("/sessions/{session_id}/regenerate/stream")
+async def regenerate_chat_message_stream_api(
+    session_id: str,
+    http_request: Request,
+    idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
+    user: dict[str, str] = Depends(get_current_user),
+) -> StreamingResponse:
+    context = prepare_regenerate_stream(
+        session_id,
+        user,
+        http_request.client.host if http_request.client else "local",
+        idempotency_key,
+    )
+    if context.cached_payload is not None:
+        return _sse_response(_single_done_event(context.cached_payload))
+    return _sse_response(iter_regenerate_stream(context))

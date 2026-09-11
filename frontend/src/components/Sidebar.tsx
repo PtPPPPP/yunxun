@@ -1,4 +1,4 @@
-import { MessageSquareText, NotebookTabs, ScanSearch, Settings2, Sprout, Trash2, X } from "lucide-react";
+import { BarChart3, MessageSquareText, NotebookTabs, ScanSearch, Settings2, Sprout, Trash2, X } from "lucide-react";
 import { memo } from "react";
 
 import { FeatureKey, SessionItem, User } from "../types";
@@ -7,6 +7,7 @@ const featureLabels: Record<FeatureKey, string> = {
   chat: "智能问答",
   vision: "田间诊断",
   decision: "今日农活",
+  stats: "统计面板",
 };
 
 interface SidebarProps {
@@ -52,9 +53,9 @@ export const Sidebar = memo(function Sidebar({
       <div className="sidebar__brand"><div className="brand-mark"><Sprout size={20} /></div><div><div className="brand-name">云寻AI</div><div className="brand-subname">Agronomy cockpit</div></div></div>
       <button className="primary-button sidebar__new" type="button" onClick={() => { onCreateSession(); onClose(); }} disabled={sessionBusy}><MessageSquareText size={16} />新建会话</button>
       <nav className="feature-nav" aria-label="功能菜单">
-        {(["chat", "vision", "decision"] as FeatureKey[]).map((feature) => (
+        {(["chat", "vision", "decision", "stats"] as FeatureKey[]).map((feature) => (
           <button key={feature} type="button" className={activeFeature === feature ? "feature-nav__item is-active" : "feature-nav__item"} onClick={() => { onFeatureChange(feature); onClose(); }}>
-            {feature === "chat" && <MessageSquareText size={18} />}{feature === "vision" && <ScanSearch size={18} />}{feature === "decision" && <NotebookTabs size={18} />}<span>{featureLabels[feature]}</span>
+            {feature === "chat" && <MessageSquareText size={18} />}{feature === "vision" && <ScanSearch size={18} />}{feature === "decision" && <NotebookTabs size={18} />}{feature === "stats" && <BarChart3 size={18} />}<span>{featureLabels[feature]}</span>
           </button>
         ))}
       </nav>

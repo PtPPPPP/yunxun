@@ -19,6 +19,9 @@ const VisionWorkspace = lazy(() =>
 const DecisionWorkspace = lazy(() =>
   import("./components/DecisionWorkspace").then((module) => ({ default: module.DecisionWorkspace })),
 );
+const StatsWorkspace = lazy(() =>
+  import("./components/StatsWorkspace").then((module) => ({ default: module.StatsWorkspace })),
+);
 
 export default function App() {
   const [health, setHealth] = useState<HealthPayload | null>(null);
@@ -426,6 +429,12 @@ export default function App() {
               onChange={(field, value) => setDecisionForm((current) => ({ ...current, [field]: value }))}
               onSubmit={() => void handleDecisionSubmit()}
             />
+          </Suspense>
+        )}
+
+        {activeFeature === "stats" && (
+          <Suspense fallback={<div className="panel panel--loading">正在加载统计面板...</div>}>
+            <StatsWorkspace onError={handleError} />
           </Suspense>
         )}
 

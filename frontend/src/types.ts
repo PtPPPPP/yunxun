@@ -1,4 +1,30 @@
-export type FeatureKey = "chat" | "vision" | "decision";
+export type FeatureKey = "chat" | "vision" | "decision" | "stats";
+
+export type ToolRecordKind = "vision" | "decision";
+
+export interface ToolRecord {
+  id: string;
+  kind: ToolRecordKind;
+  crop: string;
+  result: string;
+  mode: string;
+  created_at: string;
+}
+
+export interface ToolRecordPagination {
+  has_more: boolean;
+  next_cursor: string | null;
+}
+
+export interface ToolStatsPayload {
+  counts_by_kind: Partial<Record<ToolRecordKind, number>>;
+  by_day: Record<string, number>;
+  by_day_since: string;
+  by_day_days: number;
+  top_crops: Array<{ crop: string; total: number }>;
+  total_sessions: number;
+  total_messages: number;
+}
 
 export interface HealthPayload {
   success: boolean;

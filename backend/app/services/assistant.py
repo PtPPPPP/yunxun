@@ -1,10 +1,12 @@
 import logging
+from collections.abc import AsyncIterator, Iterator
 from functools import lru_cache
 from typing import Callable, TypeVar
 
 from fastapi.concurrency import run_in_threadpool
 from fastapi import HTTPException
 from openai import OpenAI
+from starlette.concurrency import iterate_in_threadpool
 
 from backend.app.core.config import CHAT_SYSTEM_PROMPT, VISION_SYSTEM_PROMPT, get_settings
 
@@ -74,6 +76,83 @@ def _create_chat_reply_sync(history: list[dict[str, str]], model_name: str) -> s
         )
     )
     return _extract_text_reply(response, empty_message="这次没有生成有效内容，请换一种说法再试。")
+
+
+STREAM_DEMO_CHUNK_SIZE = 16
+
+
+def _chunk_text(text: str, size: int = STREAM_DEMO_CHUNK_SIZE) -> Iterator[str]:
+    for start in range(0, len(text), size):
+        yield text[start : start + size]
+
+
+def _extract_delta_text(chunk: object) -> str:
+    try:
+        first_choice = chunk.choices[0]
+        content = first_choice.delta.content
+    except (AttributeError, IndexError, TypeError):
+        return ""
+    return content or ""
+
+
+def _map_ai_error(last_error: Exception) -> HTTPException:
+    if isinstance(last_error, TimeoutError) or "timeout" in type(last_error).__name__.lower():
+        return HTTPException(status_code=504, detail="模型服务响应超时，请稍后重试。")
+    if getattr(last_error, "status_code", None) == 429:
+        return HTTPException(status_code=503, detail="模型服务当前繁忙，请稍后重试。")
+    return HTTPException(status_code=502, detail="模型服务暂时不可用，请稍后重试。")
+
+
+def _create_chat_reply_stream_sync(history: list[dict[str, str]], model_name: str) -> Iterator[str]:
+    """同步流式调用：首个增量产出前可重试，一旦开始输出则直接把错误抛给上层。"""
+    settings = get_settings()
+    attempts = settings.ai_max_retries + 1
+    last_error: Exception | None = None
+
+    for attempt in range(1, attempts + 1):
+        yielded = False
+        try:
+            stream = get_client().chat.completions.create(
+                model=model_name,
+                messages=[{"role": "system", "content": CHAT_SYSTEM_PROMPT}, *history],
+                temperature=0.35,
+                stream=True,
+            )
+            for chunk in stream:
+                text = _extract_delta_text(chunk)
+                if text:
+                    yielded = True
+                    yield text
+            return
+        except HTTPException:
+            raise
+        except Exception as exc:
+            last_error = exc
+            if yielded:
+                raise
+            logger.warning(
+                "AI stream request failed on attempt %s/%s: %s",
+                attempt, attempts, type(exc).__name__,
+            )
+            status = getattr(exc, "status_code", None)
+            if status in {401, 403}:
+                raise HTTPException(status_code=502, detail="模型服务鉴权失败，请检查服务端配置。") from exc
+
+    if last_error is not None:
+        raise _map_ai_error(last_error) from last_error
+    raise HTTPException(status_code=502, detail="模型服务暂时不可用，请稍后重试。")
+
+
+async def create_chat_reply_stream(history: list[dict[str, str]], model_name: str) -> AsyncIterator[str]:
+    """流式生成聊天回复；未配置 AI 时按本地演示回复分块输出。"""
+    _validate_history(history)
+    model = _validate_model_name(model_name)
+    if not get_settings().ai_configured:
+        for chunk in _chunk_text(build_local_chat_reply(history[-1]["content"])):
+            yield chunk
+        return
+    async for delta in iterate_in_threadpool(_create_chat_reply_stream_sync(history, model)):
+        yield delta
 
 
 async def create_vision_reply(image_base64: str, crop: str, symptom: str) -> str:

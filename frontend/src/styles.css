@@ -1097,3 +1097,141 @@ button:disabled:hover {
   }
 
 }
+
+.workspace-grid--stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stats-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stat-card strong {
+  font-size: 1.4rem;
+}
+
+.stats-trend {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  height: 170px;
+}
+
+.stats-trend__col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.stats-trend__bar {
+  width: 100%;
+  max-width: 22px;
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: var(--green);
+}
+
+.stats-trend__day {
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  white-space: nowrap;
+}
+
+.stats-crops,
+.stats-records {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+
+.stats-crops li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.stats-record {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.stats-record__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.stats-record__time {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.stats-record p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.stats-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  background: var(--green-soft);
+  color: var(--green-deep);
+}
+
+.stats-badge--vision {
+  background: var(--gold-soft);
+  color: #7a5c1e;
+}
+
+.stats-empty {
+  color: var(--text-muted);
+}
+
+.stats-filter {
+  min-width: 140px;
+}
+
+.streaming-cursor {
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: currentColor;
+  opacity: 0.55;
+  animation: streaming-cursor-blink 1s steps(2, start) infinite;
+}
+
+@keyframes streaming-cursor-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+@media (max-width: 720px) {
+  .workspace-grid--stats {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

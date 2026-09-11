@@ -1,5 +1,10 @@
 # 更新日志
 
+## 未发布（V1.1 候选）
+
+- 新增诊断历史统计面板：图片诊断与今日农活建议结果落库（Schema 5 新增 tool_records 表），提供 /api/tool-records 与 /api/tool-records/stats 接口，前端新增"统计面板"入口，展示使用汇总、近 14 天趋势、作物分布和历史记录。
+- 聊天流式输出：发送消息与重新生成改用 SSE 增量输出（/api/chat/sessions/{id}/messages/stream、/regenerate/stream），前端基于 fetch + ReadableStream 实现打字机效果与光标指示；原非流式接口保留，幂等与限流行为不变。
+
 ## 1.0.0 - 2026-07-12
 
 - 完成聊天乐观状态、失败恢复、会话竞态保护和长会话游标分页。

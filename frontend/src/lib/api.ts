@@ -10,7 +10,7 @@ export const api = axios.create({
   withCredentials: true,
 });
 
-function readCookie(name: string): string {
+export function readCookie(name: string): string {
   const prefix = `${name}=`;
   return document.cookie.split(";").map((item) => item.trim()).find((item) => item.startsWith(prefix))?.slice(prefix.length) ?? "";
 }

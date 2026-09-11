@@ -2,11 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAsyncGuard } from "../../hooks/useAsyncGuard";
 import { api, getErrorMessage } from "../../lib/api";
+import { streamChatRequest } from "../../lib/streaming";
 import { MessageItem, SessionItem } from "../../types";
 import {
+  applyRegenerateDelta,
+  appendStreamingDelta,
   commitOptimisticMessages,
   createOptimisticMessagePair,
   failOptimisticMessages,
+  finalizeRegenerate,
   removeOptimisticMessages,
   mergeOlderMessages,
   restoreDraftAfterFailure,
@@ -157,24 +161,28 @@ export function useChatController({ selectedModel, onError }: ChatControllerOpti
       try {
         const sessionId = await ensureSession();
         targetSessionId = sessionId;
-        const response = await api.post<{
-          success: true;
+        const payload = await streamChatRequest<{
+          reply: string;
           user_message: MessageItem;
           assistant_message: MessageItem;
           session: SessionItem;
-        }>(
-          `/api/chat/sessions/${sessionId}/messages`,
-          { message: prompt, model_name: selectedModel },
-          { headers: { "X-Idempotency-Key": requestId } },
-        );
+        }>(`/api/chat/sessions/${sessionId}/messages/stream`, {
+          body: { message: prompt, model_name: selectedModel },
+          idempotencyKey: requestId,
+          onDelta: (text) => {
+            if (shouldApplySessionResponse(activeSessionIdRef.current, sessionId)) {
+              setMessages((current) => appendStreamingDelta(current, requestId, text));
+            }
+          },
+        });
 
         if (shouldApplySessionResponse(activeSessionIdRef.current, sessionId)) {
           setMessages((current) =>
-            commitOptimisticMessages(current, requestId, [response.data.user_message, response.data.assistant_message]),
+            commitOptimisticMessages(current, requestId, [payload.user_message, payload.assistant_message]),
           );
-          setRenameTitle(response.data.session.title);
+          setRenameTitle(payload.session.title);
         }
-        syncSession(response.data.session);
+        syncSession(payload.session);
       } catch (error) {
         if (!targetSessionId || activeSessionIdRef.current === targetSessionId) {
           setMessages((current) => failOptimisticMessages(current, requestId));
@@ -264,20 +272,21 @@ export function useChatController({ selectedModel, onError }: ChatControllerOpti
     const regenerated = await regenerateAction.run(async () => {
       try {
         const requestId = crypto.randomUUID();
-        const response = await api.post<{ success: true; assistant_message: MessageItem; session: SessionItem }>(
-          `/api/chat/sessions/${activeSessionId}/regenerate`,
-          undefined,
-          { headers: { "X-Idempotency-Key": requestId } },
-        );
-        if (activeSessionIdRef.current !== activeSessionId) return false;
-        setMessages((current) => {
-          const index = current.findIndex((message) => message.id === response.data.assistant_message.id);
-          if (index < 0) return [...current, response.data.assistant_message];
-          const next = [...current];
-          next[index] = response.data.assistant_message;
-          return next;
+        let isFirstDelta = true;
+        const payload = await streamChatRequest<{
+          assistant_message: MessageItem;
+          session: SessionItem;
+        }>(`/api/chat/sessions/${activeSessionId}/regenerate/stream`, {
+          idempotencyKey: requestId,
+          onDelta: (text) => {
+            if (activeSessionIdRef.current !== activeSessionId) return;
+            setMessages((current) => applyRegenerateDelta(current, requestId, text, isFirstDelta));
+            isFirstDelta = false;
+          },
         });
-        syncSession(response.data.session);
+        if (activeSessionIdRef.current !== activeSessionId) return false;
+        setMessages((current) => finalizeRegenerate(current, requestId, payload.assistant_message));
+        syncSession(payload.session);
         onError("");
         return true;
       } catch (error) {
