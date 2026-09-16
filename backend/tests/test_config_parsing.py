@@ -32,6 +32,31 @@ class ConfigParsingTestCase(unittest.TestCase):
             config._parse_bool("YUNXUN_DEBUG", "maybe", default=False)
         self.assertIn("必须是布尔值", str(invalid.exception))
 
+    def test_allowed_origins_are_lowercased_for_browser_matching(self) -> None:
+        """浏览器发来的 Origin 主机名是小写，配置里的大小写不能影响匹配。"""
+        settings = config.Settings(
+            app_name="t",
+            app_version="t",
+            environment="test",
+            debug=False,
+            host="127.0.0.1",
+            port=8001,
+            backend_url="http://127.0.0.1:8001",
+            jwt_secret="s",
+            database_url="sqlite:///./t.db",
+            db_path="./t.db",
+            allowed_origins_raw="https://PtPPPPP.github.io,HTTP://LocalHost:5173",
+            cors_methods_raw="GET",
+            cors_headers_raw="Authorization",
+            requests_per_minute=10,
+            token_hours=1,
+        )
+
+        self.assertEqual(
+            settings.allowed_origins,
+            ["https://ptppppp.github.io", "http://localhost:5173"],
+        )
+
     def test_parse_csv_trims_and_deduplicates_values(self) -> None:
         values = config._parse_csv("YUNXUN_ALLOWED_ORIGINS", " http://a.test, http://a.test, http://b.test ")
         self.assertEqual(values, ["http://a.test", "http://b.test"])

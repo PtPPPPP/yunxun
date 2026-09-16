@@ -143,7 +143,10 @@ class Settings:
 
     @property
     def allowed_origins(self) -> list[str]:
-        return _parse_csv(
+        # 统一转小写再比较：浏览器发来的 Origin 里主机名一律是小写（主机名本就不区分
+        # 大小写），而 CORS 匹配是逐字符比较的。否则配置里写成
+        # https://PtPPPPP.github.io 就会让所有请求被浏览器拦掉，且很难看出原因。
+        return [origin.lower() for origin in _parse_csv(
             "YUNXUN_ALLOWED_ORIGINS",
             self.allowed_origins_raw,
             [
@@ -156,7 +159,7 @@ class Settings:
                 "http://localhost:8501",
                 "http://127.0.0.1:8501",
             ],
-        )
+        )]
 
     @property
     def cors_methods(self) -> list[str]:
