@@ -16,6 +16,18 @@ export interface FarmTask {
   created_at: string;
 }
 
+export interface PlotSeason {
+  id: string;
+  plot_id: string;
+  crop: string;
+  started_on: string | null;
+  ended_on: string | null;
+  active: boolean;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface HarvestSafety {
   plot_id: string;
   plot_name: string;
@@ -34,6 +46,9 @@ export interface FarmRecord {
   kind: FarmRecordKind;
   happened_on: string;
   crop: string;
+  /** 为空表示未归茬：建茬之前记的，或当时地块没有进行中的茬次。 */
+  season_id: string | null;
+  season_crop: string;
   material: string;
   detail: string;
   quantity: string;
@@ -46,9 +61,13 @@ export interface FarmRecord {
 }
 
 export interface PlotEconomics {
+  /** 为空表示这条是「未归茬」——建茬之前记的，或当时地块没有进行中的茬次。 */
+  season_id: string | null;
   plot_id: string;
   plot_name: string;
   crop: string;
+  started_on: string | null;
+  ended_on: string | null;
   area_mu: number;
   record_count: number;
   total_cost: number;
@@ -77,6 +96,9 @@ export interface Plot {
   notes: string;
   record_count: number;
   open_task_count: number;
+  /** 进行中的茬次；为空表示这块地当前没种东西（crop 会是最近一茬的作物）。 */
+  active_season: { id: string; crop: string; started_on: string | null } | null;
+  season_record_count: number;
   harvest_safety: HarvestSafety | null;
   created_at: string;
   updated_at: string;

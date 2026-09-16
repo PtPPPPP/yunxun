@@ -5,6 +5,7 @@ import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { useAsyncGuard } from "./hooks/useAsyncGuard";
 import { usePlots } from "./hooks/usePlots";
+import { useSeasons } from "./hooks/useSeasons";
 import { useTasks } from "./hooks/useTasks";
 import { api, getErrorMessage } from "./lib/api";
 import { formatAppVersion } from "./lib/appVersion";
@@ -55,6 +56,12 @@ export default function App() {
   const handleError = useCallback((message: string) => setError(message), []);
   const plots = usePlots({ onError: handleError, enabled: user !== null });
   const tasks = useTasks({ onError: handleError, enabled: user !== null });
+  // 茬次变化会改动地块上的当前作物与本季计数，所以顺手刷新地块列表。
+  const seasons = useSeasons({
+    onError: handleError,
+    enabled: user !== null,
+    onChanged: () => void plots.refresh(),
+  });
 
   const loadMe = useCallback(async () => {
     const response = await api.get<{ success: true; user: User }>("/api/me");
@@ -171,6 +178,13 @@ export default function App() {
     setAdviceSaved(created !== undefined);
   }
 
+  /** 建地块会顺带建出第一茬、删地块会连带删茬，所以地块变更后要刷新茬次列表。 */
+  async function withSeasonRefresh<T>(operation: () => Promise<T>): Promise<T> {
+    const result = await operation();
+    await seasons.refresh();
+    return result;
+  }
+
   function handleDecisionPlotChange(plotId: string) {
     setSelectedPlotId(plotId);
     const plot = plots.items.find((item) => item.id === plotId);
@@ -222,7 +236,7 @@ export default function App() {
     );
   }
 
-  const anyBusy = settingsAction.busy || decisionAction.busy || plots.busy || tasks.busy;
+  const anyBusy = settingsAction.busy || decisionAction.busy || plots.busy || tasks.busy || seasons.busy;
 
   return (
     <div className="app-shell">
@@ -293,11 +307,15 @@ export default function App() {
           <Suspense fallback={<div className="panel panel--loading">正在加载地块档案...</div>}>
             <PlotsWorkspace
               plots={plots.items}
+              seasons={seasons.items}
               loading={plots.loading}
               busy={plots.busy}
-              onCreate={plots.create}
-              onUpdate={plots.update}
-              onRemove={plots.remove}
+              seasonBusy={seasons.busy}
+              onCreate={(payload) => withSeasonRefresh(() => plots.create(payload))}
+              onUpdate={(plotId, payload) => withSeasonRefresh(() => plots.update(plotId, payload))}
+              onRemove={(plotId) => withSeasonRefresh(() => plots.remove(plotId))}
+              onCreateSeason={seasons.create}
+              onUpdateSeason={seasons.update}
             />
           </Suspense>
         )}
@@ -326,7 +344,7 @@ export default function App() {
 
       </main>
 
-      {infoPanel && <div className="dialog-backdrop" role="presentation" onMouseDown={() => setInfoPanel(null)}><section className="confirm-dialog info-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="ghost-button info-dialog__close" type="button" onClick={() => setInfoPanel(null)} aria-label="关闭">关闭</button>{infoPanel === "help" ? <><h3>使用帮助</h3><p>注册、登录或使用访客模式后，可以登记地块、记录农事并生成当天农活建议。</p><ul><li>地块档案登记面积、土壤、灌溉条件和当季作物。</li><li>农事台账按地块记录每次作业的日期、用量、费用，采收还能记产量和单价。</li><li>打药记录填了安全间隔期后，采收时会提醒是否已过安全期。</li><li>农事待办把接下来要做的事排好，逾期会在顶栏标红。</li><li>删除地块会连带删除它下面的全部农事台账记录。</li><li>今日农活可以直接选地块带出作物和土壤条件。</li><li>统计面板汇总地块数、作业次数和历史农活建议。</li><li>显示名称可以随时在个人设置里修改。</li></ul></> : <><h3>关于软件</h3><p>软件全称：{health.app_name}</p><p>软件简称：云寻</p><p>软件版本：{formatAppVersion(health.app_version)}</p><p>主要功能：地块档案、农事台账、农事待办、今日农活计划、投入产出核算与建议统计。</p></>}</section></div>}
+      {infoPanel && <div className="dialog-backdrop" role="presentation" onMouseDown={() => setInfoPanel(null)}><section className="confirm-dialog info-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="ghost-button info-dialog__close" type="button" onClick={() => setInfoPanel(null)} aria-label="关闭">关闭</button>{infoPanel === "help" ? <><h3>使用帮助</h3><p>注册、登录或使用访客模式后，可以登记地块、记录农事并生成当天农活建议。</p><ul><li>地块档案登记面积、土壤和灌溉条件，每块地按茬次记录当季作物。</li><li>结束一茬后可以开始新茬，投入产出按茬次分开算，不混季。</li><li>农事台账按地块记录每次作业的日期、用量、费用，采收还能记产量和单价。</li><li>打药记录填了安全间隔期后，采收时会提醒是否已过安全期。</li><li>农事待办把接下来要做的事排好，逾期会在顶栏标红。</li><li>删除地块会连带删除它下面的全部农事台账记录。</li><li>今日农活可以直接选地块带出作物和土壤条件。</li><li>统计面板汇总地块数、作业次数和历史农活建议。</li><li>显示名称可以随时在个人设置里修改。</li></ul></> : <><h3>关于软件</h3><p>软件全称：{health.app_name}</p><p>软件简称：云寻</p><p>软件版本：{formatAppVersion(health.app_version)}</p><p>主要功能：地块与茬次档案、农事台账、农事待办、今日农活计划、投入产出核算与建议统计。</p></>}</section></div>}
     </div>
   );
 }

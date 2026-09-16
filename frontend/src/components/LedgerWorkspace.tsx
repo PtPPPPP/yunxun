@@ -476,6 +476,7 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
                   <span className="stats-record__time">{record.crop}</span>
                   {record.quantity && <span className="stats-record__time">{record.quantity}</span>}
                   {record.material && <span className="stats-record__time">{record.material}</span>}
+                  {record.season_id === null && <span className="stats-record__time">未归茬</span>}
                   <span className="stats-record__time">{formatCost(record.cost)}</span>
                   {record.earliest_harvest_on && (
                     <span className="stats-record__time">最早采收 {record.earliest_harvest_on}</span>

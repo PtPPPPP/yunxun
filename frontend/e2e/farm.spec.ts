@@ -185,18 +185,70 @@ test("删除有记录的地块会提示连带删除的条数", async ({ page }) 
   await expect(page.getByRole("heading", { name: "还没有地块" })).toBeVisible();
 });
 
-test("今日农活可以选地块带出作物", async ({ page }) => {
+test("结束一茬并开始新茬后，今日农活带出新作物", async ({ page }) => {
   await openPlots(page);
   await createPlot(page, "西洼两亩地", "2");
+  // 建地块时填的作物就是第一茬
+  await expect(page.locator(".plot-card")).toContainText("当前：玉米");
 
-  await page.getByRole("button", { name: "编辑" }).click();
-  await page.getByLabel("当前作物").selectOption("大豆");
-  await page.getByRole("button", { name: "保存修改" }).click();
-  await expect(page.locator(".plot-card")).toContainText("大豆");
+  await page.locator(".plot-card").getByRole("button", { name: "结束本茬" }).click();
+  await expect(page.getByRole("heading", { name: "结束本茬" })).toBeVisible();
+  await page.getByRole("button", { name: "确认结束本茬" }).click();
+  await expect(page.locator(".plot-card")).toContainText("无进行中的茬次");
+
+  await page.locator(".plot-card").getByRole("button", { name: "开始新茬" }).click();
+  await expect(page.getByRole("heading", { name: "开始新茬" })).toBeVisible();
+  await page.getByLabel("作物").selectOption("大豆");
+  await page.getByRole("button", { name: "确认开始新茬" }).click();
+  await expect(page.locator(".plot-card")).toContainText("当前：大豆");
+  await expect(page.locator(".plot-card")).toContainText("共 2 茬");
 
   await page.getByRole("button", { name: "今日农活" }).click();
   await page.getByLabel("按地块带入").selectOption({ label: "西洼两亩地" });
   await expect(page.getByLabel("作物")).toHaveValue("大豆");
+});
+
+test("同一地块有进行中的茬次时不能再开新茬", async ({ page }) => {
+  await openPlots(page);
+  await createPlot(page, "东坡三亩地", "3");
+  // 有进行中的茬次时卡片上只给「结束本茬」，不给「开始新茬」
+  await expect(page.locator(".plot-card").getByRole("button", { name: "开始新茬" })).toHaveCount(0);
+  await expect(page.locator(".plot-card").getByRole("button", { name: "结束本茬" })).toBeVisible();
+});
+
+test("投入产出按茬次分开算，不混季", async ({ page }) => {
+  await openPlots(page);
+  await createPlot(page, "东坡三亩地", "3");
+  await openLedger(page);
+
+  // 第一茬：施一次肥
+  await page.getByLabel("作业类型").selectOption("施肥");
+  await page.getByPlaceholder("可留空", { exact: true }).fill("300");
+  await page.getByRole("button", { name: "记入台账" }).click();
+  await expect(page.locator(".stats-records .stats-record")).toHaveCount(1);
+
+  // 换茬：结束玉米，开始大豆，再施一次肥
+  await page.getByRole("button", { name: "地块档案" }).click();
+  await page.locator(".plot-card").getByRole("button", { name: "结束本茬" }).click();
+  await page.getByRole("button", { name: "确认结束本茬" }).click();
+  await page.locator(".plot-card").getByRole("button", { name: "开始新茬" }).click();
+  await page.getByLabel("作物").selectOption("大豆");
+  await page.getByRole("button", { name: "确认开始新茬" }).click();
+  await expect(page.locator(".plot-card")).toContainText("当前：大豆");
+
+  await openLedger(page);
+  await page.getByLabel("作业类型").selectOption("施肥");
+  await page.getByPlaceholder("可留空", { exact: true }).fill("150");
+  await page.getByRole("button", { name: "记入台账" }).click();
+  await expect(page.locator(".stats-records .stats-record")).toHaveCount(2);
+
+  await page.getByRole("button", { name: "统计面板" }).click();
+  const rows = page.locator(".economics-table tbody tr");
+  await expect(rows).toHaveCount(2);
+  // 玉米那一茬只算 300，大豆那一茬只算 150
+  await expect(rows.filter({ hasText: "玉米" })).toContainText("¥300");
+  await expect(rows.filter({ hasText: "大豆" })).toContainText("¥150");
+  await expect(rows.filter({ hasText: "玉米" })).not.toContainText("¥150");
 });
 
 test("地块档案初始为空状态", async ({ page }) => {

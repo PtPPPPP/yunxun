@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api, getErrorMessage } from "../lib/api";
+import { formatDate } from "../lib/date";
 import { FarmStatsPayload, PlotEconomics, ToolRecord, ToolStatsPayload } from "../types";
 
 const PAGE_SIZE = 20;
@@ -160,7 +161,7 @@ export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
         <div className="panel__header">
           <div>
             <h3>投入产出</h3>
-            <p>按地块汇总投入、产量与收入；采收记录填了产量和单价后这里才有数字。</p>
+            <p>按茬次汇总投入、产量与收入；采收记录填了产量和单价后这里才有数字。建茬之前记的归到「未归茬」。</p>
           </div>
         </div>
         {economics.length === 0 ? (
@@ -171,8 +172,9 @@ export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
               <thead>
                 <tr>
                   <th>地块</th>
+                  <th>茬次</th>
+                  <th>起止</th>
                   <th>面积</th>
-                  <th>作物</th>
                   <th>投入</th>
                   <th>产量</th>
                   <th>收入</th>
@@ -184,10 +186,15 @@ export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
               </thead>
               <tbody>
                 {economics.map((item) => (
-                  <tr key={item.plot_id}>
+                  <tr key={`${item.plot_id}:${item.season_id ?? "unassigned"}`}>
                     <td>{item.plot_name}</td>
+                    <td>{item.season_id === null ? "未归茬" : item.crop}</td>
+                    <td>
+                      {item.started_on ? formatDate(item.started_on) : "—"}
+                      {" ~ "}
+                      {item.ended_on ? formatDate(item.ended_on) : "进行中"}
+                    </td>
                     <td>{item.area_mu} 亩</td>
-                    <td>{item.crop}</td>
                     <td>¥{item.total_cost}</td>
                     <td>{item.total_yield_kg} 公斤</td>
                     <td>¥{item.total_revenue}</td>

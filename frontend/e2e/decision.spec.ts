@@ -41,7 +41,7 @@ test("帮助与关于软件使用去 AI 后的名称", async ({ page }) => {
   await page.getByRole("button", { name: "关于软件" }).click();
   const about = page.getByRole("dialog");
   await expect(about).toContainText("云寻");
-  await expect(about).toContainText("地块档案、农事台账、农事待办、今日农活计划、投入产出核算与建议统计");
+  await expect(about).toContainText("地块与茬次档案、农事台账、农事待办、今日农活计划、投入产出核算与建议统计");
   await expect(about).not.toContainText("AI");
 });
 

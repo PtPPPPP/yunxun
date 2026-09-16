@@ -1035,6 +1035,11 @@ button:disabled:hover {
   color: #7a5c1e;
 }
 
+.plot-card__season {
+  color: var(--green-deep);
+  font-weight: 600;
+}
+
 /* 农事待办 */
 .task-group {
   display: grid;
