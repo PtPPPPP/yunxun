@@ -16,7 +16,6 @@
   --panel-border: rgba(42, 63, 54, 0.08);
   --panel-shadow: 0 16px 40px rgba(32, 48, 40, 0.08);
   --sidebar: #1f2b28;
-  --sidebar-surface: rgba(255, 255, 255, 0.06);
   --text: #213028;
   --text-muted: #5f6d66;
   --green: #5f8258;
@@ -344,7 +343,7 @@ button:disabled:hover {
   border: 1px solid rgba(184, 91, 91, 0.18);
   border-radius: var(--radius);
   background: rgba(255, 248, 241, 0.98);
-  box-shadow: var(--shadow);
+  box-shadow: var(--panel-shadow);
   color: #7e4a2f;
   line-height: 1.45;
 }
@@ -669,7 +668,7 @@ button:disabled:hover {
   border: 1px solid var(--panel-border);
   border-radius: var(--radius);
   background: var(--surface-strong);
-  box-shadow: var(--shadow);
+  box-shadow: var(--panel-shadow);
 }
 
 .confirm-dialog h3 {
@@ -888,5 +887,78 @@ button:disabled:hover {
 
   .stats-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 地块档案：表单跨列与卡片列表 */
+.field--full {
+  grid-column: 1 / -1;
+}
+
+.plot-list {
+  list-style: none;
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+}
+
+.plot-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.plot-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plot-card__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.plot-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.plot-card__notes {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.confirm-dialog__actions {
+  justify-content: flex-end;
+  margin-top: 22px;
+}
+
+.danger-button {
+  background: #a84f4f;
+  color: #ffffff;
+}
+
+/* 地块工作台固定两栏：必须写在 1200px 断点之后，否则会被它提前压成一列。 */
+.workspace-grid--plots {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 720px) {
+  .workspace-grid--plots {
+    grid-template-columns: 1fr;
   }
 }

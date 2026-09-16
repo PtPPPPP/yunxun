@@ -16,6 +16,20 @@ class ProfileUpdateRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=32)
 
 
+class PlotCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=32)
+    area_mu: float = Field(..., gt=0, le=100_000)
+    soil_type: str = Field(..., min_length=1, max_length=16)
+    irrigation: str = Field(..., min_length=1, max_length=16)
+    crop: str = Field(..., min_length=1, max_length=20)
+    planted_on: str | None = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    notes: str = Field("", max_length=300)
+
+
+class PlotUpdateRequest(PlotCreateRequest):
+    """地块整体替换：与创建同一套字段，避免部分更新带来的空值歧义。"""
+
+
 class DecisionRequest(BaseModel):
     crop: str = Field(..., min_length=1, max_length=20)
     stage: str = Field(..., min_length=1, max_length=20)

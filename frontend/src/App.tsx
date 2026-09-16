@@ -4,12 +4,16 @@ import { AuthScreen } from "./components/AuthScreen";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { useAsyncGuard } from "./hooks/useAsyncGuard";
+import { usePlots } from "./hooks/usePlots";
 import { api, getErrorMessage } from "./lib/api";
 import { formatAppVersion } from "./lib/appVersion";
 import { FeatureKey, HealthPayload, User } from "./types";
 
 const DecisionWorkspace = lazy(() =>
   import("./components/DecisionWorkspace").then((module) => ({ default: module.DecisionWorkspace })),
+);
+const PlotsWorkspace = lazy(() =>
+  import("./components/PlotsWorkspace").then((module) => ({ default: module.PlotsWorkspace })),
 );
 const StatsWorkspace = lazy(() =>
   import("./components/StatsWorkspace").then((module) => ({ default: module.StatsWorkspace })),
@@ -39,6 +43,7 @@ export default function App() {
   const settingsAction = useAsyncGuard();
   const decisionAction = useAsyncGuard();
   const handleError = useCallback((message: string) => setError(message), []);
+  const plots = usePlots({ onError: handleError, enabled: user !== null });
 
   const loadMe = useCallback(async () => {
     const response = await api.get<{ success: true; user: User }>("/api/me");
@@ -179,7 +184,7 @@ export default function App() {
     );
   }
 
-  const anyBusy = settingsAction.busy || decisionAction.busy;
+  const anyBusy = settingsAction.busy || decisionAction.busy || plots.busy;
 
   return (
     <div className="app-shell">
@@ -225,6 +230,19 @@ export default function App() {
           </Suspense>
         )}
 
+        {activeFeature === "plots" && (
+          <Suspense fallback={<div className="panel panel--loading">正在加载地块档案...</div>}>
+            <PlotsWorkspace
+              plots={plots.items}
+              loading={plots.loading}
+              busy={plots.busy}
+              onCreate={plots.create}
+              onUpdate={plots.update}
+              onRemove={plots.remove}
+            />
+          </Suspense>
+        )}
+
         {activeFeature === "stats" && (
           <Suspense fallback={<div className="panel panel--loading">正在加载统计面板...</div>}>
             <StatsWorkspace onError={handleError} />
@@ -233,7 +251,7 @@ export default function App() {
 
       </main>
 
-      {infoPanel && <div className="dialog-backdrop" role="presentation" onMouseDown={() => setInfoPanel(null)}><section className="confirm-dialog info-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="ghost-button info-dialog__close" type="button" onClick={() => setInfoPanel(null)} aria-label="关闭">关闭</button>{infoPanel === "help" ? <><h3>使用帮助</h3><p>注册、登录或使用访客模式后，可以填写作物和田间数据并生成当天农活建议。</p><ul><li>今日农活根据输入的天气、墒情和生长期生成建议。</li><li>统计面板按天汇总历史农活建议，并给出常见作物排行。</li><li>统计面板只统计农活建议，不记录其他操作。</li><li>显示名称可以随时在个人设置里修改。</li></ul></> : <><h3>关于软件</h3><p>软件全称：{health.app_name}</p><p>软件简称：云寻</p><p>软件版本：{formatAppVersion(health.app_version)}</p><p>主要功能：今日农活计划与农活建议统计。</p></>}</section></div>}
+      {infoPanel && <div className="dialog-backdrop" role="presentation" onMouseDown={() => setInfoPanel(null)}><section className="confirm-dialog info-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="ghost-button info-dialog__close" type="button" onClick={() => setInfoPanel(null)} aria-label="关闭">关闭</button>{infoPanel === "help" ? <><h3>使用帮助</h3><p>注册、登录或使用访客模式后，可以登记地块、记录农事并生成当天农活建议。</p><ul><li>地块档案登记面积、土壤、灌溉条件和当季作物。</li><li>删除地块会连带删除它下面的全部农事台账记录。</li><li>今日农活根据输入的天气、墒情和生长期生成建议。</li><li>统计面板按天汇总历史农活建议，并给出常见作物排行。</li><li>显示名称可以随时在个人设置里修改。</li></ul></> : <><h3>关于软件</h3><p>软件全称：{health.app_name}</p><p>软件简称：云寻</p><p>软件版本：{formatAppVersion(health.app_version)}</p><p>主要功能：地块档案、今日农活计划与农活建议统计。</p></>}</section></div>}
     </div>
   );
 }

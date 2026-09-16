@@ -1,6 +1,20 @@
-export type FeatureKey = "decision" | "stats";
+export type FeatureKey = "decision" | "plots" | "stats";
 
 export type ToolRecordKind = "decision";
+
+export interface Plot {
+  id: string;
+  name: string;
+  area_mu: number;
+  soil_type: string;
+  irrigation: string;
+  crop: string;
+  planted_on: string | null;
+  notes: string;
+  record_count: number;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface ToolRecord {
   id: string;

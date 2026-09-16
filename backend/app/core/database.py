@@ -10,7 +10,7 @@ from backend.app.core.config import get_settings
 
 
 logger = logging.getLogger("yunxun.backend.database")
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 def get_db_path() -> Path:
@@ -188,6 +188,56 @@ def _apply_schema_v5(conn: sqlite3.Connection) -> None:
     )
 
 
+def _apply_schema_v7(conn: sqlite3.Connection) -> None:
+    """新增地块档案与农事台账：地块是业务主体，台账是挂在地块下的作业记录。"""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS plots (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            area_mu REAL NOT NULL,
+            soil_type TEXT NOT NULL,
+            irrigation TEXT NOT NULL,
+            crop TEXT NOT NULL,
+            planted_on TEXT,
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_plots_user_updated "
+        "ON plots(user_id, updated_at DESC, id DESC)"
+    )
+    # kind 刻意不加 CHECK 约束：tool_records 的 CHECK 让新增取值只能整表重建，
+    # 这里改为在路由层用常量集合校验。
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS farm_records (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            plot_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            happened_on TEXT NOT NULL,
+            crop TEXT NOT NULL DEFAULT '',
+            detail TEXT NOT NULL DEFAULT '',
+            quantity TEXT NOT NULL DEFAULT '',
+            cost REAL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(plot_id) REFERENCES plots(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_farm_records_user_plot_date "
+        "ON farm_records(user_id, plot_id, happened_on DESC, id DESC)"
+    )
+
+
 def _table_names(conn: sqlite3.Connection) -> set[str]:
     rows = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
     return {row[0] for row in rows}
@@ -277,6 +327,18 @@ def migrate_schema(conn: sqlite3.Connection) -> tuple[int, list[str]]:
             conn.rollback()
             raise
         applied.append("6_remove_ai_surface")
+        current = 6
+    if current < 7:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            _apply_schema_v7(conn)
+            conn.execute("PRAGMA user_version = 7")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        applied.append("7_farm_plots_and_records")
+        current = 7
     return starting_version, applied
 
 

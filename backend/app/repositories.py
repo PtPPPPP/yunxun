@@ -216,3 +216,106 @@ def summarize_tool_records(user_id: str, *, days: int = 14, top_crops: int = 5) 
         "by_day": by_day,
         "top_crops": [{"crop": str(row["crop"]), "total": int(row["total"])} for row in crop_rows],
     }
+
+
+def public_plot(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": record["id"],
+        "name": record["name"],
+        "area_mu": float(record["area_mu"]),
+        "soil_type": record["soil_type"],
+        "irrigation": record["irrigation"],
+        "crop": record["crop"],
+        "planted_on": record["planted_on"],
+        "notes": record["notes"],
+        "record_count": int(record.get("record_count") or 0),
+        "created_at": record["created_at"],
+        "updated_at": record["updated_at"],
+    }
+
+
+def create_plot(
+    user_id: str,
+    name: str,
+    area_mu: float,
+    soil_type: str,
+    irrigation: str,
+    crop: str,
+    planted_on: str | None,
+    notes: str,
+) -> dict[str, Any]:
+    plot_id = uuid.uuid4().hex
+    timestamp = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO plots
+                (id, user_id, name, area_mu, soil_type, irrigation, crop, planted_on, notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (plot_id, user_id, name, area_mu, soil_type, irrigation, crop, planted_on, notes, timestamp, timestamp),
+        )
+        row = conn.execute("SELECT * FROM plots WHERE id = ?", (plot_id,)).fetchone()
+    return public_plot(dict(row))
+
+
+def get_plot(plot_id: str) -> dict[str, Any] | None:
+    return _fetchone("SELECT * FROM plots WHERE id = ?", (plot_id,))
+
+
+def list_plots(user_id: str) -> list[dict[str, Any]]:
+    """地块列表附带各自的作业记录条数，供卡片展示与删除确认使用。"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT p.*, (
+                SELECT COUNT(*) FROM farm_records r WHERE r.plot_id = p.id
+            ) AS record_count
+            FROM plots p
+            WHERE p.user_id = ?
+            ORDER BY p.updated_at DESC, p.id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+    return [public_plot(dict(row)) for row in rows]
+
+
+def count_plots(user_id: str) -> int:
+    with get_connection() as conn:
+        row = conn.execute("SELECT COUNT(*) AS total FROM plots WHERE user_id = ?", (user_id,)).fetchone()
+    return int(row["total"]) if row else 0
+
+
+def update_plot(
+    plot_id: str,
+    name: str,
+    area_mu: float,
+    soil_type: str,
+    irrigation: str,
+    crop: str,
+    planted_on: str | None,
+    notes: str,
+) -> dict[str, Any]:
+    updated_at = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE plots
+            SET name = ?, area_mu = ?, soil_type = ?, irrigation = ?, crop = ?,
+                planted_on = ?, notes = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (name, area_mu, soil_type, irrigation, crop, planted_on, notes, updated_at, plot_id),
+        )
+        row = conn.execute("SELECT * FROM plots WHERE id = ?", (plot_id,)).fetchone()
+    return public_plot(dict(row))
+
+
+def delete_plot_with_records(plot_id: str) -> int:
+    """删除地块并连带删除其作业记录，返回被删除的记录条数。"""
+    with get_connection() as conn:
+        row = conn.execute("SELECT COUNT(*) AS total FROM farm_records WHERE plot_id = ?", (plot_id,)).fetchone()
+        removed = int(row["total"]) if row else 0
+        conn.execute("DELETE FROM farm_records WHERE plot_id = ?", (plot_id,))
+        conn.execute("DELETE FROM plots WHERE id = ?", (plot_id,))
+    return removed
