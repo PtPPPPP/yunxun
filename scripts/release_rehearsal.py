@@ -135,6 +135,8 @@ def main() -> None:
                 },
             )
             assert status == 200 and created_plot["plot"]["record_count"] == 0
+            # 建地块时填的作物就是第一茬
+            assert created_plot["plot"]["active_season"]["crop"] == "玉米"
             status, created_record, _ = api(
                 "/api/farm-records",
                 method="POST",
@@ -189,6 +191,9 @@ def main() -> None:
             assert sum(item["cost"] or 0 for item in ledger["records"]) == 120.5
             assert sum(item["yield_kg"] or 0 for item in ledger["records"]) == 2100.0
 
+            _, seasons, _ = api("/api/seasons", token=token)
+            assert len(seasons["seasons"]) == 1 and seasons["seasons"][0]["active"] is True
+
             _, economics, _ = api("/api/farm-records/economics", token=token)
             assert len(economics["plots"]) == 1
             assert economics["plots"][0]["total_revenue"] == 5040.0
@@ -218,6 +223,32 @@ def main() -> None:
             assert economics["plots"][0]["total_revenue"] == 5040.0
             _, tasks, _ = api("/api/farm-tasks", token=token)
             assert len(tasks["tasks"]) == 1
+
+            # 结束第一茬、开第二茬，确认投入产出按茬分行而不是混在一起
+            _, seasons, _ = api("/api/seasons", token=token)
+            first = seasons["seasons"][0]
+            status, _, _ = api(
+                f"/api/seasons/{first['id']}",
+                method="PATCH",
+                token=token,
+                data={
+                    "crop": first["crop"],
+                    "started_on": first["started_on"],
+                    "ended_on": "2026-09-25",
+                    "notes": first["notes"],
+                },
+            )
+            assert status == 200
+            status, posted, _ = api(
+                "/api/seasons",
+                method="POST",
+                token=token,
+                data={"plot_id": first["plot_id"], "crop": "大豆", "started_on": "2026-09-26", "notes": ""},
+            )
+            assert status == 200 and posted["season"]["active"] is True
+            _, economics, _ = api("/api/farm-records/economics", token=token)
+            assert len(economics["plots"]) == 2
+            assert {row["crop"] for row in economics["plots"]} == {"玉米", "大豆"}
     print("发布演练通过：干净安装、构建、启动、重启、数据持久化和备份恢复均正常。")
 
 

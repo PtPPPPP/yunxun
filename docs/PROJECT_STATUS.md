@@ -2,16 +2,17 @@
 
 审计基线：Git `v1.0.0` / `b952778`，机器版本 `1.0.0`，文案版本 `V1.0.0`。
 
-当前工作区已移除全部 AI 能力：智能问答、田间诊断、系统模型接入和相应品牌文案。保留认证、地块档案、农事台账、农事待办、今日农活建议、投入产出核算、统计面板、审计、备份发布链路和 SQLite 数据库。
+当前工作区已移除全部 AI 能力：智能问答、田间诊断、系统模型接入和相应品牌文案。保留认证、地块与茬次档案、农事台账、农事待办、今日农活建议、按茬次的投入产出核算、统计面板、审计、备份发布链路和 SQLite 数据库。
 
 ## 功能矩阵
 
 | 能力 | 状态 | 依据 |
 | --- | --- | --- |
 | 注册、登录、访客、退出 | 已实现并验证 | `backend/app/api/routes/auth.py`、`backend/tests/test_auth_tokens.py` |
-| 地块档案（面积、土壤、灌溉、当季作物、定植日期） | 已实现并验证 | `backend/app/services/farm.py`、`backend/app/api/routes/farm.py`、`backend/tests/test_plots.py`、`frontend/src/components/PlotsWorkspace.tsx` |
+| 地块档案（面积、土壤、灌溉） | 已实现并验证 | `backend/app/services/farm.py`、`backend/app/api/routes/farm.py`、`backend/tests/test_plots.py`、`frontend/src/components/PlotsWorkspace.tsx` |
+| 茬次（每季作物与起止日期、一块地同时只一茬进行中） | 已实现并验证 | `backend/app/core/database.py`（Schema 9）、`backend/tests/test_seasons.py` |
 | 农事台账（作业类型、日期、用量、费用） | 已实现并验证 | `backend/app/services/farm.py`、`backend/tests/test_farm_records.py`、`frontend/src/components/LedgerWorkspace.tsx` |
-| 采收产量与单价、按地块的投入产出核算 | 已实现并验证 | `repositories.summarize_farm_economics`、`/api/farm-records/economics`、`frontend/src/components/StatsWorkspace.tsx` |
+| 采收产量与单价、按茬次的投入产出核算（含跨年对比） | 已实现并验证 | `repositories.summarize_farm_economics`、`/api/farm-records/economics`、`frontend/src/components/StatsWorkspace.tsx` |
 | 用药安全间隔期与最早安全采收日提醒 | 已实现并验证 | `repositories.list_harvest_safety`、`frontend/src/components/LedgerWorkspace.tsx` |
 | 农事待办（分组、逾期提示、完成与重开） | 已实现并验证 | `backend/app/api/routes/farm.py`、`frontend/src/components/TasksWorkspace.tsx`、`frontend/e2e/tasks.spec.ts` |
 | 删除地块连带删除其台账记录（带条数确认） | 已实现并验证 | `repositories.delete_plot_with_records`、`frontend/src/components/ConfirmDialog.tsx`、`frontend/e2e/farm.spec.ts` |
@@ -29,9 +30,9 @@
 
 ## 数据与风险
 
-- 迁移版本从 Schema 1 前进到 Schema 8：Schema 3 移除旧凭据表和会话关联列，Schema 4 增加会话置顶字段，Schema 5 新增 `tool_records` 表保存农活建议历史，Schema 6 删除 `chat_sessions`、`chat_messages`、`idempotency_requests` 并移除 `users.preferred_model`，Schema 7 新增 `plots` 与 `farm_records`，Schema 8 给台账补上 `material`、`safe_days`、`yield_kg`、`unit_price` 并新增 `farm_tasks`。
+- 迁移版本从 Schema 1 前进到 Schema 8：Schema 3 移除旧凭据表和会话关联列，Schema 4 增加会话置顶字段，Schema 5 新增 `tool_records` 表保存农活建议历史，Schema 6 删除 `chat_sessions`、`chat_messages`、`idempotency_requests` 并移除 `users.preferred_model`，Schema 7 新增 `plots` 与 `farm_records`，Schema 8 给台账补上 `material`、`safe_days`、`yield_kg`、`unit_price` 并新增 `farm_tasks`；Schema 9 新增 `plot_seasons` 并把每块地当时的作物搬成一条进行中的茬次（该地块既有记录一并归茬），随后删掉 `plots.crop` 与 `plots.planted_on`。
 - **Schema 6 迁移会丢弃既有会话与消息数据。**升级前必须用 `scripts/database_admin.py backup` 生成备份；升级后旧代码无法打开该数据库（`migrate_schema` 会拒绝过高的 `user_version`）。
-- 投入产出按地块汇总，不做跨年对比：跨年对比需要「茬次/季度」概念（同一地块一年种两季），是独立的建模工作量，先把单季算清楚。
+- 投入产出按茬次汇总：同一地块种第二茬后，上一茬的投入不会和这一茬的收成混在一起；跨年对比直接看同一地块不同茬次的行。未归茬（建茬之前记的）单独成行不丢数据。
 - 安全间隔期的权威来源是产品标签：应用不内置标准答案，只提供常见参考值预填并明确标注以标签为准，负责日期运算与跨记录比对。
 - 待办不做推送：本地单机应用没有推送通道，用顶栏常驻计数和逾期警示色代替。
 - 新接口不做限流，只写审计日志。限流保留给计算密集的 `/api/decision` 和防爆破的 `/api/auth/*`；台账录入是廉价插入，加上每分钟 20 次的默认限制反而会挡住补录。
