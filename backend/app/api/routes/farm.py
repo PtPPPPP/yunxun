@@ -127,6 +127,8 @@ async def create_farm_record_api(
         detail=request.detail,
         quantity=request.quantity,
         cost=request.cost,
+        material=request.material,
+        safe_days=request.safe_days,
         yield_kg=request.yield_kg,
         unit_price=request.unit_price,
     )
@@ -156,3 +158,4 @@ async def farm_records_economics_api(
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:
     return success_payload(**summarize_user_farm_economics(user["id"]))
+

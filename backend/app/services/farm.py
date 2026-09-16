@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from typing import Any
 
 from backend.app.core.audit import log_event
@@ -14,6 +15,7 @@ from backend.app.repositories import (
     get_farm_record,
     get_plot,
     list_farm_records_page,
+    list_harvest_safety,
     list_plots,
     summarize_farm_economics,
     update_plot,
@@ -35,8 +37,8 @@ def require_plot_owner(plot_id: str, user_id: str) -> dict[str, Any]:
     return plot
 
 
-def list_user_plots(user_id: str) -> list[dict[str, Any]]:
-    return list_plots(user_id)
+def list_user_plots(user_id: str, *, today: str | None = None) -> list[dict[str, Any]]:
+    return list_plots(user_id, reference_date=today)
 
 
 def create_user_plot(
@@ -140,6 +142,8 @@ def create_user_farm_record(
     detail: str,
     quantity: str,
     cost: float | None,
+    material: str = "",
+    safe_days: int | None = None,
     yield_kg: float | None = None,
     unit_price: float | None = None,
 ) -> dict[str, Any]:
@@ -154,6 +158,8 @@ def create_user_farm_record(
         detail=detail.strip(),
         quantity=quantity.strip(),
         cost=cost,
+        material=material.strip(),
+        safe_days=safe_days,
         yield_kg=yield_kg,
         unit_price=unit_price,
     )
@@ -191,3 +197,4 @@ def summarize_user_farm_records(user_id: str) -> dict[str, int]:
 
 def summarize_user_farm_economics(user_id: str) -> dict[str, Any]:
     return {"plots": summarize_farm_economics(user_id)}
+

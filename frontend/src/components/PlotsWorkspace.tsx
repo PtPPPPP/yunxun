@@ -212,6 +212,11 @@ export function PlotsWorkspace(props: PlotsWorkspaceProps) {
                   <span>{plot.irrigation}</span>
                   <span>{plot.planted_on ? `${plot.planted_on} 定植` : "未填定植日期"}</span>
                   <span>本季 {plot.record_count} 次作业</span>
+                  {plot.harvest_safety?.in_safe_window && (
+                    <span className="plot-card__safety">
+                      {plot.harvest_safety.material} 安全期内，最早 {plot.harvest_safety.earliest_harvest_on} 采收
+                    </span>
+                  )}
                 </div>
                 {plot.notes && <p className="plot-card__notes">{plot.notes}</p>}
                 <div className="inline-actions">

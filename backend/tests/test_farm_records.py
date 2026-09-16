@@ -11,7 +11,13 @@ from backend.app.api.routes.farm import router
 from backend.app.core.database import init_db
 from backend.app.core.errors import AppError, ErrorCode
 from backend.app.core.exceptions import http_exception_handler
-from backend.app.repositories import create_plot, create_user, list_plots, summarize_farm_economics
+from backend.app.repositories import (
+    create_plot,
+    create_user,
+    list_harvest_safety,
+    list_plots,
+    summarize_farm_economics,
+)
 from backend.app.services.farm import (
     create_user_farm_record,
     delete_user_farm_record,
@@ -202,6 +208,62 @@ class FarmRecordServiceTestCase(unittest.TestCase):
     def test_economics_is_isolated_by_user(self) -> None:
         self.assertEqual(summarize_farm_economics("user-other"), [])
 
+    def spray(self, happened_on: str, material: str, safe_days: int | None) -> dict:
+        return create_user_farm_record(
+            user_id=self.user_id, client_host="127.0.0.1", plot_id=self.plot["id"],
+            kind="打药", happened_on=happened_on, crop="", detail="", quantity="",
+            cost=None, material=material, safe_days=safe_days,
+        )
+
+    def test_earliest_harvest_date_is_derived_from_interval(self) -> None:
+        record = self.spray("2026-09-10", "吡虫啉", 7)
+        self.assertEqual(record["material"], "吡虫啉")
+        self.assertEqual(record["safe_days"], 7)
+        self.assertEqual(record["earliest_harvest_on"], "2026-09-17")
+
+    def test_spray_without_interval_has_no_earliest_date(self) -> None:
+        self.assertIsNone(self.spray("2026-09-10", "代森锰锌", None)["earliest_harvest_on"])
+
+    def test_harvest_safety_uses_only_the_latest_spray(self) -> None:
+        self.spray("2026-08-01", "多菌灵", 15)
+        self.spray("2026-09-10", "吡虫啉", 7)
+
+        safety = list_harvest_safety(self.user_id, reference_date="2026-09-16")
+        self.assertEqual(len(safety), 1)
+        item = safety[0]
+        self.assertEqual(item["material"], "吡虫啉")
+        self.assertEqual(item["earliest_harvest_on"], "2026-09-17")
+        self.assertEqual(item["days_remaining"], 1)
+        self.assertTrue(item["in_safe_window"])
+
+    def test_harvest_safety_window_closes_and_can_go_negative(self) -> None:
+        self.spray("2026-09-10", "吡虫啉", 7)
+
+        on_the_day = list_harvest_safety(self.user_id, reference_date="2026-09-17")[0]
+        self.assertEqual(on_the_day["days_remaining"], 0)
+        self.assertFalse(on_the_day["in_safe_window"])
+
+        later = list_harvest_safety(self.user_id, reference_date="2026-09-25")[0]
+        self.assertEqual(later["days_remaining"], -8)
+        self.assertFalse(later["in_safe_window"])
+
+    def test_only_sprays_with_interval_create_safety_state(self) -> None:
+        self.spray("2026-09-10", "代森锰锌", None)
+        create_user_farm_record(
+            user_id=self.user_id, client_host="127.0.0.1", plot_id=self.plot["id"],
+            kind="施肥", happened_on="2026-09-12", crop="", detail="", quantity="",
+            cost=None, material="尿素", safe_days=14,
+        )
+        self.assertEqual(list_harvest_safety(self.user_id, reference_date="2026-09-16"), [])
+
+    def test_plot_list_carries_harvest_safety(self) -> None:
+        self.assertIsNone(list_plots(self.user_id, reference_date="2026-09-16")[0]["harvest_safety"])
+
+        self.spray("2026-09-10", "吡虫啉", 7)
+        safety = list_plots(self.user_id, reference_date="2026-09-16")[0]["harvest_safety"]
+        self.assertTrue(safety["in_safe_window"])
+        self.assertEqual(safety["material"], "吡虫啉")
+
     def test_plot_delete_reports_removed_records(self) -> None:
         for day in ("2026-06-01", "2026-06-10"):
             create_user_farm_record(
@@ -318,6 +380,31 @@ class FarmRecordRoutesTestCase(unittest.TestCase):
     def test_negative_yield_is_rejected(self) -> None:
         self.assertEqual(self.client.post("/api/farm-records", json=self.payload(yield_kg=-1)).status_code, 422)
         self.assertEqual(self.client.post("/api/farm-records", json=self.payload(unit_price=-1)).status_code, 422)
+
+    def test_spray_record_keeps_material_and_interval(self) -> None:
+        created = self.client.post(
+            "/api/farm-records",
+            json=self.payload(kind="打药", material="吡虫啉", safe_days=7, happened_on="2026-09-10"),
+        )
+        self.assertEqual(created.status_code, 200)
+        record = created.json()["record"]
+        self.assertEqual(record["material"], "吡虫啉")
+        self.assertEqual(record["safe_days"], 7)
+        self.assertEqual(record["earliest_harvest_on"], "2026-09-17")
+
+    def test_out_of_range_interval_is_rejected(self) -> None:
+        self.assertEqual(self.client.post("/api/farm-records", json=self.payload(safe_days=-1)).status_code, 422)
+        self.assertEqual(self.client.post("/api/farm-records", json=self.payload(safe_days=999)).status_code, 422)
+
+    def test_plot_list_exposes_harvest_safety(self) -> None:
+        self.assertIsNone(self.client.get("/api/plots").json()["plots"][0]["harvest_safety"])
+        self.client.post(
+            "/api/farm-records",
+            json=self.payload(kind="打药", material="吡虫啉", safe_days=7, happened_on="2026-09-10"),
+        )
+        safety = self.client.get("/api/plots").json()["plots"][0]["harvest_safety"]
+        self.assertEqual(safety["material"], "吡虫啉")
+        self.assertEqual(safety["earliest_harvest_on"], "2026-09-17")
 
     def test_economics_endpoint_returns_per_plot_totals(self) -> None:
         self.client.post("/api/farm-records", json=self.payload(kind="施肥", cost=320.5))

@@ -1019,3 +1019,19 @@ button:disabled:hover {
   color: var(--danger);
 }
 
+/* 用药安全间隔期 */
+.form-warning {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(180, 130, 40, 0.32);
+  border-radius: var(--radius);
+  background: rgba(255, 248, 230, 0.95);
+  color: #7a5c1e;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.plot-card__safety {
+  color: #7a5c1e;
+}
+

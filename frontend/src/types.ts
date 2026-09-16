@@ -4,6 +4,17 @@ export type ToolRecordKind = "decision";
 
 export type FarmRecordKind = "播种" | "施肥" | "打药" | "灌溉" | "除草" | "采收" | "其他";
 
+export interface HarvestSafety {
+  plot_id: string;
+  plot_name: string;
+  material: string;
+  happened_on: string;
+  safe_days: number;
+  earliest_harvest_on: string | null;
+  days_remaining: number | null;
+  in_safe_window: boolean;
+}
+
 export interface FarmRecord {
   id: string;
   plot_id: string;
@@ -11,9 +22,12 @@ export interface FarmRecord {
   kind: FarmRecordKind;
   happened_on: string;
   crop: string;
+  material: string;
   detail: string;
   quantity: string;
   cost: number | null;
+  safe_days: number | null;
+  earliest_harvest_on: string | null;
   yield_kg: number | null;
   unit_price: number | null;
   created_at: string;
@@ -50,6 +64,7 @@ export interface Plot {
   planted_on: string | null;
   notes: string;
   record_count: number;
+  harvest_safety: HarvestSafety | null;
   created_at: string;
   updated_at: string;
 }

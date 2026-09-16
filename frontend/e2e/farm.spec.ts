@@ -46,10 +46,11 @@ test("采收记录填产量与单价后，统计面板算出投入产出", async
   await page.getByPlaceholder("例如：2.4").fill("2.4");
   await page.getByRole("button", { name: "记入台账" }).click();
 
-  const rows = page.locator(".stats-records .stats-record");
-  await expect(rows).toHaveCount(2);
-  await expect(rows.first()).toContainText("产量 2100 公斤");
-  await expect(rows.first()).toContainText("收入 ¥5040");
+  // 同一天的两条记录按 id 排序，顺序稳定但不是插入序，所以按内容过滤而不是取第一条。
+  await expect(page.locator(".stats-records .stats-record")).toHaveCount(2);
+  const harvestRow = page.locator(".stats-record").filter({ hasText: "采收" });
+  await expect(harvestRow).toContainText("产量 2100 公斤");
+  await expect(harvestRow).toContainText("收入 ¥5040");
 
   await page.getByRole("button", { name: "统计面板" }).click();
   const cards = page.locator(".stat-card");
@@ -67,6 +68,30 @@ test("采收记录填产量与单价后，统计面板算出投入产出", async
   await expect(row).toContainText("¥100");
   await expect(row).toContainText("700 公斤");
   await expect(row).toContainText("¥1580");
+});
+
+test("打药记录安全间隔期，采收时给出安全期提醒", async ({ page }) => {
+  await openPlots(page);
+  await createPlot(page, "东坡三亩地", "3");
+  await openLedger(page);
+
+  await page.getByLabel("作业类型").selectOption("打药");
+  await page.getByLabel("常见农药参考").selectOption("吡虫啉");
+  await expect(page.getByLabel("安全间隔期（天）")).toHaveValue("7");
+
+  await page.getByRole("button", { name: "记入台账" }).click();
+  const row = page.locator(".stats-records .stats-record");
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText("吡虫啉");
+  await expect(row).toContainText("最早采收");
+
+  // 施药当天记采收应落在安全期内，给出提醒但不阻断提交
+  await page.getByLabel("作业类型").selectOption("采收");
+  await expect(page.locator(".form-warning")).toContainText("安全间隔期 7 天");
+  await expect(page.locator(".form-warning")).toContainText("请以产品标签为准");
+
+  await page.getByRole("button", { name: "地块档案" }).click();
+  await expect(page.locator(".plot-card__safety")).toContainText("安全期内");
 });
 
 test("农事台账在还没有地块时给出引导", async ({ page }) => {

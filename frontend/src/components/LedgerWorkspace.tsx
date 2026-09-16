@@ -9,6 +9,20 @@ import { FarmRecord, FarmRecordKind, Plot } from "../types";
 const PAGE_SIZE = 20;
 const recordKinds: FarmRecordKind[] = ["播种", "施肥", "打药", "灌溉", "除草", "采收", "其他"];
 
+// 安全间隔期的权威来源是产品标签：这里只提供常见参考值做预填，
+// 填进去之后仍可改写，应用不做任何"标准答案"背书。
+const pesticideReference = [
+  { material: "苏云金杆菌", safe_days: 3 },
+  { material: "吡虫啉", safe_days: 7 },
+  { material: "啶虫脒", safe_days: 7 },
+  { material: "高效氯氟氰菊酯", safe_days: 7 },
+  { material: "阿维菌素", safe_days: 14 },
+  { material: "多菌灵", safe_days: 15 },
+  { material: "代森锰锌", safe_days: 15 },
+  { material: "苯醚甲环唑", safe_days: 21 },
+  { material: "戊唑醇", safe_days: 21 },
+];
+
 interface RecordsResponse {
   success: true;
   records: FarmRecord[];
@@ -54,6 +68,8 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
     crop: "",
     quantity: "",
     cost: "",
+    material: "",
+    safe_days: "",
     yield_kg: "",
     unit_price: "",
     detail: "",
@@ -68,6 +84,14 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<FarmRecord | null>(null);
   const action = useAsyncGuard();
+
+  // 记采收时若该地块还在安全期内，提醒但不阻断：紧急采收是真实存在的，
+  // 应用不该替农户做决定，只负责把事实摆出来。
+  const safety = plots.find((item) => item.id === form.plot_id)?.harvest_safety ?? null;
+  const harvestWarning =
+    form.kind === "采收" && safety?.in_safe_window
+      ? `该地块 ${safety.happened_on} 施过 ${safety.material}，安全间隔期 ${safety.safe_days} 天，最早 ${safety.earliest_harvest_on} 才能采收（还有 ${safety.days_remaining} 天）。请以产品标签为准。`
+      : "";
 
   const loadRecords = useCallback(
     async (cursor: string | null, plotId: string) => {
@@ -125,11 +149,16 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
           crop: form.crop,
           quantity: form.quantity,
           cost: form.cost.trim() === "" ? null : Number(form.cost),
+          material: form.material,
+          safe_days: form.safe_days.trim() === "" ? null : Number(form.safe_days),
           yield_kg: form.yield_kg.trim() === "" ? null : Number(form.yield_kg),
           unit_price: form.unit_price.trim() === "" ? null : Number(form.unit_price),
           detail: form.detail,
         });
-        setForm((current) => ({ ...current, quantity: "", cost: "", yield_kg: "", unit_price: "", detail: "" }));
+        setForm((current) => ({
+          ...current, quantity: "", cost: "", material: "", safe_days: "",
+          yield_kg: "", unit_price: "", detail: "",
+        }));
         onError("");
         const data = await loadRecords(null, plotFilter);
         setRecords(data.records);
@@ -276,6 +305,60 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
             </div>
           </label>
 
+          {form.kind === "打药" && (
+            <>
+              <label className="field">
+                <span>常见农药参考</span>
+                <div className="field-control field-control--select">
+                  <select
+                    value={pesticideReference.some((item) => item.material === form.material) ? form.material : ""}
+                    onChange={(event) => {
+                      const picked = pesticideReference.find((item) => item.material === event.target.value);
+                      setForm((current) => ({
+                        ...current,
+                        material: event.target.value,
+                        safe_days: picked ? String(picked.safe_days) : current.safe_days,
+                      }));
+                    }}
+                  >
+                    <option value="">从常见农药选择（参考）</option>
+                    {pesticideReference.map((item) => (
+                      <option key={item.material} value={item.material}>
+                        {item.material}（常见 {item.safe_days} 天）
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </label>
+
+              <label className="field">
+                <span>农药名称</span>
+                <div className="field-control">
+                  <input
+                    value={form.material}
+                    maxLength={40}
+                    placeholder="例如：吡虫啉"
+                    onChange={(event) => setForm((current) => ({ ...current, material: event.target.value }))}
+                  />
+                </div>
+              </label>
+
+              <label className="field">
+                <span>安全间隔期（天）</span>
+                <div className="field-control">
+                  <input
+                    type="number"
+                    value={form.safe_days}
+                    min={0}
+                    max={365}
+                    placeholder="按产品标签填写"
+                    onChange={(event) => setForm((current) => ({ ...current, safe_days: event.target.value }))}
+                  />
+                </div>
+              </label>
+            </>
+          )}
+
           {form.kind === "采收" && (
             <>
               <label className="field">
@@ -321,6 +404,8 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
           </label>
         </div>
 
+        {harvestWarning && <p className="form-warning" role="status">{harvestWarning}</p>}
+
         <button className="primary-button" type="button" onClick={() => void handleSubmit()} disabled={action.busy}>
           <CalendarPlus size={16} />
           {action.busy ? "保存中…" : "记入台账"}
@@ -360,7 +445,11 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
                   <span className="stats-record__time">{formatDate(record.happened_on)}</span>
                   <span className="stats-record__time">{record.crop}</span>
                   {record.quantity && <span className="stats-record__time">{record.quantity}</span>}
+                  {record.material && <span className="stats-record__time">{record.material}</span>}
                   <span className="stats-record__time">{formatCost(record.cost)}</span>
+                  {record.earliest_harvest_on && (
+                    <span className="stats-record__time">最早采收 {record.earliest_harvest_on}</span>
+                  )}
                   {record.yield_kg !== null && <span className="stats-record__time">产量 {record.yield_kg} 公斤</span>}
                   {record.unit_price !== null && <span className="stats-record__time">{record.unit_price} 元/公斤</span>}
                   {record.yield_kg !== null && record.unit_price !== null && (

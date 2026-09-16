@@ -1,7 +1,7 @@
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from backend.app.core.database import get_connection
@@ -13,6 +13,17 @@ def now_utc() -> datetime:
 
 def now_iso() -> str:
     return now_utc().isoformat(timespec="seconds")
+
+
+def add_days(iso_date: str | None, days: int | None) -> str | None:
+    """在农事日期上加天数；任一参数缺失或日期格式异常时返回 None。"""
+    if not iso_date or days is None:
+        return None
+    try:
+        base = date.fromisoformat(iso_date)
+    except ValueError:
+        return None
+    return (base + timedelta(days=days)).isoformat()
 
 
 def public_user(record: dict[str, Any]) -> dict[str, Any]:
@@ -263,8 +274,12 @@ def get_plot(plot_id: str) -> dict[str, Any] | None:
     return _fetchone("SELECT * FROM plots WHERE id = ?", (plot_id,))
 
 
-def list_plots(user_id: str) -> list[dict[str, Any]]:
-    """地块列表附带各自的作业记录条数，供卡片展示与删除确认使用。"""
+def list_plots(user_id: str, *, reference_date: str | None = None) -> list[dict[str, Any]]:
+    """地块列表，附带作业记录条数与最近一次打药的安全期状态。
+
+    安全期状态并进地块列表而不是单开接口：地块页和台账页都要用它，
+    合并后前端只需一次请求、一个数据来源，不必维护两份可能不同步的状态。
+    """
     with get_connection() as conn:
         rows = conn.execute(
             """
@@ -277,7 +292,20 @@ def list_plots(user_id: str) -> list[dict[str, Any]]:
             """,
             (user_id,),
         ).fetchall()
-    return [public_plot(dict(row)) for row in rows]
+
+    safety_by_plot = {
+        item["plot_id"]: item
+        for item in list_harvest_safety(
+            user_id,
+            reference_date=reference_date or datetime.now().date().isoformat(),
+        )
+    }
+    plots = []
+    for row in rows:
+        plot = public_plot(dict(row))
+        plot["harvest_safety"] = safety_by_plot.get(plot["id"])
+        plots.append(plot)
+    return plots
 
 
 def count_plots(user_id: str) -> int:
@@ -333,6 +361,7 @@ def public_farm_record(record: dict[str, Any]) -> dict[str, Any]:
     raw_cost = record["cost"]
     raw_yield = record["yield_kg"]
     raw_price = record["unit_price"]
+    raw_safe_days = record["safe_days"]
     return {
         "id": record["id"],
         "plot_id": record["plot_id"],
@@ -340,9 +369,13 @@ def public_farm_record(record: dict[str, Any]) -> dict[str, Any]:
         "kind": record["kind"],
         "happened_on": record["happened_on"],
         "crop": record["crop"],
+        "material": record["material"],
         "detail": record["detail"],
         "quantity": record["quantity"],
         "cost": None if raw_cost is None else float(raw_cost),
+        "safe_days": None if raw_safe_days is None else int(raw_safe_days),
+        # 最早安全采收日由施药日加安全间隔期推导，不冗余落库。
+        "earliest_harvest_on": add_days(record["happened_on"], None if raw_safe_days is None else int(raw_safe_days)),
         "yield_kg": None if raw_yield is None else float(raw_yield),
         "unit_price": None if raw_price is None else float(raw_price),
         "created_at": record["created_at"],
@@ -358,6 +391,8 @@ def create_farm_record(
     detail: str,
     quantity: str,
     cost: float | None,
+    material: str = "",
+    safe_days: int | None = None,
     yield_kg: float | None = None,
     unit_price: float | None = None,
 ) -> dict[str, Any]:
@@ -367,13 +402,13 @@ def create_farm_record(
         conn.execute(
             """
             INSERT INTO farm_records
-                (id, user_id, plot_id, kind, happened_on, crop, detail, quantity, cost,
-                 yield_kg, unit_price, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, user_id, plot_id, kind, happened_on, crop, material, detail, quantity,
+                 cost, safe_days, yield_kg, unit_price, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                record_id, user_id, plot_id, kind, happened_on, crop, detail, quantity, cost,
-                yield_kg, unit_price, created_at,
+                record_id, user_id, plot_id, kind, happened_on, crop, material, detail, quantity,
+                cost, safe_days, yield_kg, unit_price, created_at,
             ),
         )
         row = conn.execute(FARM_RECORD_SELECT + " WHERE r.id = ?", (record_id,)).fetchone()
@@ -420,6 +455,62 @@ def count_farm_records(user_id: str) -> int:
     with get_connection() as conn:
         row = conn.execute("SELECT COUNT(*) AS total FROM farm_records WHERE user_id = ?", (user_id,)).fetchone()
     return int(row["total"]) if row else 0
+
+
+def list_harvest_safety(user_id: str, *, reference_date: str) -> list[dict[str, Any]]:
+    """每块地最近一次带安全间隔期的打药，以及距最早安全采收日的天数。
+
+    「最近一次」用窗口函数取，避免每块地各发一条查询。
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT plot_id, plot_name, material, happened_on, safe_days FROM (
+                SELECT
+                    r.plot_id AS plot_id,
+                    p.name AS plot_name,
+                    r.material AS material,
+                    r.happened_on AS happened_on,
+                    r.safe_days AS safe_days,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY r.plot_id ORDER BY r.happened_on DESC, r.id DESC
+                    ) AS row_number
+                FROM farm_records r
+                JOIN plots p ON p.id = r.plot_id
+                WHERE r.user_id = ? AND r.kind = '打药' AND r.safe_days IS NOT NULL
+            )
+            WHERE row_number = 1
+            ORDER BY happened_on DESC
+            """,
+            (user_id,),
+        ).fetchall()
+
+    try:
+        today = date.fromisoformat(reference_date)
+    except ValueError:
+        return []
+
+    safety: list[dict[str, Any]] = []
+    for row in rows:
+        safe_days = int(row["safe_days"])
+        earliest = add_days(row["happened_on"], safe_days)
+        days_remaining = None
+        if earliest:
+            days_remaining = (date.fromisoformat(earliest) - today).days
+        safety.append(
+            {
+                "plot_id": row["plot_id"],
+                "plot_name": row["plot_name"],
+                "material": row["material"],
+                "happened_on": row["happened_on"],
+                "safe_days": safe_days,
+                "earliest_harvest_on": earliest,
+                "days_remaining": days_remaining,
+                # 剩余天数 > 0 表示还在安全期内，此时采收不合规。
+                "in_safe_window": days_remaining is not None and days_remaining > 0,
+            }
+        )
+    return safety
 
 
 def summarize_farm_economics(user_id: str) -> list[dict[str, Any]]:
