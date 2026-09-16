@@ -4,7 +4,7 @@
 
 - Windows 10/11，PowerShell 5+ 或 7+。
 - Python 3.10+。
-- Node.js `^20.19.0 || >=22.12.0`。
+- Node.js `^22.12.0 || >=24.0.0`（vitest 5 的下限；CI 与本地均使用 Node 24）。
 
 ## 初始化
 

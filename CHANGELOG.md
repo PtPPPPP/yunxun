@@ -9,6 +9,7 @@
 - 用户画像只剩显示名称：`PATCH /api/me/profile` 与 `PATCH /api/auth/profile` 不再接受 `preferred_model`。
 - 配置裁剪：移除 `DOUBAO_*`、`YUNXUN_AI_*`、`YUNXUN_MAX_MESSAGE_LENGTH`、`YUNXUN_UPLOAD_MAX_BYTES`、`YUNXUN_IDEMPOTENCY_WINDOW_SECONDS` 和 `YUNXUN_DEFAULT_PAGE_SIZE`/`YUNXUN_MAX_PAGE_SIZE`。
 - 测试与门禁重写：E2E 改为 `frontend/e2e/decision.spec.ts`（访客登录、生成建议、统计面板、帮助与关于、移动端导航、无 API Key 入口），`scripts/release_rehearsal.py` 与 `scripts/http_load_test.py` 改为农活与统计流程，后者现在会对任何非 2xx 响应失败。
+- 前端依赖升级：vitest `3.2.7` → `5.0.1`，修复 `@vitest/mocker` 的路径穿越公告；同时更新 `browserslist`、`nanoid`、`baseline-browser-mapping` 的传递依赖，`npm audit --audit-level=moderate` 归零（此前 CI 的 `Audit frontend dependencies` 步骤为红）。vitest 5 要求 Node ≥ 22.12，因此 CI 各工作流与 `docs/DEVELOPMENT.md` 的 Node 版本从 20 提升到 24，`frontend/package.json` 增加 `engines` 字段声明该下限。
 
 ## 1.0.0 - 2026-07-12
 
