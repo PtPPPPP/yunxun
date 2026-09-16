@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api, getErrorMessage } from "../lib/api";
-import { formatDate } from "../lib/date";
+import { addDays, formatDate } from "../lib/date";
 import { FarmStatsPayload, PlotEconomics, ToolRecord, ToolStatsPayload } from "../types";
 
 const PAGE_SIZE = 20;
@@ -110,23 +110,23 @@ export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
 
   const trend = useMemo(() => {
     if (!stats) return [];
-    const days: Array<{ day: string; total: number }> = [];
-    const start = new Date(`${stats.by_day_since}T00:00:00`);
-    for (let offset = 0; offset < stats.by_day_days; offset += 1) {
-      const current = new Date(start);
-      current.setDate(start.getDate() + offset);
-      const key = current.toISOString().slice(0, 10);
-      days.push({ day: key, total: stats.by_day[key] ?? 0 });
-    }
-    return days;
+    // 用纯日期运算而不是 Date + toISOString：后者会把本地午夜换算回 UTC，
+    // 在东八区整体少一天，导致最右边的柱子永远是昨天、今天从不入图。
+    return Array.from({ length: stats.by_day_days }, (_, offset) => {
+      const key = addDays(stats.by_day_since, offset);
+      return { day: key, total: stats.by_day[key] ?? 0 };
+    });
   }, [stats]);
 
   const maxDaily = useMemo(() => Math.max(1, ...trend.map((item) => item.total)), [trend]);
-  const trendTotal = useMemo(() => trend.reduce((sum, item) => sum + item.total, 0), [trend]);
+
   const decisionCount = stats?.counts_by_kind.decision ?? 0;
-  const cropCount = stats?.top_crops.length ?? 0;
-  const totalCost = useMemo(() => economics.reduce((sum, item) => sum + item.total_cost, 0), [economics]);
-  const totalRevenue = useMemo(() => economics.reduce((sum, item) => sum + item.total_revenue, 0), [economics]);
+  // 只保留「净收益」：全场合计的利润在下面的按茬表格里加不出来。
+  // 累计投入与累计收入是那张表的列合计，逐行看得到，不再重复一张卡。
+  const netRevenue = useMemo(
+    () => economics.reduce((sum, item) => sum + item.net_revenue, 0),
+    [economics],
+  );
 
   function money(value: number | null): string {
     return value === null ? "—" : `¥${value}`;
@@ -149,11 +149,7 @@ export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
           <div className="stat-card"><span>地块数</span><strong>{loading ? "—" : farmStats?.plot_count ?? 0}</strong></div>
           <div className="stat-card"><span>作业记录</span><strong>{loading ? "—" : farmStats?.record_count ?? 0}</strong></div>
           <div className="stat-card"><span>农活建议</span><strong>{loading ? "—" : decisionCount}</strong></div>
-          <div className="stat-card"><span>覆盖作物</span><strong>{loading ? "—" : cropCount}</strong></div>
-          <div className="stat-card"><span>{stats?.by_day_days ?? 14} 天记录</span><strong>{loading ? "—" : trendTotal}</strong></div>
-          <div className="stat-card"><span>累计投入</span><strong>{loading ? "—" : `¥${round2(totalCost)}`}</strong></div>
-          <div className="stat-card"><span>累计收入</span><strong>{loading ? "—" : `¥${round2(totalRevenue)}`}</strong></div>
-          <div className="stat-card"><span>净收益</span><strong>{loading ? "—" : `¥${round2(totalRevenue - totalCost)}`}</strong></div>
+          <div className="stat-card"><span>净收益</span><strong>{loading ? "—" : `¥${round2(netRevenue)}`}</strong></div>
         </div>
       </div>
 
@@ -258,13 +254,12 @@ export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
           </div>
         </div>
         {records.length === 0 && !loading ? (
-          <p className="stats-empty">暂无历史记录。</p>
+          <p className="stats-empty">还没有生成过建议，去「今日农活」试一次吧。</p>
         ) : (
           <ul className="stats-records">
             {records.map((record) => (
               <li className="stats-record" key={record.id}>
                 <div className="stats-record__meta">
-                  <span className="stats-badge">农活建议</span>
                   <strong>{record.crop}</strong>
                   <span className="stats-record__time">{formatDateTime(record.created_at)}</span>
                 </div>

@@ -55,7 +55,8 @@ interface LedgerWorkspaceProps {
 }
 
 function formatCost(value: number | null): string {
-  return value === null ? "未记费用" : `¥${value}`;
+  // 可选字段没填就留白，不要每行重复一句「未记费用」。
+  return value === null ? "—" : `¥${value}`;
 }
 
 function round2(value: number): number {

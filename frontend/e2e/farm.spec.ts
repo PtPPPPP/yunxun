@@ -9,7 +9,7 @@ async function guestLogin(page: Page) {
 async function openPlots(page: Page) {
   await guestLogin(page);
   await page.getByRole("button", { name: "地块档案" }).click();
-  await expect(page.getByRole("heading", { name: "农事地块" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "地块档案" })).toBeVisible();
 }
 
 async function openLedger(page: Page) {
@@ -54,8 +54,7 @@ test("采收记录填产量与单价后，统计面板算出投入产出", async
 
   await page.getByRole("button", { name: "统计面板" }).click();
   const cards = page.locator(".stat-card");
-  await expect(cards.filter({ hasText: "累计投入" })).toContainText("¥300");
-  await expect(cards.filter({ hasText: "累计收入" })).toContainText("¥5040");
+  // 累计投入/累计收入已从汇总卡里删掉（与下方表格重复），只保留净收益
   await expect(cards.filter({ hasText: "净收益" })).toContainText("¥4740");
 
   const row = page.locator(".economics-table tbody tr");

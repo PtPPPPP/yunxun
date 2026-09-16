@@ -1,7 +1,12 @@
+import logging
 import unittest
 
 from backend.app.core.config import Settings, validate_startup_settings
-from backend.app.core.runtime_status import build_runtime_status, build_runtime_warnings
+from backend.app.core.runtime_status import (
+    build_runtime_status,
+    build_runtime_warnings,
+    log_runtime_status,
+)
 
 
 def make_settings(**overrides: object) -> Settings:
@@ -38,13 +43,25 @@ class ConfigRuntimeTestCase(unittest.TestCase):
         self.assertEqual(status["requests_per_minute"], 20)
         self.assertNotIn("local-secret", str(status))
 
-    def test_runtime_warnings_include_default_secret_notice(self) -> None:
+    def test_runtime_warnings_are_human_readable(self) -> None:
+        """给农户看的文案不能是环境变量名，变量名只留在日志里。"""
         warnings = build_runtime_warnings(make_settings())
-        self.assertTrue(any("JWT_SECRET" in warning for warning in warnings))
+        self.assertTrue(any("安全设置未完成" in warning for warning in warnings))
+        self.assertFalse(any("YUNXUN_" in warning for warning in warnings))
 
     def test_runtime_warnings_include_missing_origin_notice(self) -> None:
         warnings = build_runtime_warnings(make_settings(allowed_origins_raw=""))
-        self.assertTrue(any("ALLOWED_ORIGINS" in warning for warning in warnings))
+        self.assertTrue(any("来源" in warning for warning in warnings))
+
+    def test_runtime_log_names_the_variables_needing_configuration(self) -> None:
+        logger = logging.getLogger("yunxun.backend")
+        with self.assertLogs("yunxun.backend", level="WARNING") as captured:
+            # 两个变量都留空，两条提醒才会都产生
+            log_runtime_status(logger, make_settings(allowed_origins_raw=""))
+
+        output = chr(10).join(captured.output)
+        self.assertIn("YUNXUN_JWT_SECRET", output)
+        self.assertIn("YUNXUN_ALLOWED_ORIGINS", output)
 
 
 if __name__ == "__main__":

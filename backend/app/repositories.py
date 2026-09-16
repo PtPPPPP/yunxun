@@ -197,17 +197,19 @@ def count_tool_records_by_kind(user_id: str) -> dict[str, int]:
 
 
 def summarize_tool_records(user_id: str, *, days: int = 14, top_crops: int = 5) -> dict[str, Any]:
-    """近 N 天按日计数与作物 Top K 汇总，供统计面板展示。"""
-    since = (now_utc() - timedelta(days=days - 1)).date().isoformat()
+    """近 N 天按日计数与作物 Top K 汇总，供统计面板展示。
+
+    按本机时区归日，而不是直接切 UTC 时间戳：created_at 存的是 UTC，在东八区
+    早上 8 点前记的建议会被算到前一天。窗口只有十几天，取回来在 Python 里归日
+    的代价可以忽略。窗口起点往前多取一天，覆盖时区偏移造成的边界。
+    """
+    local_today = datetime.now().date()
+    since = (local_today - timedelta(days=days - 1)).isoformat()
+    window_start = (local_today - timedelta(days=days)).isoformat()
     with get_connection() as conn:
-        day_rows = conn.execute(
-            """
-            SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS total
-            FROM tool_records
-            WHERE user_id = ? AND created_at >= ?
-            GROUP BY day
-            """,
-            (user_id, since),
+        stamp_rows = conn.execute(
+            "SELECT created_at FROM tool_records WHERE user_id = ? AND created_at >= ?",
+            (user_id, window_start),
         ).fetchall()
         crop_rows = conn.execute(
             """
@@ -220,7 +222,14 @@ def summarize_tool_records(user_id: str, *, days: int = 14, top_crops: int = 5) 
             """,
             (user_id, top_crops),
         ).fetchall()
-    by_day = {str(row["day"]): int(row["total"]) for row in day_rows}
+    by_day: dict[str, int] = {}
+    for row in stamp_rows:
+        try:
+            local_day = datetime.fromisoformat(row["created_at"]).astimezone().date().isoformat()
+        except ValueError:
+            continue
+        if local_day >= since:
+            by_day[local_day] = by_day.get(local_day, 0) + 1
     return {
         "since": since,
         "days": days,

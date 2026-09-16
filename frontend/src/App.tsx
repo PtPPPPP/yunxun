@@ -222,9 +222,6 @@ export default function App() {
         {error && <div className="toast-banner">{error}</div>}
         <AuthScreen
           mode={authMode}
-          backendUrl={health.backend_url || api.defaults.baseURL || ""}
-          environment={health.environment}
-          warnings={health.warnings}
           loading={authAction.busy}
           form={authForm}
           onModeChange={setAuthMode}
@@ -235,8 +232,6 @@ export default function App() {
       </div>
     );
   }
-
-  const anyBusy = settingsAction.busy || decisionAction.busy || plots.busy || tasks.busy || seasons.busy;
 
   return (
     <div className="app-shell">
@@ -269,7 +264,6 @@ export default function App() {
           taskSummary={taskSummary}
           onOpenNavigation={() => setSidebarOpen(true)}
         />
-        {anyBusy && <div className="inline-status">正在处理当前操作，请稍候...</div>}
 
         {activeFeature === "decision" && (
           <Suspense fallback={<div className="panel panel--loading">正在加载今日农活模块...</div>}>

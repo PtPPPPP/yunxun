@@ -121,16 +121,15 @@ export interface ToolStatsPayload {
   top_crops: Array<{ crop: string; total: number }>;
 }
 
+/**
+ * 只声明界面真正会读的字段。接口还返回环境名、后端地址、限流值、数据库路径等
+ * 部署细节，但它们不该出现在农户面前（曾经出现过，已清理），所以这里不声明，
+ * 免得以后又被顺手接上去。
+ */
 export interface HealthPayload {
   success: boolean;
   app_name: string;
   app_version: string;
-  environment: string;
-  backend_url: string;
-  requests_per_minute: number;
-  debug: boolean;
-  database_path: string;
-  allowed_origins: string[];
   warnings: string[];
   error?: string;
 }

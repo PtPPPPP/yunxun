@@ -9,7 +9,7 @@ async function guestLogin(page: Page) {
 test("访客可以进入今日农活工作台", async ({ page }) => {
   await guestLogin(page);
   await expect(page.getByRole("main")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "今日农活计划" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "今日农活" })).toBeVisible();
   await expect(page.locator(".app-version")).toHaveText(/^V\d+(?:\.\d+)+$/);
 });
 

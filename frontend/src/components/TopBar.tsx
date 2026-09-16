@@ -1,15 +1,16 @@
-import { CalendarCheck, CloudSun, Gauge, LineChart, Menu, ShieldCheck } from "lucide-react";
+import { CalendarCheck, CloudSun, Menu, ShieldCheck } from "lucide-react";
 import { memo } from "react";
 
 import { FeatureKey, HealthPayload } from "../types";
 import { formatAppVersion } from "../lib/appVersion";
 
+// 标题与侧边栏的功能名保持一致：同一个模块在导航和页面标题上必须是同一个词。
 const featureTitles: Record<FeatureKey, { title: string; subtitle: string }> = {
-  decision: { title: "今日农活计划", subtitle: "结合天气、墒情和生长期生成今天可执行的安排。" },
-  plots: { title: "农事地块", subtitle: "登记地块的面积、土壤、灌溉条件和当季作物。" },
-  ledger: { title: "农事台账", subtitle: "按地块记录每次作业的日期、用量和费用。" },
+  decision: { title: "今日农活", subtitle: "按你判断的天气、墒情和生长期生成今天可执行的安排。" },
+  plots: { title: "地块档案", subtitle: "登记地块的面积、土壤与灌溉条件，按茬次记录当季作物。" },
+  ledger: { title: "农事台账", subtitle: "按地块记录每次作业的日期、用量、费用与采收产量。" },
   tasks: { title: "农事待办", subtitle: "把接下来要做的事排好，逾期会标红。" },
-  stats: { title: "统计面板", subtitle: "回顾历史农活建议的使用情况。" },
+  stats: { title: "统计面板", subtitle: "汇总地块、台账、待办与投入产出。" },
 };
 
 export interface TaskSummary {
@@ -76,8 +77,6 @@ export const TopBar = memo(function TopBar({ health, activeFeature, taskSummary,
             </span>
           </div>
         )}
-        <div className="status-chip"><LineChart size={16} /><span>{health.backend_url}</span></div>
-        <div className="status-chip"><Gauge size={16} /><span>{health.requests_per_minute}/分钟</span></div>
       </div>
     </header>
   );

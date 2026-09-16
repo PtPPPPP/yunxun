@@ -339,7 +339,7 @@ export function PlotsWorkspace(props: PlotsWorkspaceProps) {
       <div className="panel">
         <div className="panel__header">
           <div>
-            <h3>地块档案</h3>
+            <h3>地块列表</h3>
             <p>共 {plots.length} 块地，按最近更新排序。</p>
           </div>
         </div>

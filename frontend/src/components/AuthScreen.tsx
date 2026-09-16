@@ -3,9 +3,6 @@ import { FormEvent } from "react";
 
 interface AuthScreenProps {
   mode: "login" | "register";
-  backendUrl: string;
-  environment: string;
-  warnings: string[];
   loading: boolean;
   form: {
     username: string;
@@ -21,9 +18,6 @@ interface AuthScreenProps {
 export function AuthScreen(props: AuthScreenProps) {
   const {
     mode,
-    backendUrl,
-    environment,
-    warnings,
     loading,
     form,
     onModeChange,
@@ -43,7 +37,6 @@ export function AuthScreen(props: AuthScreenProps) {
             </div>
             <div>
               <div className="brand-name">云寻</div>
-              <div className="brand-subname">Agronomy workspace</div>
             </div>
           </div>
 
@@ -56,17 +49,9 @@ export function AuthScreen(props: AuthScreenProps) {
           </div>
 
           <div className="auth-hero__meta">
-            <span>环境：{environment}</span>
-            <span>后端地址：{backendUrl}</span>
+            <span>面向农户、合作社和基层农技员</span>
+            <span>数据保存在本机，不联网</span>
           </div>
-
-          {warnings.length > 0 && (
-            <div className="mode-note" role="status">
-              {warnings.map((warning) => (
-                <div key={warning}>{warning}</div>
-              ))}
-            </div>
-          )}
         </div>
       </section>
 
