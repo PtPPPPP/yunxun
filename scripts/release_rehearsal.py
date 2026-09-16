@@ -44,8 +44,22 @@ def wait_ready() -> None:
     raise RuntimeError("后端未在限定时间内就绪。")
 
 
-def start_backend(python: Path, project: Path, env: dict[str, str]) -> subprocess.Popen:
-    process = subprocess.Popen([str(python), "backend/main.py"], cwd=project, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+def start_backend(python: Path, project: Path, env: dict[str, str], log_path: Path) -> subprocess.Popen:
+    """启动后端并把输出写进日志文件。
+
+    这里刻意不用 subprocess.PIPE：管道缓冲区只有几 KB，没人读就会写满，
+    后端进程会阻塞在写日志上，后续请求全部超时。写文件既不会阻塞，
+    失败时也还能把日志尾巴打出来定位问题。
+    """
+    with log_path.open("a", encoding="utf-8") as log_file:
+        process = subprocess.Popen(
+            [str(python), "backend/main.py"],
+            cwd=project,
+            env=env,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
     wait_ready()
     return process
 
@@ -56,8 +70,8 @@ def stop_backend(process: subprocess.Popen) -> None:
 
 
 @contextmanager
-def running_backend(python: Path, project: Path, env: dict[str, str]):
-    process = start_backend(python, project, env)
+def running_backend(python: Path, project: Path, env: dict[str, str], log_path: Path):
+    process = start_backend(python, project, env, log_path)
     try:
         yield process
     finally:
@@ -68,6 +82,10 @@ def running_backend(python: Path, project: Path, env: dict[str, str]):
 def main() -> None:
     run([sys.executable, "scripts/package_release.py"], ROOT)
     archive = ROOT / "dist/release/yunxun-1.0.0.zip"
+    # 日志留在 dist 下（已 gitignore）而不是临时目录：演练失败时还能翻。
+    backend_log = ROOT / "dist" / "rehearsal-backend.log"
+    backend_log.parent.mkdir(parents=True, exist_ok=True)
+    backend_log.write_text("", encoding="utf-8")
     with tempfile.TemporaryDirectory() as directory:
         workspace = Path(directory)
         with zipfile.ZipFile(archive) as bundle: bundle.extractall(workspace)
@@ -89,7 +107,7 @@ def main() -> None:
             "YUNXUN_HOST": "127.0.0.1", "YUNXUN_DB_PATH": str(database),
             "YUNXUN_JWT_SECRET": "release-rehearsal-secret-1234567890", "YUNXUN_ALLOWED_ORIGINS": "https://example.com"})
         run([str(python), "scripts/check_release.py"], project, env)
-        with running_backend(python, project, env):
+        with running_backend(python, project, env, backend_log):
             status, live, headers = api("/health/live")
             assert status == 200 and live["version"] == "1.0.0" and headers.get("x-request-id") == "rehearsal-request"
             _, guest, _ = api("/api/auth/guest", method="POST")
@@ -131,22 +149,59 @@ def main() -> None:
                 },
             )
             assert status == 200 and created_record["record"]["plot_name"] == "演练地块"
-        with running_backend(python, project, env):
+            status, created_harvest, _ = api(
+                "/api/farm-records",
+                method="POST",
+                token=token,
+                data={
+                    "plot_id": created_plot["plot"]["id"],
+                    "kind": "采收",
+                    "happened_on": "2026-09-20",
+                    "yield_kg": 2100.0,
+                    "unit_price": 2.4,
+                },
+            )
+            assert status == 200 and created_harvest["record"]["earliest_harvest_on"] is None
+            status, created_task, _ = api(
+                "/api/farm-tasks",
+                method="POST",
+                token=token,
+                data={
+                    "plot_id": created_plot["plot"]["id"],
+                    "title": "演练待办：复查长势",
+                    "due_on": "2026-09-25",
+                    "notes": "",
+                },
+            )
+            assert status == 200 and created_task["task"]["done"] is False
+        with running_backend(python, project, env, backend_log):
             _, records, _ = api("/api/tool-records?limit=10", token=token)
             assert len(records["records"]) == 1
             assert records["records"][0]["crop"] == "玉米"
 
             _, plots, _ = api("/api/plots", token=token)
             assert len(plots["plots"]) == 1
-            assert plots["plots"][0]["record_count"] == 1
+            # 一条施肥 + 一条采收
+            assert plots["plots"][0]["record_count"] == 2
+            assert plots["plots"][0]["open_task_count"] == 1
             _, ledger, _ = api("/api/farm-records?limit=10", token=token)
-            assert len(ledger["records"]) == 1
-            assert ledger["records"][0]["cost"] == 120.5
+            assert len(ledger["records"]) == 2
+            assert sum(item["cost"] or 0 for item in ledger["records"]) == 120.5
+            assert sum(item["yield_kg"] or 0 for item in ledger["records"]) == 2100.0
+
+            _, economics, _ = api("/api/farm-records/economics", token=token)
+            assert len(economics["plots"]) == 1
+            assert economics["plots"][0]["total_revenue"] == 5040.0
+            assert economics["plots"][0]["net_revenue"] == 4919.5
+
+            _, tasks, _ = api("/api/farm-tasks", token=token)
+            assert len(tasks["tasks"]) == 1
+            assert tasks["tasks"][0]["title"] == "演练待办：复查长势"
         backup_dir = workspace / "backups"
         run([str(python), "scripts/database_admin.py", "backup", "--dir", str(backup_dir)], project, env)
         backup = next(backup_dir.glob("yunxun-*.db"))
         run([str(python), "scripts/database_admin.py", "rehearse-restore", str(backup)], project, env)
-        with running_backend(python, project, env):
+        with running_backend(python, project, env, backend_log):
             _, records, _ = api("/api/tool-records?limit=10", token=token)
             assert len(records["records"]) == 1
             _, stats, _ = api("/api/tool-records/stats", token=token)
@@ -154,11 +209,26 @@ def main() -> None:
 
             _, plots, _ = api("/api/plots", token=token)
             assert len(plots["plots"]) == 1
-            assert plots["plots"][0]["record_count"] == 1
+            assert plots["plots"][0]["record_count"] == 2
+            assert plots["plots"][0]["open_task_count"] == 1
             _, farm_stats, _ = api("/api/farm-records/stats", token=token)
-            assert farm_stats["plot_count"] == 1 and farm_stats["record_count"] == 1
+            assert farm_stats["plot_count"] == 1 and farm_stats["record_count"] == 2
+
+            _, economics, _ = api("/api/farm-records/economics", token=token)
+            assert economics["plots"][0]["total_revenue"] == 5040.0
+            _, tasks, _ = api("/api/farm-tasks", token=token)
+            assert len(tasks["tasks"]) == 1
     print("发布演练通过：干净安装、构建、启动、重启、数据持久化和备份恢复均正常。")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        log_path = ROOT / "dist" / "rehearsal-backend.log"
+        if log_path.is_file():
+            tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-30:]
+            print(f"发布演练失败，后端日志最后 30 行（{log_path}）：", file=sys.stderr)
+            for log_line in tail:
+                print(log_line, file=sys.stderr)
+        raise
