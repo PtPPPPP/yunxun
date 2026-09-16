@@ -2,8 +2,10 @@ import { CalendarPlus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { ConfirmDialog } from "./ConfirmDialog";
+import { TaskInput } from "../hooks/useTasks";
 import { useAsyncGuard } from "../hooks/useAsyncGuard";
 import { api, getErrorMessage } from "../lib/api";
+import { addDays, formatDate, todayIso } from "../lib/date";
 import { FarmRecord, FarmRecordKind, Plot } from "../types";
 
 const PAGE_SIZE = 20;
@@ -11,6 +13,16 @@ const recordKinds: FarmRecordKind[] = ["播种", "施肥", "打药", "灌溉", "
 
 // 安全间隔期的权威来源是产品标签：这里只提供常见参考值做预填，
 // 填进去之后仍可改写，应用不做任何"标准答案"背书。
+// 记完一次农活后按作业类型给一条续办建议。只做提示，点一下才真的建待办，
+// 不自动创建，免得清单被塞满。
+const followUps: Partial<Record<FarmRecordKind, { days: number; label: string }>> = {
+  播种: { days: 7, label: "查苗情与出苗率" },
+  施肥: { days: 7, label: "复查追肥后长势" },
+  打药: { days: 3, label: "复查防效" },
+  灌溉: { days: 2, label: "查看墒情与积水" },
+  除草: { days: 10, label: "复查杂草复发" },
+};
+
 const pesticideReference = [
   { material: "苏云金杆菌", safe_days: 3 },
   { material: "吡虫啉", safe_days: 7 },
@@ -39,16 +51,7 @@ interface LedgerWorkspaceProps {
   onError: (message: string) => void;
   /** 增删记录后通知外层刷新地块列表，让「本季 N 次作业」保持同步。 */
   onRecordsChanged: () => void;
-}
-
-function todayIso(): string {
-  const now = new Date();
-  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-}
-
-function formatDate(value: string): string {
-  const [year, month, date] = value.split("-");
-  return `${year}/${Number(month)}/${Number(date)}`;
+  onQuickTask: (input: TaskInput) => Promise<unknown>;
 }
 
 function formatCost(value: number | null): string {
@@ -60,7 +63,7 @@ function round2(value: number): number {
 }
 
 export function LedgerWorkspace(props: LedgerWorkspaceProps) {
-  const { plots, onError, onRecordsChanged } = props;
+  const { plots, onError, onRecordsChanged, onQuickTask } = props;
   const [form, setForm] = useState({
     plot_id: "",
     kind: "施肥" as FarmRecordKind,
@@ -83,6 +86,7 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<FarmRecord | null>(null);
+  const [followUp, setFollowUp] = useState<TaskInput | null>(null);
   const action = useAsyncGuard();
 
   // 记采收时若该地块还在安全期内，提醒但不阻断：紧急采收是真实存在的，
@@ -159,6 +163,17 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
           ...current, quantity: "", cost: "", material: "", safe_days: "",
           yield_kg: "", unit_price: "", detail: "",
         }));
+        const rule = followUps[form.kind];
+        setFollowUp(
+          rule
+            ? {
+                plot_id: form.plot_id,
+                title: rule.label,
+                due_on: addDays(form.happened_on, rule.days),
+                notes: "",
+              }
+            : null,
+        );
         onError("");
         const data = await loadRecords(null, plotFilter);
         setRecords(data.records);
@@ -405,6 +420,21 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
         </div>
 
         {harvestWarning && <p className="form-warning" role="status">{harvestWarning}</p>}
+
+        {followUp && (
+          <p className="follow-up" role="status">
+            已记入台账。
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() => {
+                void onQuickTask(followUp).then(() => setFollowUp(null));
+              }}
+            >
+              加为待办：{formatDate(followUp.due_on)} {followUp.title}
+            </button>
+          </p>
+        )}
 
         <button className="primary-button" type="button" onClick={() => void handleSubmit()} disabled={action.busy}>
           <CalendarPlus size={16} />

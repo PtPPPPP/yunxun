@@ -16,8 +16,13 @@ auth_rate_limiter = InMemoryRateLimiter()
 
 
 def _limit_auth(request: Request) -> None:
+    settings = get_settings()
     host = request.client.host if request.client else "local"
-    auth_rate_limiter.check(f"auth:{safe_fingerprint(host)}", 20, 60)
+    auth_rate_limiter.check(
+        f"auth:{safe_fingerprint(host)}",
+        settings.auth_requests_per_minute,
+        settings.auth_window_seconds,
+    )
 
 
 def _set_browser_session(response: Response, token: str) -> None:

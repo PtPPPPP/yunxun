@@ -1,4 +1,4 @@
-import { CloudSun, Gauge, LineChart, Menu, ShieldCheck } from "lucide-react";
+import { CalendarCheck, CloudSun, Gauge, LineChart, Menu, ShieldCheck } from "lucide-react";
 import { memo } from "react";
 
 import { FeatureKey, HealthPayload } from "../types";
@@ -8,16 +8,24 @@ const featureTitles: Record<FeatureKey, { title: string; subtitle: string }> = {
   decision: { title: "今日农活计划", subtitle: "结合天气、墒情和生长期生成今天可执行的安排。" },
   plots: { title: "农事地块", subtitle: "登记地块的面积、土壤、灌溉条件和当季作物。" },
   ledger: { title: "农事台账", subtitle: "按地块记录每次作业的日期、用量和费用。" },
+  tasks: { title: "农事待办", subtitle: "把接下来要做的事排好，逾期会标红。" },
   stats: { title: "统计面板", subtitle: "回顾历史农活建议的使用情况。" },
 };
+
+export interface TaskSummary {
+  open: number;
+  dueToday: number;
+  overdue: number;
+}
 
 interface TopBarProps {
   health: HealthPayload;
   activeFeature: FeatureKey;
+  taskSummary: TaskSummary;
   onOpenNavigation: () => void;
 }
 
-export const TopBar = memo(function TopBar({ health, activeFeature, onOpenNavigation }: TopBarProps) {
+export const TopBar = memo(function TopBar({ health, activeFeature, taskSummary, onOpenNavigation }: TopBarProps) {
   const today = new Intl.DateTimeFormat("zh-CN", {
     month: "long",
     day: "numeric",
@@ -59,6 +67,15 @@ export const TopBar = memo(function TopBar({ health, activeFeature, onOpenNaviga
           </details>
         )}
         <div className="status-chip"><CloudSun size={16} /><span>{today}</span></div>
+        {taskSummary.open > 0 && (
+          <div className={taskSummary.overdue > 0 ? "status-chip status-chip--warning" : "status-chip"}>
+            <CalendarCheck size={16} />
+            <span>
+              待办 {taskSummary.open} 项
+              {taskSummary.overdue > 0 ? `，${taskSummary.overdue} 项逾期` : taskSummary.dueToday > 0 ? `，今天 ${taskSummary.dueToday} 项` : ""}
+            </span>
+          </div>
+        )}
         <div className="status-chip"><LineChart size={16} /><span>{health.backend_url}</span></div>
         <div className="status-chip"><Gauge size={16} /><span>{health.requests_per_minute}/分钟</span></div>
       </div>

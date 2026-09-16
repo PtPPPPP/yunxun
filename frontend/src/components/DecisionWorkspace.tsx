@@ -1,4 +1,4 @@
-import { CalendarCheck2 } from "lucide-react";
+import { CalendarCheck2, CalendarPlus } from "lucide-react";
 
 import { Plot } from "../types";
 
@@ -15,6 +15,9 @@ interface DecisionWorkspaceProps {
   onChange: (field: "crop" | "stage" | "rainProb" | "soilMoisture" | "temperature", value: string | number) => void;
   onPlotChange: (plotId: string) => void;
   onSubmit: () => void;
+  /** 把整段建议存成一条待办，不解析散文，避免脆弱的文本切分。 */
+  onSaveAdviceAsTask: () => void;
+  adviceSaved: boolean;
 }
 
 const crops = ["玉米", "水稻", "小麦", "大豆", "番茄", "黄瓜", "辣椒", "苹果", "柑橘"];
@@ -24,6 +27,7 @@ export function DecisionWorkspace(props: DecisionWorkspaceProps) {
   const {
     crop, stage, rainProb, soilMoisture, temperature, result, busy,
     plots, selectedPlotId, onChange, onPlotChange, onSubmit,
+    onSaveAdviceAsTask, adviceSaved,
   } = props;
 
   return (
@@ -134,6 +138,12 @@ export function DecisionWorkspace(props: DecisionWorkspaceProps) {
           </div>
         </div>
         <div className="report-block">{result || "填写条件后，这里会生成建议。"}</div>
+        {result && (
+          <button className="secondary-button" type="button" onClick={onSaveAdviceAsTask} disabled={adviceSaved}>
+            <CalendarPlus size={16} />
+            {adviceSaved ? "已存为待办" : "把建议存为待办"}
+          </button>
+        )}
       </div>
     </section>
   );

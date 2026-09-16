@@ -1,4 +1,4 @@
-import { BarChart3, ClipboardList, MapPin, NotebookTabs, Settings2, Sprout, X } from "lucide-react";
+import { BarChart3, CalendarCheck, ClipboardList, MapPin, NotebookTabs, Settings2, Sprout, X } from "lucide-react";
 import { memo } from "react";
 
 import { FeatureKey, User } from "../types";
@@ -7,6 +7,7 @@ const featureLabels: Record<FeatureKey, string> = {
   decision: "今日农活",
   plots: "地块档案",
   ledger: "农事台账",
+  tasks: "农事待办",
   stats: "统计面板",
 };
 
@@ -34,9 +35,9 @@ export const Sidebar = memo(function Sidebar({
       <button className="sidebar__close" type="button" onClick={onClose} aria-label="关闭导航"><X size={20} /></button>
       <div className="sidebar__brand"><div className="brand-mark"><Sprout size={20} /></div><div><div className="brand-name">云寻</div><div className="brand-subname">Agronomy cockpit</div></div></div>
       <nav className="feature-nav" aria-label="功能菜单">
-        {(["decision", "plots", "ledger", "stats"] as FeatureKey[]).map((feature) => (
+        {(["decision", "plots", "ledger", "tasks", "stats"] as FeatureKey[]).map((feature) => (
           <button key={feature} type="button" className={activeFeature === feature ? "feature-nav__item is-active" : "feature-nav__item"} onClick={() => { onFeatureChange(feature); onClose(); }}>
-            {feature === "decision" && <NotebookTabs size={18} />}{feature === "plots" && <MapPin size={18} />}{feature === "ledger" && <ClipboardList size={18} />}{feature === "stats" && <BarChart3 size={18} />}<span>{featureLabels[feature]}</span>
+            {feature === "decision" && <NotebookTabs size={18} />}{feature === "plots" && <MapPin size={18} />}{feature === "ledger" && <ClipboardList size={18} />}{feature === "tasks" && <CalendarCheck size={18} />}{feature === "stats" && <BarChart3 size={18} />}<span>{featureLabels[feature]}</span>
           </button>
         ))}
       </nav>

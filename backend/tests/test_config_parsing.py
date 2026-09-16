@@ -36,6 +36,15 @@ class ConfigParsingTestCase(unittest.TestCase):
         values = config._parse_csv("YUNXUN_ALLOWED_ORIGINS", " http://a.test, http://a.test, http://b.test ")
         self.assertEqual(values, ["http://a.test", "http://b.test"])
 
+    def test_auth_rate_limit_defaults_are_stricter_than_general_api(self) -> None:
+        config.get_settings.cache_clear()
+        with patch.dict("os.environ", {}, clear=True):
+            settings = config.get_settings()
+
+        self.assertEqual(settings.auth_requests_per_minute, 20)
+        self.assertEqual(settings.auth_window_seconds, 60)
+        config.get_settings.cache_clear()
+
     def test_default_cors_headers_allow_csrf_token(self) -> None:
         config.get_settings.cache_clear()
         with patch.dict("os.environ", {}, clear=True):
@@ -53,6 +62,8 @@ class ConfigParsingTestCase(unittest.TestCase):
                 "YUNXUN_REQUESTS_PER_MINUTE": "12",
                 "YUNXUN_TOKEN_EXPIRE_HOURS": "24",
                 "YUNXUN_REQUEST_TIMEOUT_SECONDS": "30",
+                "YUNXUN_AUTH_REQUESTS_PER_MINUTE": "200",
+                "YUNXUN_AUTH_WINDOW_SECONDS": "30",
             },
             clear=False,
         ):
@@ -62,6 +73,8 @@ class ConfigParsingTestCase(unittest.TestCase):
         self.assertEqual(settings.requests_per_minute, 12)
         self.assertEqual(settings.token_hours, 24)
         self.assertEqual(settings.request_timeout_seconds, 30.0)
+        self.assertEqual(settings.auth_requests_per_minute, 200)
+        self.assertEqual(settings.auth_window_seconds, 30)
         config.get_settings.cache_clear()
 
 

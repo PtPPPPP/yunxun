@@ -240,7 +240,7 @@ export function PlotsWorkspace(props: PlotsWorkspaceProps) {
         title="删除这个地块？"
         description={
           pendingDelete
-            ? `「${pendingDelete.name}」及其 ${pendingDelete.record_count} 条农事台账记录会被永久删除，删除后无法恢复。`
+            ? `「${pendingDelete.name}」及其 ${pendingDelete.record_count} 条农事台账记录、${pendingDelete.open_task_count} 项待办会被永久删除，删除后无法恢复。`
             : ""
         }
         confirmLabel="确认删除"

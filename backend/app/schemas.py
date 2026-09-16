@@ -44,6 +44,18 @@ class FarmRecordCreateRequest(BaseModel):
     unit_price: float | None = Field(None, ge=0, le=1_000_000)
 
 
+class FarmTaskCreateRequest(BaseModel):
+    plot_id: str | None = Field(None, max_length=64)
+    title: str = Field(..., min_length=1, max_length=60)
+    due_on: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    # 待办备注要能装下整段今日农活建议，所以比台账的说明字段宽松。
+    notes: str = Field("", max_length=1000)
+
+
+class FarmTaskUpdateRequest(FarmTaskCreateRequest):
+    done: bool = False
+
+
 class DecisionRequest(BaseModel):
     crop: str = Field(..., min_length=1, max_length=20)
     stage: str = Field(..., min_length=1, max_length=20)

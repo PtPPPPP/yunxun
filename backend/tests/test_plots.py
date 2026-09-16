@@ -157,8 +157,9 @@ class PlotServiceTestCase(unittest.TestCase):
         insert_farm_record(self.db_path, plot["id"])
         self.assertEqual(list_plots(self.user_id)[0]["record_count"], 1)
 
-        removed = delete_user_plot(plot["id"], self.user_id, "127.0.0.1")
-        self.assertEqual(removed, 1)
+        removed_records, removed_tasks = delete_user_plot(plot["id"], self.user_id, "127.0.0.1")
+        self.assertEqual(removed_records, 1)
+        self.assertEqual(removed_tasks, 0)
         self.assertEqual(list_plots(self.user_id), [])
         with closing(sqlite3.connect(self.db_path)) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM farm_records").fetchone()[0], 0)

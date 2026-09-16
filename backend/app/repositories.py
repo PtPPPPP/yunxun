@@ -240,6 +240,7 @@ def public_plot(record: dict[str, Any]) -> dict[str, Any]:
         "planted_on": record["planted_on"],
         "notes": record["notes"],
         "record_count": int(record.get("record_count") or 0),
+        "open_task_count": int(record.get("open_task_count") or 0),
         "created_at": record["created_at"],
         "updated_at": record["updated_at"],
     }
@@ -285,7 +286,9 @@ def list_plots(user_id: str, *, reference_date: str | None = None) -> list[dict[
             """
             SELECT p.*, (
                 SELECT COUNT(*) FROM farm_records r WHERE r.plot_id = p.id
-            ) AS record_count
+            ) AS record_count, (
+                SELECT COUNT(*) FROM farm_tasks t WHERE t.plot_id = p.id AND t.done_at IS NULL
+            ) AS open_task_count
             FROM plots p
             WHERE p.user_id = ?
             ORDER BY p.updated_at DESC, p.id DESC
@@ -339,14 +342,115 @@ def update_plot(
     return public_plot(dict(row))
 
 
-def delete_plot_with_records(plot_id: str) -> int:
-    """删除地块并连带删除其作业记录，返回被删除的记录条数。"""
+def delete_plot_with_records(plot_id: str) -> tuple[int, int]:
+    """删除地块并连带删除其作业记录与待办，返回 (记录条数, 待办条数)。"""
     with get_connection() as conn:
-        row = conn.execute("SELECT COUNT(*) AS total FROM farm_records WHERE plot_id = ?", (plot_id,)).fetchone()
-        removed = int(row["total"]) if row else 0
+        record_row = conn.execute("SELECT COUNT(*) AS total FROM farm_records WHERE plot_id = ?", (plot_id,)).fetchone()
+        task_row = conn.execute("SELECT COUNT(*) AS total FROM farm_tasks WHERE plot_id = ?", (plot_id,)).fetchone()
+        removed_records = int(record_row["total"]) if record_row else 0
+        removed_tasks = int(task_row["total"]) if task_row else 0
         conn.execute("DELETE FROM farm_records WHERE plot_id = ?", (plot_id,))
+        conn.execute("DELETE FROM farm_tasks WHERE plot_id = ?", (plot_id,))
         conn.execute("DELETE FROM plots WHERE id = ?", (plot_id,))
-    return removed
+    return removed_records, removed_tasks
+
+
+# 待办查询统一带出地块名称，杂事可以不挂地块。
+FARM_TASK_SELECT = """
+    SELECT t.*, COALESCE(p.name, '') AS plot_name
+    FROM farm_tasks t
+    LEFT JOIN plots p ON p.id = t.plot_id
+"""
+
+
+def public_farm_task(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": record["id"],
+        "plot_id": record["plot_id"],
+        "plot_name": record["plot_name"],
+        "title": record["title"],
+        "due_on": record["due_on"],
+        "done": record["done_at"] is not None,
+        "done_at": record["done_at"],
+        "notes": record["notes"],
+        "created_at": record["created_at"],
+    }
+
+
+def create_farm_task(
+    user_id: str,
+    plot_id: str | None,
+    title: str,
+    due_on: str,
+    notes: str,
+) -> dict[str, Any]:
+    task_id = uuid.uuid4().hex
+    created_at = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO farm_tasks (id, user_id, plot_id, title, due_on, done_at, notes, created_at)
+            VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+            """,
+            (task_id, user_id, plot_id, title, due_on, notes, created_at),
+        )
+        row = conn.execute(FARM_TASK_SELECT + " WHERE t.id = ?", (task_id,)).fetchone()
+    return public_farm_task(dict(row))
+
+
+def get_farm_task(task_id: str) -> dict[str, Any] | None:
+    return _fetchone(FARM_TASK_SELECT + " WHERE t.id = ?", (task_id,))
+
+
+def list_open_farm_tasks(user_id: str) -> list[dict[str, Any]]:
+    """未完成待办，按到期日升序；同一到期日再按创建时间保证顺序稳定。"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            FARM_TASK_SELECT + " WHERE t.user_id = ? AND t.done_at IS NULL ORDER BY t.due_on ASC, t.id ASC",
+            (user_id,),
+        ).fetchall()
+    return [public_farm_task(dict(row)) for row in rows]
+
+
+def list_recent_done_farm_tasks(user_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            FARM_TASK_SELECT + " WHERE t.user_id = ? AND t.done_at IS NOT NULL ORDER BY t.done_at DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+    return [public_farm_task(dict(row)) for row in rows]
+
+
+def update_farm_task(
+    task_id: str,
+    plot_id: str | None,
+    title: str,
+    due_on: str,
+    notes: str,
+    done: bool,
+) -> dict[str, Any]:
+    with get_connection() as conn:
+        current = conn.execute("SELECT done_at FROM farm_tasks WHERE id = ?", (task_id,)).fetchone()
+        if current is None:
+            raise LookupError("farm task disappeared while updating")
+        # 只在完成状态真正变化时改写完成时间，避免每次保存都刷新「完成于」。
+        was_done = current["done_at"] is not None
+        done_at = current["done_at"] if was_done == done else (now_iso() if done else None)
+        conn.execute(
+            """
+            UPDATE farm_tasks
+            SET plot_id = ?, title = ?, due_on = ?, notes = ?, done_at = ?
+            WHERE id = ?
+            """,
+            (plot_id, title, due_on, notes, done_at, task_id),
+        )
+        row = conn.execute(FARM_TASK_SELECT + " WHERE t.id = ?", (task_id,)).fetchone()
+    return public_farm_task(dict(row))
+
+
+def delete_farm_task(task_id: str) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM farm_tasks WHERE id = ?", (task_id,))
 
 
 # 台账查询统一带出地块名称，接口因此自解释，前端不必再按 plot_id 映射。

@@ -131,10 +131,15 @@ class Settings:
     cors_headers_raw: str
     requests_per_minute: int
     token_hours: int
+    auth_window_seconds: int = 60
     request_timeout_seconds: float = 45.0
     log_level: str = "INFO"
     cookie_secure: bool = False
     cookie_same_site: str = "lax"
+    # 认证单独限流：比通用接口更严以对抗口令爆破，但必须可配置，
+    # 否则端到端测试里连续多次访客登录会被自己的限流挡住。
+    auth_requests_per_minute: int = 20
+    auth_window_seconds: int = 60
 
     @property
     def allowed_origins(self) -> list[str]:
@@ -228,6 +233,10 @@ def get_settings() -> Settings:
         )
         or "Authorization,Content-Type,X-CSRF-Token",
         requests_per_minute=_parse_int("YUNXUN_REQUESTS_PER_MINUTE", _getenv("YUNXUN_REQUESTS_PER_MINUTE"), default=20, minimum=1, maximum=600),
+        # 认证单独限流：比通用接口更严，防止口令爆破，但必须可配置，
+        # 否则端到端测试里连续多次访客登录会被自己的限流挡住。
+        auth_requests_per_minute=_parse_int("YUNXUN_AUTH_REQUESTS_PER_MINUTE", _getenv("YUNXUN_AUTH_REQUESTS_PER_MINUTE"), default=20, minimum=1, maximum=2000),
+        auth_window_seconds=_parse_int("YUNXUN_AUTH_WINDOW_SECONDS", _getenv("YUNXUN_AUTH_WINDOW_SECONDS"), default=60, minimum=1, maximum=3600),
         token_hours=token_hours,
         request_timeout_seconds=_parse_float("YUNXUN_REQUEST_TIMEOUT_SECONDS", _getenv("YUNXUN_REQUEST_TIMEOUT_SECONDS"), default=45.0, minimum=1.0, maximum=180.0),
         log_level=_parse_optional_str("YUNXUN_LOG_LEVEL", _getenv("YUNXUN_LOG_LEVEL"), default="INFO"),

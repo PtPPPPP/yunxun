@@ -1,8 +1,20 @@
-export type FeatureKey = "decision" | "plots" | "ledger" | "stats";
+export type FeatureKey = "decision" | "plots" | "ledger" | "tasks" | "stats";
 
 export type ToolRecordKind = "decision";
 
 export type FarmRecordKind = "播种" | "施肥" | "打药" | "灌溉" | "除草" | "采收" | "其他";
+
+export interface FarmTask {
+  id: string;
+  plot_id: string | null;
+  plot_name: string;
+  title: string;
+  due_on: string;
+  done: boolean;
+  done_at: string | null;
+  notes: string;
+  created_at: string;
+}
 
 export interface HarvestSafety {
   plot_id: string;
@@ -64,6 +76,7 @@ export interface Plot {
   planted_on: string | null;
   notes: string;
   record_count: number;
+  open_task_count: number;
   harvest_safety: HarvestSafety | null;
   created_at: string;
   updated_at: string;

@@ -3,16 +3,26 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from backend.app.api.deps import get_current_user
 from backend.app.core.exceptions import success_payload
 from backend.app.core.pagination import decode_cursor, encode_cursor
-from backend.app.schemas import FarmRecordCreateRequest, PlotCreateRequest, PlotUpdateRequest
+from backend.app.schemas import (
+    FarmRecordCreateRequest,
+    FarmTaskCreateRequest,
+    FarmTaskUpdateRequest,
+    PlotCreateRequest,
+    PlotUpdateRequest,
+)
 from backend.app.services.farm import (
     create_user_farm_record,
+    create_user_farm_task,
     create_user_plot,
     delete_user_farm_record,
+    delete_user_farm_task,
     delete_user_plot,
     list_user_farm_records,
+    list_user_farm_tasks,
     list_user_plots,
     summarize_user_farm_economics,
     summarize_user_farm_records,
+    update_user_farm_task,
     update_user_plot,
 )
 
@@ -80,8 +90,12 @@ async def delete_plot_api(
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:
     client_host = http_request.client.host if http_request.client else "local"
-    removed_records = delete_user_plot(plot_id, user["id"], client_host)
-    return success_payload(message="地块已删除。", deleted_records=removed_records)
+    removed_records, removed_tasks = delete_user_plot(plot_id, user["id"], client_host)
+    return success_payload(
+        message="地块已删除。",
+        deleted_records=removed_records,
+        deleted_tasks=removed_tasks,
+    )
 
 
 @router.get("/farm-records")
@@ -159,3 +173,63 @@ async def farm_records_economics_api(
 ) -> dict[str, object]:
     return success_payload(**summarize_user_farm_economics(user["id"]))
 
+
+
+@router.get("/farm-tasks")
+async def list_farm_tasks_api(user: dict[str, str] = Depends(get_current_user)) -> dict[str, object]:
+    """一次返回未完成待办与最近完成的若干条。
+
+    待办量级很小（未完成通常几十条），所以不做游标分页；已完成的历史
+    只回最近一批，避免为了一个计数把所有历史都传出来。
+    """
+    return success_payload(**list_user_farm_tasks(user["id"]))
+
+
+@router.post("/farm-tasks")
+async def create_farm_task_api(
+    request: FarmTaskCreateRequest,
+    http_request: Request,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    client_host = http_request.client.host if http_request.client else "local"
+    task = create_user_farm_task(
+        user_id=user["id"],
+        client_host=client_host,
+        plot_id=request.plot_id,
+        title=request.title,
+        due_on=request.due_on,
+        notes=request.notes,
+    )
+    return success_payload(task=task)
+
+
+@router.patch("/farm-tasks/{task_id}")
+async def update_farm_task_api(
+    task_id: str,
+    request: FarmTaskUpdateRequest,
+    http_request: Request,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    client_host = http_request.client.host if http_request.client else "local"
+    task = update_user_farm_task(
+        task_id=task_id,
+        user_id=user["id"],
+        client_host=client_host,
+        plot_id=request.plot_id,
+        title=request.title,
+        due_on=request.due_on,
+        notes=request.notes,
+        done=request.done,
+    )
+    return success_payload(task=task)
+
+
+@router.delete("/farm-tasks/{task_id}")
+async def delete_farm_task_api(
+    task_id: str,
+    http_request: Request,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    client_host = http_request.client.host if http_request.client else "local"
+    delete_user_farm_task(task_id, user["id"], client_host)
+    return success_payload(message="待办事项已删除。")

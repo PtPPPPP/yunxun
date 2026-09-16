@@ -25,6 +25,8 @@ export default defineConfig({
         YUNXUN_DB_PATH: databasePath,
         YUNXUN_ALLOWED_ORIGINS: "http://127.0.0.1:5174",
         YUNXUN_REQUESTS_PER_MINUTE: "600",
+        // 每个用例都会访客登录一次，认证限流要放开，否则用例间互相影响。
+        YUNXUN_AUTH_REQUESTS_PER_MINUTE: "2000",
       },
     },
     {

@@ -1,12 +1,14 @@
-import { FormEvent, Suspense, lazy, useCallback, useEffect, useState } from "react";
+import { FormEvent, Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 
 import { AuthScreen } from "./components/AuthScreen";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { useAsyncGuard } from "./hooks/useAsyncGuard";
 import { usePlots } from "./hooks/usePlots";
+import { useTasks } from "./hooks/useTasks";
 import { api, getErrorMessage } from "./lib/api";
 import { formatAppVersion } from "./lib/appVersion";
+import { todayIso } from "./lib/date";
 import { FeatureKey, HealthPayload, User } from "./types";
 
 const DecisionWorkspace = lazy(() =>
@@ -17,6 +19,9 @@ const PlotsWorkspace = lazy(() =>
 );
 const LedgerWorkspace = lazy(() =>
   import("./components/LedgerWorkspace").then((module) => ({ default: module.LedgerWorkspace })),
+);
+const TasksWorkspace = lazy(() =>
+  import("./components/TasksWorkspace").then((module) => ({ default: module.TasksWorkspace })),
 );
 const StatsWorkspace = lazy(() =>
   import("./components/StatsWorkspace").then((module) => ({ default: module.StatsWorkspace })),
@@ -42,12 +47,14 @@ export default function App() {
   });
   const [decisionResult, setDecisionResult] = useState("");
   const [selectedPlotId, setSelectedPlotId] = useState("");
+  const [adviceSaved, setAdviceSaved] = useState(false);
 
   const authAction = useAsyncGuard();
   const settingsAction = useAsyncGuard();
   const decisionAction = useAsyncGuard();
   const handleError = useCallback((message: string) => setError(message), []);
   const plots = usePlots({ onError: handleError, enabled: user !== null });
+  const tasks = useTasks({ onError: handleError, enabled: user !== null });
 
   const loadMe = useCallback(async () => {
     const response = await api.get<{ success: true; user: User }>("/api/me");
@@ -144,6 +151,26 @@ export default function App() {
     setUser(null);
   }
 
+  const taskSummary = useMemo(() => {
+    const today = todayIso();
+    return {
+      open: tasks.items.length,
+      dueToday: tasks.items.filter((item) => item.due_on === today).length,
+      overdue: tasks.items.filter((item) => item.due_on < today).length,
+    };
+  }, [tasks.items]);
+
+  async function handleSaveAdviceAsTask() {
+    const plot = plots.items.find((item) => item.id === selectedPlotId);
+    const created = await tasks.create({
+      plot_id: selectedPlotId || null,
+      title: `${plot?.crop ?? decisionForm.crop}：按今日建议安排农活`,
+      due_on: todayIso(),
+      notes: decisionResult.slice(0, 1000),
+    });
+    setAdviceSaved(created !== undefined);
+  }
+
   function handleDecisionPlotChange(plotId: string) {
     setSelectedPlotId(plotId);
     const plot = plots.items.find((item) => item.id === plotId);
@@ -153,6 +180,7 @@ export default function App() {
   async function handleDecisionSubmit() {
     await decisionAction.run(async () => {
       try {
+        setAdviceSaved(false);
         const response = await api.post<{ success: true; reply: string }>("/api/decision", {
           crop: decisionForm.crop,
           stage: decisionForm.stage,
@@ -194,7 +222,7 @@ export default function App() {
     );
   }
 
-  const anyBusy = settingsAction.busy || decisionAction.busy || plots.busy;
+  const anyBusy = settingsAction.busy || decisionAction.busy || plots.busy || tasks.busy;
 
   return (
     <div className="app-shell">
@@ -221,7 +249,12 @@ export default function App() {
       />
 
       <main className="workspace">
-        <TopBar health={health} activeFeature={activeFeature} onOpenNavigation={() => setSidebarOpen(true)} />
+        <TopBar
+          health={health}
+          activeFeature={activeFeature}
+          taskSummary={taskSummary}
+          onOpenNavigation={() => setSidebarOpen(true)}
+        />
         {anyBusy && <div className="inline-status">正在处理当前操作，请稍候...</div>}
 
         {activeFeature === "decision" && (
@@ -239,6 +272,8 @@ export default function App() {
               onChange={(field, value) => setDecisionForm((current) => ({ ...current, [field]: value }))}
               onPlotChange={handleDecisionPlotChange}
               onSubmit={() => void handleDecisionSubmit()}
+              onSaveAdviceAsTask={() => void handleSaveAdviceAsTask()}
+              adviceSaved={adviceSaved}
             />
           </Suspense>
         )}
@@ -249,6 +284,7 @@ export default function App() {
               plots={plots.items}
               onError={handleError}
               onRecordsChanged={() => void plots.refresh()}
+              onQuickTask={tasks.create}
             />
           </Suspense>
         )}
@@ -266,6 +302,22 @@ export default function App() {
           </Suspense>
         )}
 
+        {activeFeature === "tasks" && (
+          <Suspense fallback={<div className="panel panel--loading">正在加载农事待办...</div>}>
+            <TasksWorkspace
+              tasks={tasks.items}
+              recentDone={tasks.recentDone}
+              plots={plots.items}
+              loading={tasks.loading}
+              busy={tasks.busy}
+              onCreate={tasks.create}
+              onUpdate={tasks.update}
+              onToggle={tasks.toggle}
+              onRemove={tasks.remove}
+            />
+          </Suspense>
+        )}
+
         {activeFeature === "stats" && (
           <Suspense fallback={<div className="panel panel--loading">正在加载统计面板...</div>}>
             <StatsWorkspace onError={handleError} />
@@ -274,7 +326,7 @@ export default function App() {
 
       </main>
 
-      {infoPanel && <div className="dialog-backdrop" role="presentation" onMouseDown={() => setInfoPanel(null)}><section className="confirm-dialog info-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="ghost-button info-dialog__close" type="button" onClick={() => setInfoPanel(null)} aria-label="关闭">关闭</button>{infoPanel === "help" ? <><h3>使用帮助</h3><p>注册、登录或使用访客模式后，可以登记地块、记录农事并生成当天农活建议。</p><ul><li>地块档案登记面积、土壤、灌溉条件和当季作物。</li><li>农事台账按地块记录每次作业的日期、用量和费用。</li><li>删除地块会连带删除它下面的全部农事台账记录。</li><li>今日农活可以直接选地块带出作物和土壤条件。</li><li>统计面板汇总地块数、作业次数和历史农活建议。</li><li>显示名称可以随时在个人设置里修改。</li></ul></> : <><h3>关于软件</h3><p>软件全称：{health.app_name}</p><p>软件简称：云寻</p><p>软件版本：{formatAppVersion(health.app_version)}</p><p>主要功能：地块档案、农事台账、今日农活计划与农活建议统计。</p></>}</section></div>}
+      {infoPanel && <div className="dialog-backdrop" role="presentation" onMouseDown={() => setInfoPanel(null)}><section className="confirm-dialog info-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="ghost-button info-dialog__close" type="button" onClick={() => setInfoPanel(null)} aria-label="关闭">关闭</button>{infoPanel === "help" ? <><h3>使用帮助</h3><p>注册、登录或使用访客模式后，可以登记地块、记录农事并生成当天农活建议。</p><ul><li>地块档案登记面积、土壤、灌溉条件和当季作物。</li><li>农事台账按地块记录每次作业的日期、用量、费用，采收还能记产量和单价。</li><li>打药记录填了安全间隔期后，采收时会提醒是否已过安全期。</li><li>农事待办把接下来要做的事排好，逾期会在顶栏标红。</li><li>删除地块会连带删除它下面的全部农事台账记录。</li><li>今日农活可以直接选地块带出作物和土壤条件。</li><li>统计面板汇总地块数、作业次数和历史农活建议。</li><li>显示名称可以随时在个人设置里修改。</li></ul></> : <><h3>关于软件</h3><p>软件全称：{health.app_name}</p><p>软件简称：云寻</p><p>软件版本：{formatAppVersion(health.app_version)}</p><p>主要功能：地块档案、农事台账、农事待办、今日农活计划、投入产出核算与建议统计。</p></>}</section></div>}
     </div>
   );
 }
