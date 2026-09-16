@@ -24,6 +24,7 @@ class ErrorCode:
     """
 
     AUTH_REQUIRED = "AUTH_REQUIRED"
+    CONFLICT = "CONFLICT"
     NOT_FOUND = "NOT_FOUND"
     BAD_REQUEST = "BAD_REQUEST"
     RATE_LIMITED = "RATE_LIMITED"
@@ -53,6 +54,11 @@ def rate_limited(retry_after: int) -> AppError:
     )
     error.headers = {"Retry-After": str(retry_after)}
     return error
+
+
+def conflict(message: str) -> AppError:
+    """状态冲突：例如地块已有进行中的茬次，不能同时开两茬。"""
+    return AppError(code=ErrorCode.CONFLICT, message=message, status_code=409)
 
 
 def not_found(message: str = "资源不存在或已被删除。") -> AppError:

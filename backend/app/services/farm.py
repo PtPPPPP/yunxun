@@ -3,10 +3,11 @@ from datetime import datetime
 from typing import Any
 
 from backend.app.core.audit import log_event
-from backend.app.core.errors import not_found
+from backend.app.core.errors import conflict, not_found
 from backend.app.core.security import safe_fingerprint
 from backend.app.repositories import (
     count_farm_records,
+    create_season,
     count_plots,
     create_farm_record,
     create_farm_task,
@@ -14,17 +15,22 @@ from backend.app.repositories import (
     delete_farm_record,
     delete_farm_task,
     delete_plot_with_records,
+    delete_season,
     get_farm_record,
+    get_active_season,
     get_farm_task,
     get_plot,
+    get_season,
     list_farm_records_page,
     list_harvest_safety,
     list_open_farm_tasks,
     list_plots,
     list_recent_done_farm_tasks,
+    list_seasons,
     summarize_farm_economics,
     update_farm_task,
     update_plot,
+    update_season,
 )
 
 
@@ -41,6 +47,97 @@ def require_plot_owner(plot_id: str, user_id: str) -> dict[str, Any]:
     if not plot or plot["user_id"] != user_id:
         raise not_found("地块不存在或已被删除。")
     return plot
+
+
+def _plot_by_id(user_id: str, plot_id: str) -> dict[str, Any]:
+    """从地块列表里取回单块地，这样带出的茬次字段与列表完全一致。"""
+    for item in list_plots(user_id):
+        if item["id"] == plot_id:
+            return item
+    raise not_found("地块不存在或已被删除。")
+
+
+def require_season_owner(season_id: str, user_id: str) -> dict[str, Any]:
+    season = get_season(season_id)
+    if not season or season["user_id"] != user_id:
+        raise not_found("茬次不存在或已被删除。")
+    return season
+
+
+def list_user_seasons(user_id: str, *, plot_id: str | None = None) -> list[dict[str, Any]]:
+    return list_seasons(user_id, plot_id=plot_id)
+
+
+def create_user_season(
+    user_id: str,
+    client_host: str,
+    plot_id: str,
+    crop: str,
+    started_on: str | None,
+    notes: str,
+) -> dict[str, Any]:
+    require_plot_owner(plot_id, user_id)
+    active = get_active_season(plot_id)
+    if active:
+        # 不静默改写上一茬的结束日：让农户自己决定那一茬什么时候结束。
+        raise conflict(f"该地块还有进行中的茬次（{active['crop']}），请先结束它再开始新茬。")
+    season = create_season(
+        user_id=user_id,
+        plot_id=plot_id,
+        crop=crop.strip(),
+        started_on=started_on or None,
+        notes=notes.strip(),
+    )
+    log_event(
+        logger,
+        "season_create",
+        user_id=user_id,
+        client_fingerprint=safe_fingerprint(client_host),
+        season_id=season["id"],
+        plot_id=plot_id,
+        crop=season["crop"],
+    )
+    return season
+
+
+def update_user_season(
+    season_id: str,
+    user_id: str,
+    client_host: str,
+    crop: str,
+    started_on: str | None,
+    ended_on: str | None,
+    notes: str,
+) -> dict[str, Any]:
+    require_season_owner(season_id, user_id)
+    season = update_season(
+        season_id,
+        crop=crop.strip(),
+        started_on=started_on or None,
+        ended_on=ended_on or None,
+        notes=notes.strip(),
+    )
+    log_event(
+        logger,
+        "season_update",
+        user_id=user_id,
+        client_fingerprint=safe_fingerprint(client_host),
+        season_id=season_id,
+        active=season["active"],
+    )
+    return season
+
+
+def delete_user_season(season_id: str, user_id: str, client_host: str) -> None:
+    require_season_owner(season_id, user_id)
+    delete_season(season_id)
+    log_event(
+        logger,
+        "season_delete",
+        user_id=user_id,
+        client_fingerprint=safe_fingerprint(client_host),
+        season_id=season_id,
+    )
 
 
 def list_user_plots(user_id: str, *, today: str | None = None) -> list[dict[str, Any]]:
@@ -64,9 +161,15 @@ def create_user_plot(
         area_mu=area_mu,
         soil_type=soil_type.strip(),
         irrigation=irrigation.strip(),
-        crop=crop.strip(),
-        planted_on=planted_on or None,
         notes=notes.strip(),
+    )
+    # 建地块时填的作物与日期就是第一茬，顺手建出来，省得再点一次「开始新茬」。
+    create_season(
+        user_id=user_id,
+        plot_id=plot["id"],
+        crop=crop.strip(),
+        started_on=planted_on or None,
+        notes="",
     )
     log_event(
         logger,
@@ -74,9 +177,9 @@ def create_user_plot(
         user_id=user_id,
         client_fingerprint=safe_fingerprint(client_host),
         plot_id=plot["id"],
-        crop=plot["crop"],
+        crop=crop.strip(),
     )
-    return plot
+    return _plot_by_id(user_id, plot["id"])
 
 
 def update_user_plot(
@@ -92,16 +195,26 @@ def update_user_plot(
     notes: str,
 ) -> dict[str, Any]:
     require_plot_owner(plot_id, user_id)
-    plot = update_plot(
+    update_plot(
         plot_id,
         name=name.strip(),
         area_mu=area_mu,
         soil_type=soil_type.strip(),
         irrigation=irrigation.strip(),
-        crop=crop.strip(),
-        planted_on=planted_on or None,
         notes=notes.strip(),
     )
+    # 兼容旧界面：地块编辑里给了作物就改当前茬次的作物与开始日。
+    if crop is not None and crop.strip():
+        active = get_active_season(plot_id)
+        if active:
+            update_season(
+                active["id"],
+                crop=crop.strip(),
+                started_on=planted_on or None,
+                ended_on=None,
+                notes=active["notes"],
+            )
+    plot = _plot_by_id(user_id, plot_id)
     log_event(
         logger,
         "plot_update",
@@ -154,14 +267,17 @@ def create_user_farm_record(
     yield_kg: float | None = None,
     unit_price: float | None = None,
 ) -> dict[str, Any]:
-    plot = require_plot_owner(plot_id, user_id)
+    require_plot_owner(plot_id, user_id)
+    active = get_active_season(plot_id)
     record = create_farm_record(
         user_id=user_id,
         plot_id=plot_id,
+        # 自动挂到进行中的茬次；没有进行中的茬次就不挂，后面按「未归茬」统计。
+        season_id=active["id"] if active else None,
         kind=kind,
         happened_on=happened_on,
-        # 作物默认取地块当前作物，允许改写以保留轮作历史。
-        crop=crop.strip() or plot["crop"],
+        # 作物默认取当前茬次的作物，允许改写以保留轮作历史。
+        crop=crop.strip() or (active["crop"] if active else ""),
         detail=detail.strip(),
         quantity=quantity.strip(),
         cost=cost,

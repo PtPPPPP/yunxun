@@ -51,7 +51,13 @@ class ToolRecordMigrationTestCase(unittest.TestCase):
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         self.assertEqual(
             applied,
-            ["5_tool_records", "6_remove_ai_surface", "7_farm_plots_and_records", "8_harvest_yield_and_tasks"],
+            [
+                "5_tool_records",
+                "6_remove_ai_surface",
+                "7_farm_plots_and_records",
+                "8_harvest_yield_and_tasks",
+                "9_plot_seasons",
+            ],
         )
         self.assertEqual(version, SCHEMA_VERSION)
         self.assertIn("tool_records", tables)

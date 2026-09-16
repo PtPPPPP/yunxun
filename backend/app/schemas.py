@@ -16,18 +16,43 @@ class ProfileUpdateRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=32)
 
 
-class PlotCreateRequest(BaseModel):
+class PlotBaseRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=32)
     area_mu: float = Field(..., gt=0, le=100_000)
     soil_type: str = Field(..., min_length=1, max_length=16)
     irrigation: str = Field(..., min_length=1, max_length=16)
-    crop: str = Field(..., min_length=1, max_length=20)
-    planted_on: str | None = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     notes: str = Field("", max_length=300)
 
 
-class PlotUpdateRequest(PlotCreateRequest):
-    """地块整体替换：与创建同一套字段，避免部分更新带来的空值歧义。"""
+class PlotCreateRequest(PlotBaseRequest):
+    """创建地块时顺带填第一茬的作物与定植日期，后端一并建出这条茬次。"""
+
+    crop: str = Field(..., min_length=1, max_length=20)
+    planted_on: str | None = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class PlotUpdateRequest(PlotBaseRequest):
+    """地块整体替换。作物与日期属于茬次，改茬走 /api/seasons。
+
+    仍然接受这两个可选字段以兼容旧界面：给了就改当前茬次。
+    """
+
+    crop: str | None = Field(None, min_length=1, max_length=20)
+    planted_on: str | None = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class SeasonCreateRequest(BaseModel):
+    plot_id: str = Field(..., min_length=1, max_length=64)
+    crop: str = Field(..., min_length=1, max_length=20)
+    started_on: str | None = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    notes: str = Field("", max_length=300)
+
+
+class SeasonUpdateRequest(BaseModel):
+    crop: str = Field(..., min_length=1, max_length=20)
+    started_on: str | None = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    ended_on: str | None = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    notes: str = Field("", max_length=300)
 
 
 class FarmRecordCreateRequest(BaseModel):

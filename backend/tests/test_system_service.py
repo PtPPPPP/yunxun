@@ -55,13 +55,13 @@ class SystemServiceTestCase(unittest.TestCase):
         settings = make_settings()
         with (
             patch.object(system_service, "get_settings", return_value=settings),
-            patch.object(system_service, "check_database_ready", return_value={"ready": True, "schema_version": 7}),
+            patch.object(system_service, "check_database_ready", return_value={"ready": True, "schema_version": 9}),
         ):
             payload = system_service.build_readiness_payload()
 
         self.assertEqual(payload["status"], "ready")
         self.assertTrue(payload["checks"]["database"])
-        self.assertEqual(payload["checks"]["schema_version"], 7)
+        self.assertEqual(payload["checks"]["schema_version"], 9)
 
     def test_readiness_payload_is_degraded_when_database_is_unavailable(self) -> None:
         settings = make_settings()

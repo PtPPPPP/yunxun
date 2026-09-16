@@ -63,11 +63,19 @@ class PlotMigrationTestCase(unittest.TestCase):
             self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             plot_columns = {row[1] for row in conn.execute("PRAGMA table_info(plots)")}
             record_columns = {row[1] for row in conn.execute("PRAGMA table_info(farm_records)")}
+            season_columns = {row[1] for row in conn.execute("PRAGMA table_info(plot_seasons)")}
         self.assertEqual(
             plot_columns,
             {
                 "id", "user_id", "name", "area_mu", "soil_type", "irrigation",
-                "crop", "planted_on", "notes", "created_at", "updated_at",
+                "notes", "created_at", "updated_at",
+            },
+        )
+        self.assertEqual(
+            season_columns,
+            {
+                "id", "user_id", "plot_id", "crop", "started_on", "ended_on",
+                "notes", "created_at", "updated_at",
             },
         )
         self.assertEqual(
@@ -75,9 +83,47 @@ class PlotMigrationTestCase(unittest.TestCase):
             {
                 "id", "user_id", "plot_id", "kind", "happened_on", "crop",
                 "detail", "quantity", "cost", "material", "safe_days",
-                "yield_kg", "unit_price", "created_at",
+                "yield_kg", "unit_price", "season_id", "created_at",
             },
         )
+        # 作物已经属于茬次，地块上不该再有这两列
+        self.assertNotIn("crop", plot_columns)
+        self.assertNotIn("planted_on", plot_columns)
+
+    def test_v8_database_migrates_plot_crops_into_seasons(self) -> None:
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.executescript("""
+            CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
+              display_name TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE TABLE auth_tokens (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL);
+            CREATE TABLE plots (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL, area_mu REAL NOT NULL,
+              soil_type TEXT NOT NULL, irrigation TEXT NOT NULL, crop TEXT NOT NULL, planted_on TEXT,
+              notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE TABLE farm_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, plot_id TEXT NOT NULL,
+              kind TEXT NOT NULL, happened_on TEXT NOT NULL, crop TEXT NOT NULL DEFAULT '',
+              detail TEXT NOT NULL DEFAULT '', quantity TEXT NOT NULL DEFAULT '', cost REAL,
+              material TEXT, safe_days INTEGER, yield_kg REAL, unit_price REAL, created_at TEXT NOT NULL);
+            CREATE TABLE tool_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL,
+              crop TEXT NOT NULL, payload TEXT, result TEXT NOT NULL, mode TEXT NOT NULL, created_at TEXT NOT NULL);
+            INSERT INTO users VALUES ('u1','farmer','hash','农户','now','now');
+            INSERT INTO plots VALUES ('p1','u1','东坡三亩地',3.0,'壤土','井灌','玉米','2026-05-12','','now','now');
+            INSERT INTO plots VALUES ('p2','u1','空地块',1.0,'砂土','雨养','',NULL,'','now','now');
+            INSERT INTO farm_records (id,user_id,plot_id,kind,happened_on,created_at)
+              VALUES ('r1','u1','p1','施肥','2026-06-01','now');
+            PRAGMA user_version = 8;
+            """)
+        init_db()
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            seasons = conn.execute("SELECT plot_id, crop, started_on, ended_on FROM plot_seasons").fetchall()
+            linked = conn.execute("SELECT season_id FROM farm_records WHERE id = 'r1'").fetchone()[0]
+            plot_columns = {row[1] for row in conn.execute("PRAGMA table_info(plots)")}
+
+        # 只有填了作物的地块生成茬次；没有作物的不硬造
+        self.assertEqual(seasons, [("p1", "玉米", "2026-05-12", None)])
+        # 该地块既有的作业记录归到这条茬次上，投入产出口径与升级前一致
+        self.assertIsNotNone(linked)
+        self.assertNotIn("crop", plot_columns)
+        self.assertNotIn("planted_on", plot_columns)
 
     def test_v7_database_gains_harvest_columns_and_task_table(self) -> None:
         # 先造一个 v7 形态的库：没有 v8 的四列，也没有 farm_tasks。
@@ -94,7 +140,7 @@ class PlotMigrationTestCase(unittest.TestCase):
             record_columns = {row[1] for row in conn.execute("PRAGMA table_info(farm_records)")}
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
 
-        self.assertEqual(applied, ["8_harvest_yield_and_tasks"])
+        self.assertEqual(applied, ["8_harvest_yield_and_tasks", "9_plot_seasons"])
         self.assertEqual(version, SCHEMA_VERSION)
         self.assertTrue({"material", "safe_days", "yield_kg", "unit_price"} <= record_columns)
         self.assertIn("farm_tasks", tables)

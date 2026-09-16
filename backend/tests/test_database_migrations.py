@@ -27,7 +27,7 @@ class DatabaseMigrationTestCase(unittest.TestCase):
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
         self.assertTrue(
-            {"users", "auth_tokens", "tool_records", "plots", "farm_records", "farm_tasks"} <= tables
+            {"users", "auth_tokens", "tool_records", "plots", "plot_seasons", "farm_records", "farm_tasks"} <= tables
         )
         self.assertFalse(
             {"chat_sessions", "chat_messages", "idempotency_requests", "user_model_credentials"} & tables

@@ -9,21 +9,27 @@ from backend.app.schemas import (
     FarmTaskUpdateRequest,
     PlotCreateRequest,
     PlotUpdateRequest,
+    SeasonCreateRequest,
+    SeasonUpdateRequest,
 )
 from backend.app.services.farm import (
     create_user_farm_record,
     create_user_farm_task,
     create_user_plot,
+    create_user_season,
     delete_user_farm_record,
     delete_user_farm_task,
     delete_user_plot,
+    delete_user_season,
     list_user_farm_records,
     list_user_farm_tasks,
     list_user_plots,
+    list_user_seasons,
     summarize_user_farm_economics,
     summarize_user_farm_records,
     update_user_farm_task,
     update_user_plot,
+    update_user_season,
 )
 
 
@@ -233,3 +239,60 @@ async def delete_farm_task_api(
     client_host = http_request.client.host if http_request.client else "local"
     delete_user_farm_task(task_id, user["id"], client_host)
     return success_payload(message="待办事项已删除。")
+
+
+@router.get("/seasons")
+async def list_seasons_api(
+    plot_id: str | None = Query(default=None, max_length=64, description="按地块筛选。"),
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    return success_payload(seasons=list_user_seasons(user["id"], plot_id=plot_id))
+
+
+@router.post("/seasons")
+async def create_season_api(
+    request: SeasonCreateRequest,
+    http_request: Request,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    client_host = http_request.client.host if http_request.client else "local"
+    season = create_user_season(
+        user_id=user["id"],
+        client_host=client_host,
+        plot_id=request.plot_id,
+        crop=request.crop,
+        started_on=request.started_on,
+        notes=request.notes,
+    )
+    return success_payload(season=season)
+
+
+@router.patch("/seasons/{season_id}")
+async def update_season_api(
+    season_id: str,
+    request: SeasonUpdateRequest,
+    http_request: Request,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    client_host = http_request.client.host if http_request.client else "local"
+    season = update_user_season(
+        season_id=season_id,
+        user_id=user["id"],
+        client_host=client_host,
+        crop=request.crop,
+        started_on=request.started_on,
+        ended_on=request.ended_on,
+        notes=request.notes,
+    )
+    return success_payload(season=season)
+
+
+@router.delete("/seasons/{season_id}")
+async def delete_season_api(
+    season_id: str,
+    http_request: Request,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    client_host = http_request.client.host if http_request.client else "local"
+    delete_user_season(season_id, user["id"], client_host)
+    return success_payload(message="茬次已删除，它的作业记录已变为未归茬。")

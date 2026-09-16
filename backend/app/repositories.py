@@ -230,17 +230,36 @@ def summarize_tool_records(user_id: str, *, days: int = 14, top_crops: int = 5) 
 
 
 def public_plot(record: dict[str, Any]) -> dict[str, Any]:
+    """地块投影。
+
+    crop / planted_on 不再是地块自己的列，而是从茬次推导：优先进行中的那一茬，
+    没有则退回最近一茬（「上次种的是玉米」对农户仍然有用）。这样台账的作物默认值、
+    今日农活的地块带入都不用改。
+    """
+    season_id = record.get("season_id")
+    season_ended_on = record.get("season_ended_on")
+    is_active = season_id is not None and season_ended_on is None
     return {
         "id": record["id"],
         "name": record["name"],
         "area_mu": float(record["area_mu"]),
         "soil_type": record["soil_type"],
         "irrigation": record["irrigation"],
-        "crop": record["crop"],
-        "planted_on": record["planted_on"],
+        "crop": record.get("season_crop") or "",
+        "planted_on": record.get("season_started_on"),
         "notes": record["notes"],
         "record_count": int(record.get("record_count") or 0),
         "open_task_count": int(record.get("open_task_count") or 0),
+        "active_season": (
+            {
+                "id": season_id,
+                "crop": record.get("season_crop") or "",
+                "started_on": record.get("season_started_on"),
+            }
+            if is_active
+            else None
+        ),
+        "season_record_count": int(record.get("season_record_count") or 0) if is_active else 0,
         "created_at": record["created_at"],
         "updated_at": record["updated_at"],
     }
@@ -252,8 +271,6 @@ def create_plot(
     area_mu: float,
     soil_type: str,
     irrigation: str,
-    crop: str,
-    planted_on: str | None,
     notes: str,
 ) -> dict[str, Any]:
     plot_id = uuid.uuid4().hex
@@ -261,11 +278,10 @@ def create_plot(
     with get_connection() as conn:
         conn.execute(
             """
-            INSERT INTO plots
-                (id, user_id, name, area_mu, soil_type, irrigation, crop, planted_on, notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO plots (id, user_id, name, area_mu, soil_type, irrigation, notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (plot_id, user_id, name, area_mu, soil_type, irrigation, crop, planted_on, notes, timestamp, timestamp),
+            (plot_id, user_id, name, area_mu, soil_type, irrigation, notes, timestamp, timestamp),
         )
         row = conn.execute("SELECT * FROM plots WHERE id = ?", (plot_id,)).fetchone()
     return public_plot(dict(row))
@@ -284,12 +300,25 @@ def list_plots(user_id: str, *, reference_date: str | None = None) -> list[dict[
     with get_connection() as conn:
         rows = conn.execute(
             """
-            SELECT p.*, (
-                SELECT COUNT(*) FROM farm_records r WHERE r.plot_id = p.id
-            ) AS record_count, (
-                SELECT COUNT(*) FROM farm_tasks t WHERE t.plot_id = p.id AND t.done_at IS NULL
-            ) AS open_task_count
+            SELECT p.*,
+                s.id AS season_id,
+                s.crop AS season_crop,
+                s.started_on AS season_started_on,
+                s.ended_on AS season_ended_on,
+                (
+                    SELECT COUNT(*) FROM farm_records r WHERE r.plot_id = p.id
+                ) AS record_count,
+                (
+                    SELECT COUNT(*) FROM farm_records r WHERE r.season_id = s.id
+                ) AS season_record_count,
+                (
+                    SELECT COUNT(*) FROM farm_tasks t WHERE t.plot_id = p.id AND t.done_at IS NULL
+                ) AS open_task_count
             FROM plots p
+            LEFT JOIN plot_seasons s ON s.id = (
+                SELECT s2.id FROM plot_seasons s2 WHERE s2.plot_id = p.id
+                ORDER BY (s2.ended_on IS NULL) DESC, s2.started_on DESC, s2.id DESC LIMIT 1
+            )
             WHERE p.user_id = ?
             ORDER BY p.updated_at DESC, p.id DESC
             """,
@@ -323,8 +352,6 @@ def update_plot(
     area_mu: float,
     soil_type: str,
     irrigation: str,
-    crop: str,
-    planted_on: str | None,
     notes: str,
 ) -> dict[str, Any]:
     updated_at = now_iso()
@@ -332,11 +359,10 @@ def update_plot(
         conn.execute(
             """
             UPDATE plots
-            SET name = ?, area_mu = ?, soil_type = ?, irrigation = ?, crop = ?,
-                planted_on = ?, notes = ?, updated_at = ?
+            SET name = ?, area_mu = ?, soil_type = ?, irrigation = ?, notes = ?, updated_at = ?
             WHERE id = ?
             """,
-            (name, area_mu, soil_type, irrigation, crop, planted_on, notes, updated_at, plot_id),
+            (name, area_mu, soil_type, irrigation, notes, updated_at, plot_id),
         )
         row = conn.execute("SELECT * FROM plots WHERE id = ?", (plot_id,)).fetchone()
     return public_plot(dict(row))
@@ -453,11 +479,103 @@ def delete_farm_task(task_id: str) -> None:
         conn.execute("DELETE FROM farm_tasks WHERE id = ?", (task_id,))
 
 
-# 台账查询统一带出地块名称，接口因此自解释，前端不必再按 plot_id 映射。
+def public_season(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": record["id"],
+        "plot_id": record["plot_id"],
+        "crop": record["crop"],
+        "started_on": record["started_on"],
+        "ended_on": record["ended_on"],
+        "active": record["ended_on"] is None,
+        "notes": record["notes"],
+        "created_at": record["created_at"],
+        "updated_at": record["updated_at"],
+    }
+
+
+def create_season(
+    user_id: str,
+    plot_id: str,
+    crop: str,
+    started_on: str | None,
+    notes: str,
+) -> dict[str, Any]:
+    season_id = uuid.uuid4().hex
+    timestamp = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO plot_seasons
+                (id, user_id, plot_id, crop, started_on, ended_on, notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)
+            """,
+            (season_id, user_id, plot_id, crop, started_on, notes, timestamp, timestamp),
+        )
+        row = conn.execute("SELECT * FROM plot_seasons WHERE id = ?", (season_id,)).fetchone()
+    return public_season(dict(row))
+
+
+def get_season(season_id: str) -> dict[str, Any] | None:
+    return _fetchone("SELECT * FROM plot_seasons WHERE id = ?", (season_id,))
+
+
+def get_active_season(plot_id: str) -> dict[str, Any] | None:
+    """地块进行中的那一茬；部分唯一索引保证最多只有一条。"""
+    return _fetchone(
+        "SELECT * FROM plot_seasons WHERE plot_id = ? AND ended_on IS NULL",
+        (plot_id,),
+    )
+
+
+def list_seasons(user_id: str, *, plot_id: str | None = None) -> list[dict[str, Any]]:
+    conditions = ["user_id = ?"]
+    params: list[Any] = [user_id]
+    if plot_id:
+        conditions.append("plot_id = ?")
+        params.append(plot_id)
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM plot_seasons WHERE " + " AND ".join(conditions)
+            + " ORDER BY started_on DESC, id DESC",
+            tuple(params),
+        ).fetchall()
+    return [public_season(dict(row)) for row in rows]
+
+
+def update_season(
+    season_id: str,
+    crop: str,
+    started_on: str | None,
+    ended_on: str | None,
+    notes: str,
+) -> dict[str, Any]:
+    updated_at = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE plot_seasons
+            SET crop = ?, started_on = ?, ended_on = ?, notes = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (crop, started_on, ended_on, notes, updated_at, season_id),
+        )
+        row = conn.execute("SELECT * FROM plot_seasons WHERE id = ?", (season_id,)).fetchone()
+    return public_season(dict(row))
+
+
+def delete_season(season_id: str) -> None:
+    """删掉一茬。它的作业记录变回「未归茬」，不连带删除。"""
+    with get_connection() as conn:
+        conn.execute("UPDATE farm_records SET season_id = NULL WHERE season_id = ?", (season_id,))
+        conn.execute("DELETE FROM plot_seasons WHERE id = ?", (season_id,))
+
+
+# 台账查询统一带出地块名称与茬次作物，接口因此自解释。
 FARM_RECORD_SELECT = """
-    SELECT r.*, COALESCE(p.name, '') AS plot_name
+    SELECT r.*, COALESCE(p.name, '') AS plot_name, COALESCE(s.crop, '') AS season_crop
     FROM farm_records r
     LEFT JOIN plots p ON p.id = r.plot_id
+    LEFT JOIN plot_seasons s ON s.id = r.season_id
 """
 
 
@@ -473,6 +591,8 @@ def public_farm_record(record: dict[str, Any]) -> dict[str, Any]:
         "kind": record["kind"],
         "happened_on": record["happened_on"],
         "crop": record["crop"],
+        "season_id": record["season_id"],
+        "season_crop": record["season_crop"],
         "material": record["material"],
         "detail": record["detail"],
         "quantity": record["quantity"],
@@ -499,6 +619,7 @@ def create_farm_record(
     safe_days: int | None = None,
     yield_kg: float | None = None,
     unit_price: float | None = None,
+    season_id: str | None = None,
 ) -> dict[str, Any]:
     record_id = uuid.uuid4().hex
     created_at = now_iso()
@@ -507,12 +628,12 @@ def create_farm_record(
             """
             INSERT INTO farm_records
                 (id, user_id, plot_id, kind, happened_on, crop, material, detail, quantity,
-                 cost, safe_days, yield_kg, unit_price, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 cost, safe_days, yield_kg, unit_price, season_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record_id, user_id, plot_id, kind, happened_on, crop, material, detail, quantity,
-                cost, safe_days, yield_kg, unit_price, created_at,
+                cost, safe_days, yield_kg, unit_price, season_id, created_at,
             ),
         )
         row = conn.execute(FARM_RECORD_SELECT + " WHERE r.id = ?", (record_id,)).fetchone()
@@ -617,55 +738,86 @@ def list_harvest_safety(user_id: str, *, reference_date: str) -> list[dict[str, 
     return safety
 
 
-def summarize_farm_economics(user_id: str) -> list[dict[str, Any]]:
-    """按地块汇总投入与产出。
+def _economics_row(row: dict[str, Any]) -> dict[str, Any]:
+    """把一条汇总行补齐亩均指标。面积异常时亩均给 None，而不是让查询报除零。"""
+    area = float(row["area_mu"])
+    total_cost = float(row["total_cost"])
+    total_yield = float(row["total_yield_kg"])
+    total_revenue = float(row["total_revenue"])
+    return {
+        "season_id": row["season_id"],
+        "plot_id": row["plot_id"],
+        "plot_name": row["plot_name"],
+        "crop": row["crop"],
+        "started_on": row["started_on"],
+        "ended_on": row["ended_on"],
+        "area_mu": area,
+        "record_count": int(row["record_count"]),
+        "total_cost": round(total_cost, 2),
+        "total_yield_kg": round(total_yield, 2),
+        "total_revenue": round(total_revenue, 2),
+        "net_revenue": round(total_revenue - total_cost, 2),
+        "cost_per_mu": round(total_cost / area, 2) if area > 0 else None,
+        "yield_per_mu": round(total_yield / area, 2) if area > 0 else None,
+        "revenue_per_mu": round(total_revenue / area, 2) if area > 0 else None,
+        "net_per_mu": round((total_revenue - total_cost) / area, 2) if area > 0 else None,
+    }
 
-    亩均指标在 Python 里算而不是写进 SQL：面积理论上恒大于 0（建表时校验过），
-    但脏数据不该让整个查询报除零。
+
+def summarize_farm_economics(user_id: str) -> list[dict[str, Any]]:
+    """按茬次汇总投入与产出，未归茬的记录单独成行。
+
+    升级前是按地块汇总的；有了茬次就按茬次算——否则种第二茬之后，上一茬的
+    化肥钱会和这一茬的收成混在一起。season_id 为空的记录（建茬之前记的、
+    或地块没有进行中茬次时记的）归到「未归茬」，不丢数据。
     """
     with get_connection() as conn:
-        rows = conn.execute(
+        season_rows = conn.execute(
             """
             SELECT
+                s.id AS season_id,
+                s.crop AS crop,
+                s.started_on AS started_on,
+                s.ended_on AS ended_on,
                 p.id AS plot_id,
                 p.name AS plot_name,
-                p.crop AS crop,
                 p.area_mu AS area_mu,
-                p.updated_at AS updated_at,
                 COUNT(r.id) AS record_count,
                 COALESCE(SUM(r.cost), 0) AS total_cost,
                 COALESCE(SUM(r.yield_kg), 0) AS total_yield_kg,
                 COALESCE(SUM(r.yield_kg * r.unit_price), 0) AS total_revenue
-            FROM plots p
-            LEFT JOIN farm_records r ON r.plot_id = p.id
-            WHERE p.user_id = ?
-            GROUP BY p.id, p.name, p.crop, p.area_mu, p.updated_at
-            ORDER BY p.updated_at DESC, p.id DESC
+            FROM plot_seasons s
+            JOIN plots p ON p.id = s.plot_id
+            LEFT JOIN farm_records r ON r.season_id = s.id
+            WHERE s.user_id = ?
+            GROUP BY s.id, s.crop, s.started_on, s.ended_on, p.id, p.name, p.area_mu
+            ORDER BY s.started_on DESC, s.id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+        unassigned_rows = conn.execute(
+            """
+            SELECT
+                NULL AS season_id,
+                '' AS crop,
+                NULL AS started_on,
+                NULL AS ended_on,
+                p.id AS plot_id,
+                p.name AS plot_name,
+                p.area_mu AS area_mu,
+                COUNT(r.id) AS record_count,
+                COALESCE(SUM(r.cost), 0) AS total_cost,
+                COALESCE(SUM(r.yield_kg), 0) AS total_yield_kg,
+                COALESCE(SUM(r.yield_kg * r.unit_price), 0) AS total_revenue
+            FROM farm_records r
+            JOIN plots p ON p.id = r.plot_id
+            WHERE r.user_id = ? AND r.season_id IS NULL
+            GROUP BY p.id, p.name, p.area_mu
+            ORDER BY p.name ASC
             """,
             (user_id,),
         ).fetchall()
 
-    economics: list[dict[str, Any]] = []
-    for row in rows:
-        area = float(row["area_mu"])
-        total_cost = float(row["total_cost"])
-        total_yield = float(row["total_yield_kg"])
-        total_revenue = float(row["total_revenue"])
-        economics.append(
-            {
-                "plot_id": row["plot_id"],
-                "plot_name": row["plot_name"],
-                "crop": row["crop"],
-                "area_mu": area,
-                "record_count": int(row["record_count"]),
-                "total_cost": round(total_cost, 2),
-                "total_yield_kg": round(total_yield, 2),
-                "total_revenue": round(total_revenue, 2),
-                "net_revenue": round(total_revenue - total_cost, 2),
-                "cost_per_mu": round(total_cost / area, 2) if area > 0 else None,
-                "yield_per_mu": round(total_yield / area, 2) if area > 0 else None,
-                "revenue_per_mu": round(total_revenue / area, 2) if area > 0 else None,
-                "net_per_mu": round((total_revenue - total_cost) / area, 2) if area > 0 else None,
-            }
-        )
-    return economics
+    return [_economics_row(dict(row)) for row in list(season_rows) + list(unassigned_rows)]
+
+

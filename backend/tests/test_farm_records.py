@@ -24,20 +24,7 @@ from backend.app.services.farm import (
     list_user_farm_records,
     summarize_user_farm_records,
 )
-from backend.tests.helpers import make_settings
-
-
-def make_plot(user_id: str, name: str = "东坡三亩地", crop: str = "玉米") -> dict:
-    return create_plot(
-        user_id=user_id,
-        name=name,
-        area_mu=3.5,
-        soil_type="壤土",
-        irrigation="井灌",
-        crop=crop,
-        planted_on="2026-05-12",
-        notes="",
-    )
+from backend.tests.helpers import make_plot, make_settings
 
 
 class FarmRecordServiceTestCase(unittest.TestCase):
