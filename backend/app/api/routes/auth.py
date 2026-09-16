@@ -83,5 +83,5 @@ async def auth_profile_api(
     request: ProfileUpdateRequest,
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:
-    updated_user = update_profile(user["id"], request.display_name, request.preferred_model)
+    updated_user = update_profile(user["id"], request.display_name)
     return success_payload(user=updated_user)

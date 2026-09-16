@@ -1,4 +1,4 @@
-import asyncio
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -18,12 +18,8 @@ from backend.app.repositories import (
     list_tool_records_page,
     summarize_tool_records,
 )
-from backend.app.services.tools import create_decision_advice, create_vision_analysis
-from backend.tests.test_chat_service import make_settings
-
-
-# 1x1 像素的有效 PNG，用于通过图片校验。
-PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+from backend.app.services.tools import create_decision_advice
+from backend.tests.helpers import make_settings
 
 
 class ToolRecordMigrationTestCase(unittest.TestCase):
@@ -44,7 +40,7 @@ class ToolRecordMigrationTestCase(unittest.TestCase):
             {"id", "user_id", "kind", "crop", "payload", "result", "mode", "created_at"},
         )
 
-    def test_schema_v4_database_is_upgraded_to_v5(self) -> None:
+    def test_schema_v4_database_is_upgraded_to_current_version(self) -> None:
         init_db()
         with closing(sqlite3.connect(self.db_path)) as conn:
             conn.execute("DROP TABLE tool_records")
@@ -53,8 +49,8 @@ class ToolRecordMigrationTestCase(unittest.TestCase):
             applied = migrate_schema(conn)[1]
             version = conn.execute("PRAGMA user_version").fetchone()[0]
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        self.assertEqual(applied, ["5_tool_records"])
-        self.assertEqual(version, 5)
+        self.assertEqual(applied, ["5_tool_records", "6_remove_ai_surface"])
+        self.assertEqual(version, SCHEMA_VERSION)
         self.assertIn("tool_records", tables)
 
 
@@ -71,28 +67,10 @@ class ToolRecordServiceTestCase(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
         init_db()
-        self.user_id = create_user("farmer", "hash", "农户", "doubao-test")["id"]
+        self.user_id = create_user("farmer", "hash", "农户")["id"]
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
-
-    def test_vision_demo_analysis_is_persisted(self) -> None:
-        payload = await_none(create_vision_analysis(
-            user_id=self.user_id,
-            client_host="127.0.0.1",
-            image_base64=f"data:image/png;base64,{PNG_BASE64}",
-            crop="玉米",
-            symptom="叶片发黄",
-        ))
-        self.assertEqual(payload["mode"], "demo")
-        records, has_more = list_tool_records_page(self.user_id)
-        self.assertFalse(has_more)
-        self.assertEqual(len(records), 1)
-        record = records[0]
-        self.assertEqual(record["kind"], "vision")
-        self.assertEqual(record["crop"], "玉米")
-        self.assertEqual(record["mode"], "demo")
-        self.assertIn("玉米", record["result"])
 
     def test_decision_advice_is_persisted_with_payload(self) -> None:
         create_decision_advice(
@@ -109,8 +87,6 @@ class ToolRecordServiceTestCase(unittest.TestCase):
         record = records[0]
         self.assertEqual(record["kind"], "decision")
         self.assertEqual(record["mode"], "local")
-
-        import json
 
         with closing(sqlite3.connect(self.db_path)) as conn:
             payload_raw = conn.execute("SELECT payload FROM tool_records").fetchone()[0]
@@ -164,7 +140,7 @@ class ToolRecordRoutesTestCase(unittest.TestCase):
         init_db()
         self.app = FastAPI()
         self.app.include_router(router)
-        self.user_id = create_user("farmer", "hash", "农户", "doubao-test")["id"]
+        self.user_id = create_user("farmer", "hash", "农户")["id"]
         self.app.dependency_overrides[get_current_user] = lambda: {"id": self.user_id}
         self.client = TestClient(self.app)
         self.addCleanup(self.client.close)
@@ -200,13 +176,18 @@ class ToolRecordRoutesTestCase(unittest.TestCase):
         filtered = self.client.get("/api/tool-records", params={"kind": "decision", "limit": 10})
         self.assertEqual(len(filtered.json()["records"]), 3)
 
-    def test_list_records_rejects_unknown_kind(self) -> None:
-        response = self.client.get("/api/tool-records", params={"kind": "unknown"})
-        self.assertEqual(response.status_code, 400)
+    def test_list_records_rejects_kinds_that_no_longer_exist(self) -> None:
+        for kind in ("unknown", "vision"):
+            response = self.client.get("/api/tool-records", params={"kind": kind})
+            self.assertEqual(response.status_code, 400)
 
     def test_list_records_rejects_invalid_cursor(self) -> None:
         response = self.client.get("/api/tool-records", params={"cursor": "not-a-cursor"})
         self.assertEqual(response.status_code, 400)
+
+    def test_vision_endpoint_is_gone(self) -> None:
+        response = self.client.post("/api/vision", json={"image_base64": "x" * 64})
+        self.assertEqual(response.status_code, 404)
 
     def test_stats_endpoint_aggregates_counts(self) -> None:
         create_decision_advice(
@@ -222,13 +203,9 @@ class ToolRecordRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["counts_by_kind"], {"decision": 1})
-        self.assertEqual(body["total_sessions"], 0)
-        self.assertEqual(body["total_messages"], 0)
         self.assertEqual(body["top_crops"], [{"crop": "玉米", "total": 1}])
-
-
-def await_none(coroutine):
-    return asyncio.run(coroutine)
+        self.assertNotIn("total_sessions", body)
+        self.assertNotIn("total_messages", body)
 
 
 if __name__ == "__main__":

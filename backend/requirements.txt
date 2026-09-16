@@ -1,5 +1,4 @@
 fastapi
-openai
 pydantic
 python-dotenv
 uvicorn

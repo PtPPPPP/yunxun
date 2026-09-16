@@ -13,7 +13,7 @@ router = APIRouter(tags=["system"])
 
 @router.get("/")
 async def root_api() -> dict[str, object]:
-    return success_payload(message="云寻智慧农业AI工作台软件后端已启动。")
+    return success_payload(message="云寻智慧农业工作台软件后端已启动。")
 
 
 @router.get("/api/health")
@@ -46,5 +46,5 @@ async def profile_api(
     request: ProfileUpdateRequest,
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:
-    updated_user = update_profile(user["id"], request.display_name, request.preferred_model)
+    updated_user = update_profile(user["id"], request.display_name)
     return success_payload(user=updated_user)

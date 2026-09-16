@@ -5,8 +5,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.app.core.database import init_db
-from backend.app.repositories import create_session, create_user, list_messages, list_sessions, save_chat_exchange
-from backend.tests.test_chat_service import make_settings
+from backend.app.repositories import create_tool_record, create_user, list_tool_records_page
+from backend.tests.helpers import make_settings
 
 
 class SQLiteConcurrencyTestCase(unittest.TestCase):
@@ -16,23 +16,27 @@ class SQLiteConcurrencyTestCase(unittest.TestCase):
         self.patcher = patch("backend.app.core.database.get_settings", return_value=self.settings)
         self.patcher.start()
         init_db()
-        self.user = create_user("concurrent", "hash", "Concurrent", "model")
+        self.user = create_user("concurrent", "hash", "Concurrent")
 
     def tearDown(self) -> None:
         self.patcher.stop()
         self.temp_dir.cleanup()
 
-    def test_concurrent_session_creation_loses_no_records(self) -> None:
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            ids = list(pool.map(lambda index: create_session(self.user["id"], f"s{index}", "chat", "model")["id"], range(20)))
-        self.assertEqual(len(set(ids)), 20)
-        self.assertEqual(len(list_sessions(self.user["id"], "chat")), 20)
+    def test_concurrent_tool_record_writes_lose_no_records(self) -> None:
+        def write(index: int) -> str:
+            return create_tool_record(
+                user_id=self.user["id"],
+                kind="decision",
+                crop=f"作物{index}",
+                payload={"index": index},
+                result=f"建议 {index}",
+                mode="local",
+            )["id"]
 
-    def test_concurrent_exchanges_remain_atomic(self) -> None:
-        session = create_session(self.user["id"], "session", "chat", "model")
         with ThreadPoolExecutor(max_workers=8) as pool:
-            list(pool.map(lambda index: save_chat_exchange(session["id"], f"u{index}", f"a{index}", "model"), range(20)))
-        messages = list_messages(session["id"])
-        self.assertEqual(len(messages), 40)
-        self.assertEqual(sum(item["role"] == "user" for item in messages), 20)
-        self.assertEqual(sum(item["role"] == "assistant" for item in messages), 20)
+            ids = list(pool.map(write, range(20)))
+
+        self.assertEqual(len(set(ids)), 20)
+        records, has_more = list_tool_records_page(self.user["id"], kind=None, limit=100, cursor=None)
+        self.assertEqual(len(records), 20)
+        self.assertFalse(has_more)

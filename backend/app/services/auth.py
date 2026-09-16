@@ -10,7 +10,6 @@ from backend.app.core.audit import log_event
 from backend.app.core.config import get_settings
 from backend.app.core.security import create_token, hash_auth_token, hash_password, verify_password
 from backend.app.repositories import (
-    choose_model,
     cleanup_expired_tokens,
     create_auth_token,
     create_user,
@@ -29,7 +28,6 @@ logger = logging.getLogger("yunxun.backend.auth")
 
 
 def register_user(username: str, password: str, display_name: str) -> dict[str, str | dict]:
-    settings = get_settings()
     normalized_username = username.strip().lower()
     normalized_display_name = display_name.strip()
 
@@ -44,7 +42,6 @@ def register_user(username: str, password: str, display_name: str) -> dict[str, 
         username=normalized_username,
         password_hash=hash_password(password),
         display_name=normalized_display_name,
-        preferred_model=choose_model("", settings.available_models, settings.chat_endpoint),
     )
     log_event(logger, "auth_register_success", user_id=user_record["id"], username=normalized_username)
     token = issue_auth_token(user_record["id"])
@@ -99,19 +96,13 @@ def logout_user(authorization: str | None, user_id: str | None = None) -> None:
     log_event(logger, "auth_logout", user_id=user_id or "unknown")
 
 
-def update_profile(user_id: str, display_name: str, preferred_model: str) -> dict[str, str]:
-    settings = get_settings()
+def update_profile(user_id: str, display_name: str) -> dict[str, str]:
     user_record = get_user_by_id(user_id)
     if not user_record:
         raise HTTPException(status_code=404, detail="用户不存在。")
     if not display_name.strip():
         raise HTTPException(status_code=400, detail="显示名称不能为空。")
 
-    normalized_model = choose_model(
-        preferred_model or user_record["preferred_model"],
-        settings.available_models,
-        settings.chat_endpoint,
-    )
-    updated_record = update_user_profile(user_id, display_name.strip(), normalized_model)
-    log_event(logger, "auth_profile_update", user_id=user_id, preferred_model=normalized_model)
+    updated_record = update_user_profile(user_id, display_name.strip())
+    log_event(logger, "auth_profile_update", user_id=user_id)
     return public_user(updated_record)

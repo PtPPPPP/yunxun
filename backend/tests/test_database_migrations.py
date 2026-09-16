@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.app.core.database import SCHEMA_VERSION, init_db, migrate_schema
-from backend.tests.test_chat_service import make_settings
+from backend.tests.helpers import make_settings
 
 
 class DatabaseMigrationTestCase(unittest.TestCase):
@@ -20,22 +20,53 @@ class DatabaseMigrationTestCase(unittest.TestCase):
         self.patcher.stop()
         self.temp_dir.cleanup()
 
-    def test_empty_database_reaches_current_version_without_byok_objects(self) -> None:
+    def test_empty_database_reaches_current_version_without_ai_objects(self) -> None:
         init_db()
         with closing(sqlite3.connect(self.db_path)) as conn:
             self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            columns = {row[1] for row in conn.execute("PRAGMA table_info(chat_sessions)")}
-        self.assertTrue({"users", "chat_sessions", "chat_messages", "auth_tokens", "idempotency_requests"} <= tables)
-        self.assertNotIn("user_model_credentials", tables)
-        self.assertNotIn("model_config_id", columns)
-        self.assertEqual(columns & {"is_pinned", "pinned_at"}, {"is_pinned", "pinned_at"})
+            user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+        self.assertTrue({"users", "auth_tokens", "tool_records"} <= tables)
+        self.assertFalse(
+            {"chat_sessions", "chat_messages", "idempotency_requests", "user_model_credentials"} & tables
+        )
+        self.assertNotIn("preferred_model", user_columns)
 
     def test_repeated_startup_does_not_reapply_migration(self) -> None:
         init_db()
         init_db()
         with closing(sqlite3.connect(self.db_path)) as conn:
             self.assertEqual(migrate_schema(conn)[1], [])
+
+    def test_v5_database_drops_ai_tables_and_model_preference(self) -> None:
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.executescript("""
+            CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
+              display_name TEXT NOT NULL, preferred_model TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE TABLE auth_tokens (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL);
+            CREATE TABLE chat_sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL,
+              feature TEXT NOT NULL DEFAULT 'chat', model_name TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE TABLE chat_messages (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL,
+              content TEXT NOT NULL, created_at TEXT NOT NULL);
+            CREATE TABLE idempotency_requests (owner_id TEXT NOT NULL, key_hash TEXT NOT NULL,
+              request_fingerprint TEXT NOT NULL, status TEXT NOT NULL, lease_id TEXT NOT NULL, response_status INTEGER,
+              response_body TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+              PRIMARY KEY(owner_id, key_hash));
+            CREATE TABLE tool_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL,
+              crop TEXT NOT NULL, payload TEXT, result TEXT NOT NULL, mode TEXT NOT NULL, created_at TEXT NOT NULL);
+            INSERT INTO users VALUES ('u','name','hash','Name','model','now','now');
+            INSERT INTO chat_sessions VALUES ('s','u','标题','chat','model','now','now');
+            INSERT INTO chat_messages VALUES ('m','s','user','你好','now');
+            PRAGMA user_version = 5;
+            """)
+        init_db()
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+            users = conn.execute("SELECT id, display_name FROM users").fetchall()
+        self.assertFalse({"chat_sessions", "chat_messages", "idempotency_requests"} & tables)
+        self.assertNotIn("preferred_model", user_columns)
+        self.assertEqual(users, [("u", "Name")])
 
     def test_legacy_data_is_preserved_but_plain_tokens_are_invalidated(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as conn:

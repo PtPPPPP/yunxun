@@ -44,7 +44,7 @@ jobs:
       - name: Build
         env:
           # 取自仓库 Settings → Secrets and variables → Actions → Variables
-          # 未配置时前端会 fallback 到本地演示地址，部署后端后回填此变量即可。
+          # 未配置时前端会 fallback 到本地开发地址，部署后端后回填此变量即可。
           VITE_YUNXUN_API_BASE_URL: ${{ vars.VITE_YUNXUN_API_BASE_URL }}
         run: npm run build
 

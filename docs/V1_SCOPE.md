@@ -1,7 +1,9 @@
 # V1.0 范围
 
-正式基线为 `v1.0.0` / `b952778`，机器版本 `1.0.0`，文案版本 `V1.0.0`，数据库 Schema 1。
+正式基线为 `v1.0.0` / `b952778`，机器版本 `1.0.0`，文案版本 `V1.0.0`。当前工作区数据库为 Schema 6。
 
-正式能力：注册登录、访客、会话与消息、系统模型聊天、图片初步诊断、今日农活计划、SQLite 持久化、Bearer 认证、演示模式和基础安全控制。
+正式能力：注册登录、访客、今日农活建议、农活记录与统计面板、SQLite 持久化、Bearer 认证和基础安全控制。所有建议由本机规则引擎生成，不依赖任何外部模型服务。
 
-明确排除：用户个人 API Key、任意 Provider/Base URL、PostgreSQL、Redis、Docker、公网 SaaS、计费、多租户和管理员后台。用户模型接入功能已取消，不作为 V1.0 能力或交付材料内容。
+已从 V1.0 基线移除：智能问答与会话消息、图片初步诊断、系统模型接入（Key、Endpoint、聊天与视觉模型、演示模式）以及 AI 品牌文案。移除同时删除 `chat_sessions`、`chat_messages`、`idempotency_requests` 表和 `users.preferred_model` 字段。
+
+明确排除：任意 Provider/Base URL 接入、用户个人 API Key、PostgreSQL、Redis、Docker、公网 SaaS、计费、多租户和管理员后台。

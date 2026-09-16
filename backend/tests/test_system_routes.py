@@ -18,7 +18,7 @@ class SystemRoutesTestCase(unittest.TestCase):
             response.json(),
             {
                 "success": True,
-                "message": "云寻智慧农业AI工作台软件后端已启动。",
+                "message": "云寻智慧农业工作台软件后端已启动。",
             },
         )
 

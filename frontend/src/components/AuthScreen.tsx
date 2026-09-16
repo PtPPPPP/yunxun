@@ -3,9 +3,7 @@ import { FormEvent } from "react";
 
 interface AuthScreenProps {
   mode: "login" | "register";
-  backendMode: string;
   backendUrl: string;
-  modelStatus: string;
   environment: string;
   warnings: string[];
   loading: boolean;
@@ -23,9 +21,7 @@ interface AuthScreenProps {
 export function AuthScreen(props: AuthScreenProps) {
   const {
     mode,
-    backendMode,
     backendUrl,
-    modelStatus,
     environment,
     warnings,
     loading,
@@ -46,22 +42,20 @@ export function AuthScreen(props: AuthScreenProps) {
               <Leaf size={24} />
             </div>
             <div>
-              <div className="brand-name">云寻AI</div>
+              <div className="brand-name">云寻</div>
               <div className="brand-subname">Agronomy workspace</div>
             </div>
           </div>
 
           <div className="auth-hero__copy">
-            <h1>把农技问答、识病和田间计划，放进一个能落地的工作台。</h1>
+            <h1>把天气、墒情和生长期，算成今天能落地的农活安排。</h1>
             <p>
-              云寻AI面向农户、合作社和基层农技员，保留历史会话、模型偏好和诊断上下文，
-              让每次回来都能从上次进度继续。
+              云寻面向农户、合作社和基层农技员，按作物和现场条件生成当天可执行的
+              浇水、追肥和巡田建议，并保留历史记录便于回头核对。
             </p>
           </div>
 
           <div className="auth-hero__meta">
-            <span>运行模式：{backendMode}</span>
-            <span>模型状态：{modelStatus}</span>
             <span>环境：{environment}</span>
             <span>后端地址：{backendUrl}</span>
           </div>
@@ -148,7 +142,7 @@ export function AuthScreen(props: AuthScreenProps) {
           </button>
 
           <p className="auth-footnote">
-            登录后会保留历史会话、模型偏好和诊断记录。访客登录也能直接进入，但更适合先体验功能。
+            登录后会保留个人显示名称和农活建议历史。访客登录也能直接进入，但更适合先体验功能。
           </p>
         </form>
       </section>

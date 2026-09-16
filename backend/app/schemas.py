@@ -1,10 +1,5 @@
 from pydantic import BaseModel, Field
 
-from backend.app.core.config import get_settings
-
-
-settings = get_settings()
-
 
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=32)
@@ -19,32 +14,6 @@ class LoginRequest(BaseModel):
 
 class ProfileUpdateRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=32)
-    preferred_model: str = Field("", max_length=64)
-
-
-class ChatSessionCreateRequest(BaseModel):
-    title: str = Field("新会话", min_length=1, max_length=48)
-    feature: str = Field("chat", min_length=1, max_length=20)
-    model_name: str = Field("", max_length=64)
-
-
-class ChatMessageRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=settings.max_message_length)
-    model_name: str = Field("", max_length=64)
-
-
-class ChatSessionRenameRequest(BaseModel):
-    title: str = Field(..., min_length=1, max_length=48)
-
-
-class ChatSessionPinRequest(BaseModel):
-    is_pinned: bool
-
-
-class VisionRequest(BaseModel):
-    image_base64: str = Field(..., min_length=32, max_length=settings.upload_max_base64_length)
-    crop: str = Field("", max_length=32)
-    symptom: str = Field("", max_length=300)
 
 
 class DecisionRequest(BaseModel):

@@ -9,20 +9,13 @@ from backend.app.core.runtime_status import build_runtime_status
 
 
 def build_health_payload() -> dict[str, object]:
-    settings = get_settings()
-    status = build_runtime_status(settings)
+    status = build_runtime_status(get_settings())
     return {
         "app_name": status["app_name"],
         "app_version": status["app_version"],
-        "mode": status["mode"],
-        "ai_configured": status["ai_configured"],
-        "model_status": status["model_status"],
         "environment": status["environment"],
         "backend_url": status["backend_url"],
-        "available_models": status["available_models"],
-        "max_message_length": status["max_message_length"],
         "requests_per_minute": status["requests_per_minute"],
-        "upload_max_bytes": status["upload_max_bytes"],
         "debug": status["debug"],
         "database_path": Path(str(status["database_path"])).name,
         "allowed_origins": status["allowed_origins"],
@@ -48,12 +41,10 @@ def build_readiness_payload() -> dict[str, object]:
         "application": True,
         "database": database["ready"],
         "schema_version": database["schema_version"],
-        "ai_configured": settings.ai_configured,
     }
     return {
         "status": "ready" if checks["application"] and database["ready"] else "degraded",
         "checks": checks,
-        "mode": "AI 模式" if settings.ai_configured else "本地演示模式",
         "database": Path(settings.db_path).name,
         "warnings": build_runtime_status(settings)["warnings"],
         "request_id": get_request_id(),

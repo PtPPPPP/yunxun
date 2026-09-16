@@ -5,17 +5,7 @@ import unittest
 from fastapi import HTTPException
 
 from backend.app.core import exceptions
-from backend.app.core.errors import (
-    AppError,
-    ErrorCode,
-    duplicate_request,
-    forbidden,
-    message_empty,
-    message_too_long,
-    model_unavailable,
-    not_found,
-    session_not_found,
-)
+from backend.app.core.errors import AppError, ErrorCode, not_found, rate_limited
 
 
 def body(response) -> dict:
@@ -24,25 +14,22 @@ def body(response) -> dict:
 
 class AppErrorTestCase(unittest.TestCase):
     def test_app_error_is_http_exception_for_backward_compatibility(self) -> None:
-        error = session_not_found("abc")
+        error = not_found()
         self.assertIsInstance(error, HTTPException)
         self.assertIsInstance(error, AppError)
         self.assertEqual(error.status_code, 404)
-        self.assertEqual(error.code, ErrorCode.SESSION_NOT_FOUND)
-        self.assertEqual(error.message, "会话不存在。")
-        self.assertEqual(error.detail, "会话不存在。")
+        self.assertEqual(error.code, ErrorCode.NOT_FOUND)
+        self.assertEqual(error.message, "资源不存在或已被删除。")
+        self.assertEqual(error.detail, "资源不存在或已被删除。")
 
     def test_factories_carry_stable_codes_and_messages(self) -> None:
-        self.assertEqual(forbidden().code, ErrorCode.FORBIDDEN)
-        self.assertEqual(forbidden().status_code, 403)
-        self.assertEqual(message_empty().code, ErrorCode.MESSAGE_EMPTY)
-        self.assertEqual(message_empty().status_code, 400)
-        self.assertEqual(message_too_long(3000).message, "输入内容不能超过 3000 个字符。")
-        self.assertEqual(model_unavailable().code, ErrorCode.MODEL_UNAVAILABLE)
-        self.assertEqual(model_unavailable().status_code, 502)
-        self.assertEqual(duplicate_request().status_code, 409)
-        self.assertEqual(duplicate_request().code, ErrorCode.DUPLICATE_REQUEST)
         self.assertEqual(not_found().code, ErrorCode.NOT_FOUND)
+        self.assertEqual(not_found("会话不存在。").message, "会话不存在。")
+
+        limited = rate_limited(30)
+        self.assertEqual(limited.code, ErrorCode.RATE_LIMITED)
+        self.assertEqual(limited.status_code, 429)
+        self.assertEqual(limited.headers["Retry-After"], "30")
 
 
 class ErrorResponseTestCase(unittest.TestCase):
@@ -52,16 +39,16 @@ class ErrorResponseTestCase(unittest.TestCase):
         self.assertEqual(body(response), {"success": False, "error": "出错了"})
 
     def test_error_with_code_includes_code_field(self) -> None:
-        response = exceptions.error_response("会话不存在。", 404, code=ErrorCode.SESSION_NOT_FOUND)
+        response = exceptions.error_response("资源不存在。", 404, code=ErrorCode.NOT_FOUND)
         self.assertEqual(
             body(response),
-            {"success": False, "error": "会话不存在。", "code": "SESSION_NOT_FOUND"},
+            {"success": False, "error": "资源不存在。", "code": "NOT_FOUND"},
         )
 
     def test_http_exception_handler_surfaces_app_error_code(self) -> None:
-        response = asyncio.run(exceptions.http_exception_handler(None, session_not_found("abc")))
+        response = asyncio.run(exceptions.http_exception_handler(None, not_found()))
         self.assertEqual(response.status_code, 404)
-        self.assertEqual(body(response)["code"], "SESSION_NOT_FOUND")
+        self.assertEqual(body(response)["code"], "NOT_FOUND")
 
     def test_http_exception_handler_keeps_legacy_shape_without_code(self) -> None:
         legacy = HTTPException(status_code=429, detail="太快了")

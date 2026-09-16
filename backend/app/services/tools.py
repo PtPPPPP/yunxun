@@ -1,75 +1,23 @@
 import logging
 
-from fastapi import HTTPException
-
 from backend.app.core.audit import log_event
 from backend.app.core.config import get_settings
-from backend.app.core.upload import ImageUploadPolicy, validate_image_payload
+from backend.app.core.rate_limit import InMemoryRateLimiter
 from backend.app.core.security import safe_fingerprint
 from backend.app.repositories import create_tool_record
-from backend.app.services.assistant import build_vision_demo_reply, create_vision_reply
-from backend.app.services.chat import rate_limiter
 from backend.app.services.decision import build_decision_reply
 
 
 logger = logging.getLogger("yunxun.backend.tools")
+rate_limiter = InMemoryRateLimiter()
 
 
 def _persist_tool_record_safely(**record: object) -> None:
-    """历史记录落库失败只记日志，不影响诊断/建议主流程。"""
+    """历史记录落库失败只记日志，不影响农活建议主流程。"""
     try:
         create_tool_record(**record)
     except Exception:
         logger.warning("Failed to persist tool record kind=%s", record.get("kind"), exc_info=True)
-
-
-async def create_vision_analysis(user_id: str, client_host: str, image_base64: str, crop: str, symptom: str) -> dict[str, str]:
-    settings = get_settings()
-    rate_limiter.check(f"vision:{user_id}:{client_host}", settings.requests_per_minute)
-    image = validate_image_payload(image_base64, ImageUploadPolicy(max_bytes=settings.upload_max_bytes))
-
-    normalized_crop = crop.strip() or "当前作物"
-    normalized_symptom = symptom.strip()
-    log_event(
-        logger,
-        "vision_request",
-        user_id=user_id,
-        client_fingerprint=safe_fingerprint(client_host),
-        crop=normalized_crop,
-        image_size=image.size_bytes,
-        image_mime=image.mime_type,
-        ai_configured=settings.ai_configured,
-    )
-    if not settings.ai_configured:
-        log_event(logger, "vision_demo_mode", user_id=user_id, crop=normalized_crop)
-        reply = build_vision_demo_reply(normalized_crop)
-        _persist_tool_record_safely(
-            user_id=user_id,
-            kind="vision",
-            crop=normalized_crop,
-            payload={"symptom": normalized_symptom},
-            result=reply,
-            mode="demo",
-        )
-        return {"reply": reply, "mode": "demo"}
-
-    try:
-        reply = await create_vision_reply(image.base64_data, normalized_crop, normalized_symptom)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail="视觉模型暂时不可用，请稍后再试。") from exc
-
-    log_event(logger, "vision_success", user_id=user_id, crop=normalized_crop, reply_length=len(reply))
-    _persist_tool_record_safely(
-        user_id=user_id,
-        kind="vision",
-        crop=normalized_crop,
-        payload={"symptom": normalized_symptom},
-        result=reply,
-        mode="live",
-    )
-    return {"reply": reply, "mode": "live"}
 
 
 def create_decision_advice(

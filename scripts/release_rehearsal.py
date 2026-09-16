@@ -22,10 +22,9 @@ def run(command: list[str], cwd: Path, env: dict[str, str] | None = None) -> Non
     subprocess.run(command, cwd=cwd, env=env, check=True)
 
 
-def api(path: str, *, method: str = "GET", token: str = "", data: dict | None = None, key: str = "") -> tuple[int, dict, dict]:
+def api(path: str, *, method: str = "GET", token: str = "", data: dict | None = None) -> tuple[int, dict, dict]:
     headers = {"Content-Type": "application/json", "X-Request-ID": "rehearsal-request"}
     if token: headers["Authorization"] = f"Bearer {token}"
-    if key: headers["X-Idempotency-Key"] = key
     request = urllib.request.Request(BASE + path, json.dumps(data).encode() if data is not None else None, headers, method=method)
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
@@ -88,30 +87,34 @@ def main() -> None:
         env = os.environ.copy()
         env.update({"YUNXUN_ENV": "production", "YUNXUN_DEBUG": "false", "YUNXUN_COOKIE_SECURE": "true", "YUNXUN_PORT": str(PORT),
             "YUNXUN_HOST": "127.0.0.1", "YUNXUN_DB_PATH": str(database),
-            "YUNXUN_JWT_SECRET": "release-rehearsal-secret-1234567890", "YUNXUN_ALLOWED_ORIGINS": "https://example.com", "DOUBAO_API_KEY": ""})
+            "YUNXUN_JWT_SECRET": "release-rehearsal-secret-1234567890", "YUNXUN_ALLOWED_ORIGINS": "https://example.com"})
         run([str(python), "scripts/check_release.py"], project, env)
         with running_backend(python, project, env):
             status, live, headers = api("/health/live")
             assert status == 200 and live["version"] == "1.0.0" and headers.get("x-request-id") == "rehearsal-request"
             _, guest, _ = api("/api/auth/guest", method="POST")
             token = guest["token"]
-            _, created, _ = api("/api/chat/sessions", method="POST", token=token, data={"title": "rehearsal", "feature": "chat", "model_name": "doubao-seed-1-6-250615"})
-            session_id = created["session"]["id"]
-            _, first, _ = api(f"/api/chat/sessions/{session_id}/messages", method="POST", token=token, key="stable-key", data={"message": "release rehearsal", "model_name": "doubao-seed-1-6-250615"})
+            status, advice, _ = api(
+                "/api/decision",
+                method="POST",
+                token=token,
+                data={"crop": "玉米", "stage": "快速生长期", "rain_prob": 55, "soil_moisture": 42, "temperature": 24.5},
+            )
+            assert status == 200 and "今日建议" in advice["reply"]
         with running_backend(python, project, env):
-            _, detail, _ = api(f"/api/chat/sessions/{session_id}?message_limit=100", token=token)
-            assert len(detail["messages"]) == 2
-            _, replay, _ = api(f"/api/chat/sessions/{session_id}/messages", method="POST", token=token, key="stable-key", data={"message": "release rehearsal", "model_name": "doubao-seed-1-6-250615"})
-            assert replay["user_message"]["id"] == first["user_message"]["id"]
+            _, records, _ = api("/api/tool-records?limit=10", token=token)
+            assert len(records["records"]) == 1
+            assert records["records"][0]["crop"] == "玉米"
         backup_dir = workspace / "backups"
         run([str(python), "scripts/database_admin.py", "backup", "--dir", str(backup_dir)], project, env)
         backup = next(backup_dir.glob("yunxun-*.db"))
         run([str(python), "scripts/database_admin.py", "rehearse-restore", str(backup)], project, env)
         with running_backend(python, project, env):
-            _, detail, _ = api(f"/api/chat/sessions/{session_id}?message_limit=100", token=token)
-            assert len(detail["messages"]) == 2
-            api(f"/api/chat/sessions/{session_id}", method="DELETE", token=token)
-    print("发布演练通过：干净安装、构建、启动、重启、持久幂等、备份恢复和停止均正常。")
+            _, records, _ = api("/api/tool-records?limit=10", token=token)
+            assert len(records["records"]) == 1
+            _, stats, _ = api("/api/tool-records/stats", token=token)
+            assert stats["counts_by_kind"] == {"decision": 1}
+    print("发布演练通过：干净安装、构建、启动、重启、数据持久化和备份恢复均正常。")
 
 
 if __name__ == "__main__":

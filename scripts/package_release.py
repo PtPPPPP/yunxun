@@ -55,8 +55,8 @@ def main() -> None:
                 shutil.copy2(source, destination)
         files = sorted(path for path in stage.rglob("*") if path.is_file())
         manifest = {
-            "application_name": "云寻智慧农业AI工作台软件",
-            "application_short_name": "云寻AI",
+            "application_name": "云寻智慧农业工作台软件",
+            "application_short_name": "云寻",
             "version": VERSION,
             "schema_version": read_schema_version(),
             "v1_scope_baseline": subprocess.check_output(

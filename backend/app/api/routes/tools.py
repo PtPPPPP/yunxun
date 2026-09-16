@@ -4,36 +4,17 @@ from backend.app.api.deps import get_current_user
 from backend.app.core.exceptions import success_payload
 from backend.app.core.pagination import decode_cursor, encode_cursor
 from backend.app.repositories import (
-    count_all_sessions,
-    count_messages_for_user,
     count_tool_records_by_kind,
     list_tool_records_page,
     summarize_tool_records,
 )
-from backend.app.schemas import DecisionRequest, VisionRequest
-from backend.app.services.tools import create_decision_advice, create_vision_analysis
+from backend.app.schemas import DecisionRequest
+from backend.app.services.tools import create_decision_advice
 
 
 router = APIRouter(prefix="/api", tags=["tools"])
 
-TOOL_RECORD_KINDS = {"vision", "decision"}
-
-
-@router.post("/vision")
-async def vision_api(
-    request: VisionRequest,
-    http_request: Request,
-    user: dict[str, str] = Depends(get_current_user),
-) -> dict[str, object]:
-    client_host = http_request.client.host if http_request.client else "local"
-    payload = await create_vision_analysis(
-        user_id=user["id"],
-        client_host=client_host,
-        image_base64=request.image_base64,
-        crop=request.crop,
-        symptom=request.symptom,
-    )
-    return success_payload(**payload)
+TOOL_RECORD_KINDS = {"decision"}
 
 
 @router.post("/decision")
@@ -57,14 +38,14 @@ async def decision_api(
 
 @router.get("/tool-records")
 async def list_tool_records_api(
-    kind: str | None = Query(default=None, description="记录类型：vision 或 decision，不传则返回全部。"),
+    kind: str | None = Query(default=None, description="记录类型：decision，不传则返回全部。"),
     limit: int = Query(default=20, ge=1, le=100, description="每页数量。"),
     cursor: str | None = Query(default=None, max_length=512, description="分页游标。"),
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:
     normalized_kind = (kind or "").strip().lower() or None
     if normalized_kind and normalized_kind not in TOOL_RECORD_KINDS:
-        raise HTTPException(status_code=400, detail="kind 只支持 vision 或 decision。")
+        raise HTTPException(status_code=400, detail="kind 只支持 decision。")
     try:
         parsed_cursor = decode_cursor(cursor) if cursor else None
     except ValueError as exc:
@@ -92,6 +73,4 @@ async def tool_records_stats_api(
         by_day_since=summary["since"],
         by_day_days=summary["days"],
         top_crops=summary["top_crops"],
-        total_sessions=count_all_sessions(user["id"]),
-        total_messages=count_messages_for_user(user["id"]),
     )

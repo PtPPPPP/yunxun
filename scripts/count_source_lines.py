@@ -10,8 +10,8 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SOFTWARE_FULL_NAME = "云寻智慧农业AI工作台软件"
-SOFTWARE_SHORT_NAME = "云寻AI"
+SOFTWARE_FULL_NAME = "云寻智慧农业工作台软件"
+SOFTWARE_SHORT_NAME = "云寻"
 SOFTWARE_VERSION = "1.0.0"
 LINES_PER_PAGE = 50
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "docs" / "software-copyright"
@@ -390,7 +390,7 @@ def print_statistics(source_files: list[SourceFile], statistics: SourceStatistic
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="统计并生成云寻智慧农业AI工作台软件的软著源码材料。")
+    parser = argparse.ArgumentParser(description="统计并生成云寻智慧农业工作台软件的软著源码材料。")
     parser.add_argument("--generate", action="store_true", help="生成 source-code.txt 和 source-code-manifest.txt。")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="材料输出目录。")
     return parser.parse_args()

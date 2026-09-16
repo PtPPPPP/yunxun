@@ -23,15 +23,6 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-export function setAuthToken(token: string | null): void {
-  if (!token) {
-    delete api.defaults.headers.common.Authorization;
-    return;
-  }
-
-  api.defaults.headers.common.Authorization = `Bearer ${token}`;
-}
-
 interface ApiErrorPayload {
   success?: false;
   error?: string;

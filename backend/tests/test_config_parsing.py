@@ -20,7 +20,7 @@ class ConfigParsingTestCase(unittest.TestCase):
 
     def test_parse_int_reports_invalid_value(self) -> None:
         with self.assertRaises(ValueError) as invalid:
-            config._parse_int("YUNXUN_MAX_MESSAGE_LENGTH", "abc", default=3000, minimum=1)
+            config._parse_int("YUNXUN_REQUEST_TIMEOUT_SECONDS", "abc", default=45, minimum=1)
         self.assertIn("必须是整数", str(invalid.exception))
         self.assertIn("abc", str(invalid.exception))
 
@@ -36,12 +36,12 @@ class ConfigParsingTestCase(unittest.TestCase):
         values = config._parse_csv("YUNXUN_ALLOWED_ORIGINS", " http://a.test, http://a.test, http://b.test ")
         self.assertEqual(values, ["http://a.test", "http://b.test"])
 
-    def test_default_cors_headers_allow_idempotency_key(self) -> None:
+    def test_default_cors_headers_allow_csrf_token(self) -> None:
         config.get_settings.cache_clear()
         with patch.dict("os.environ", {}, clear=True):
             settings = config.get_settings()
 
-        self.assertIn("X-Idempotency-Key", settings.cors_headers)
+        self.assertIn("X-CSRF-Token", settings.cors_headers)
         config.get_settings.cache_clear()
 
     def test_get_settings_uses_safe_numeric_parsers(self) -> None:
@@ -50,20 +50,18 @@ class ConfigParsingTestCase(unittest.TestCase):
             "os.environ",
             {
                 "YUNXUN_PORT": "8123",
-                "YUNXUN_MAX_MESSAGE_LENGTH": "2048",
                 "YUNXUN_REQUESTS_PER_MINUTE": "12",
                 "YUNXUN_TOKEN_EXPIRE_HOURS": "24",
-                "YUNXUN_UPLOAD_MAX_BYTES": "2097152",
+                "YUNXUN_REQUEST_TIMEOUT_SECONDS": "30",
             },
             clear=False,
         ):
             settings = config.get_settings()
 
         self.assertEqual(settings.port, 8123)
-        self.assertEqual(settings.max_message_length, 2048)
         self.assertEqual(settings.requests_per_minute, 12)
         self.assertEqual(settings.token_hours, 24)
-        self.assertEqual(settings.upload_max_bytes, 2_097_152)
+        self.assertEqual(settings.request_timeout_seconds, 30.0)
         config.get_settings.cache_clear()
 
 

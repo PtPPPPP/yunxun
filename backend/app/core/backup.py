@@ -9,7 +9,7 @@ from pathlib import Path
 from backend.app.core.database import SCHEMA_VERSION
 
 
-CORE_TABLES = {"users", "chat_sessions", "chat_messages", "auth_tokens", "idempotency_requests"}
+CORE_TABLES = {"users", "auth_tokens"}
 
 
 def validate_database(path: Path) -> int:

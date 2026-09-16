@@ -1,9 +1,9 @@
 # 架构
 
-云寻 AI 由 React/Vite 前端、FastAPI 后端和 SQLite 数据库组成。浏览器通过 `/api` 调用认证、会话、消息、视觉诊断和农活计划接口。
+云寻由 React/Vite 前端、FastAPI 后端和 SQLite 数据库组成。浏览器通过 `/api` 调用认证和今日农活接口；所有建议都在本机规则引擎里生成，不访问任何外部模型服务。
 
-系统模型只从服务器环境变量读取，后端统一负责超时、重试、错误分类和演示模式；未配置系统 Key 时返回本地演示回复。用户数据包括用户、Token、会话、消息、幂等请求和审计日志。
+今日农活建议由 `backend/app/services/decision.py` 按降雨概率、土壤湿度和生长期推导，输入校验在 `backend/app/schemas.py`，落库在 `backend/app/repositories.py`。用户数据包括用户、Token、农活记录和审计日志。
 
-数据库通过 `PRAGMA user_version` 迁移。Schema 3 清理历史用户模型凭据表及会话关联列，Schema 4 增加会话置顶状态和排序索引，不改变其他数据。前端只展示系统模型选择，不提供个人 API Key 输入、测试或保存页面。
+数据库通过 `PRAGMA user_version` 迁移，当前为 Schema 6。Schema 3 清理历史用户模型凭据表及会话关联列，Schema 4 增加会话置顶状态和排序索引，Schema 5 新增 `tool_records` 表保存农活建议历史，Schema 6 删除 `chat_sessions`、`chat_messages`、`idempotency_requests` 三张表并移除 `users.preferred_model`。`tool_records.kind` 的 CHECK 约束仍保留历史取值 `'vision'`，但接口只接受 `decision`。
 
-会话搜索在浏览器本地按已加载标题筛选；置顶、清空和重新生成通过聊天路由完成，清空使用单事务删除消息并保留会话，重新生成只替换最近 AI 回复。复制和 TXT/Markdown 导出均在浏览器本地完成，不上传消息正文。
+列表接口使用游标分页：把上一页最后一条记录的 `(created_at, id)` 编码成不透明 cursor，避免数据持续写入时出现重复或漏读。认证使用数据库保存的不透明 Token，浏览器同时携带 Cookie 与 Bearer Token，写请求额外校验 CSRF Token。

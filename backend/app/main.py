@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api.routes import auth, chat, system, tools
+from backend.app.api.routes import auth, system, tools
 from backend.app.core.config import get_settings, validate_startup_settings
 from backend.app.core.database import init_db
 from backend.app.core.exceptions import (
@@ -85,7 +85,6 @@ def create_app() -> FastAPI:
 
     app.include_router(system.router)
     app.include_router(auth.router)
-    app.include_router(chat.router)
     app.include_router(tools.router)
 
     logger.info("Application initialized", extra={"host": settings.host, "port": settings.port})

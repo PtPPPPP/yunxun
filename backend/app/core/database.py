@@ -10,7 +10,7 @@ from backend.app.core.config import get_settings
 
 
 logger = logging.getLogger("yunxun.backend.database")
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def get_db_path() -> Path:
@@ -39,8 +39,10 @@ def get_connection() -> Iterator[sqlite3.Connection]:
 
 
 def _table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+    # PRAGMA table_info 的输出顺序固定为 (cid, name, type, notnull, dflt_value, pk)；
+    # 用下标取值，这样没有设置 row_factory 的连接也能安全调用。
     rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-    return {row["name"] for row in rows}
+    return {row[1] for row in rows}
 
 
 def _create_auth_tokens_table(conn: sqlite3.Connection) -> None:
@@ -191,6 +193,17 @@ def _table_names(conn: sqlite3.Connection) -> set[str]:
     return {row[0] for row in rows}
 
 
+def _apply_schema_v6(conn: sqlite3.Connection) -> None:
+    """移除 AI 能力：删除会话、消息与幂等表，并去掉用户模型偏好字段。"""
+    # chat_messages 通过外键指向 chat_sessions 且没有级联，必须先删子表。
+    conn.execute("DROP TABLE IF EXISTS chat_messages")
+    conn.execute("DROP TABLE IF EXISTS chat_sessions")
+    conn.execute("DROP TABLE IF EXISTS idempotency_requests")
+    if "preferred_model" in _table_columns(conn, "users"):
+        logger.info("Removing users.preferred_model during schema migration.")
+        conn.execute("ALTER TABLE users DROP COLUMN preferred_model")
+
+
 def migrate_schema(conn: sqlite3.Connection) -> tuple[int, list[str]]:
     current = int(conn.execute("PRAGMA user_version").fetchone()[0])
     starting_version = current
@@ -253,6 +266,17 @@ def migrate_schema(conn: sqlite3.Connection) -> tuple[int, list[str]]:
             conn.rollback()
             raise
         applied.append("5_tool_records")
+        current = 5
+    if current < 6:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            _apply_schema_v6(conn)
+            conn.execute("PRAGMA user_version = 6")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        applied.append("6_remove_ai_surface")
     return starting_version, applied
 
 

@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 from backend.app.core.backup import create_backup, restore_backup, validate_database
 from backend.app.core.database import init_db
-from backend.app.repositories import create_session, create_user
-from backend.tests.test_chat_service import make_settings
+from backend.app.repositories import create_auth_token, create_user
+from backend.tests.helpers import make_settings
 
 
 class BackupRestoreTestCase(unittest.TestCase):
@@ -26,17 +26,17 @@ class BackupRestoreTestCase(unittest.TestCase):
         self.temp.cleanup()
 
     def test_backup_restore_preserves_data_and_version(self) -> None:
-        user = create_user("backup-user", "hash", "Backup", "model")
-        create_session(user["id"], "kept", "chat", "model")
+        user = create_user("backup-user", "hash", "Backup")
+        create_auth_token(user["id"], "token-hash", "2999-01-01T00:00:00+00:00")
         backup = create_backup(self.database, self.root / "backups", keep=2)
         with closing(sqlite3.connect(self.database)) as conn:
-            conn.execute("DELETE FROM chat_sessions")
+            conn.execute("DELETE FROM auth_tokens")
             conn.commit()
         safety = restore_backup(self.database, backup, self.root / "backups")
         self.assertTrue(safety.exists())
         self.assertEqual(validate_database(self.database), validate_database(backup))
         with closing(sqlite3.connect(self.database)) as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM chat_sessions").fetchone()[0], 1)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM auth_tokens").fetchone()[0], 1)
 
     def test_corrupt_and_future_backup_are_rejected_without_changing_current(self) -> None:
         corrupt = self.root / "corrupt.db"

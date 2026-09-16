@@ -26,7 +26,7 @@ powershell -File scripts\build_frontend.ps1
 - `/health/live`：进程存活。
 - `/health/ready`：数据库连接、Schema 和核心表就绪。
 
-健康检查不会调用付费模型。
+健康检查只读取本机数据库和配置，不访问任何外部服务。
 
 ## 数据库与备份
 
