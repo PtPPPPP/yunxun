@@ -5,9 +5,15 @@ from backend.app.core.audit import log_event
 from backend.app.core.errors import not_found
 from backend.app.core.security import safe_fingerprint
 from backend.app.repositories import (
+    count_farm_records,
+    count_plots,
+    create_farm_record,
     create_plot,
+    delete_farm_record,
     delete_plot_with_records,
+    get_farm_record,
     get_plot,
+    list_farm_records_page,
     list_plots,
     update_plot,
 )
@@ -111,3 +117,68 @@ def delete_user_plot(plot_id: str, user_id: str, client_host: str) -> int:
         removed_records=removed_records,
     )
     return removed_records
+
+
+def list_user_farm_records(
+    user_id: str,
+    *,
+    plot_id: str | None,
+    limit: int,
+    cursor: tuple[str, str] | None,
+) -> tuple[list[dict[str, Any]], bool]:
+    return list_farm_records_page(user_id, plot_id=plot_id, limit=limit, cursor=cursor)
+
+
+def create_user_farm_record(
+    user_id: str,
+    client_host: str,
+    plot_id: str,
+    kind: str,
+    happened_on: str,
+    crop: str,
+    detail: str,
+    quantity: str,
+    cost: float | None,
+) -> dict[str, Any]:
+    plot = require_plot_owner(plot_id, user_id)
+    record = create_farm_record(
+        user_id=user_id,
+        plot_id=plot_id,
+        kind=kind,
+        happened_on=happened_on,
+        # 作物默认取地块当前作物，允许改写以保留轮作历史。
+        crop=crop.strip() or plot["crop"],
+        detail=detail.strip(),
+        quantity=quantity.strip(),
+        cost=cost,
+    )
+    log_event(
+        logger,
+        "farm_record_create",
+        user_id=user_id,
+        client_fingerprint=safe_fingerprint(client_host),
+        record_id=record["id"],
+        plot_id=plot_id,
+        kind=kind,
+        happened_on=happened_on,
+    )
+    return record
+
+
+def delete_user_farm_record(record_id: str, user_id: str, client_host: str) -> None:
+    record = get_farm_record(record_id)
+    if not record or record["user_id"] != user_id:
+        raise not_found("农事记录不存在或已被删除。")
+    delete_farm_record(record_id)
+    log_event(
+        logger,
+        "farm_record_delete",
+        user_id=user_id,
+        client_fingerprint=safe_fingerprint(client_host),
+        record_id=record_id,
+        plot_id=record["plot_id"],
+    )
+
+
+def summarize_user_farm_records(user_id: str) -> dict[str, int]:
+    return {"plot_count": count_plots(user_id), "record_count": count_farm_records(user_id)}

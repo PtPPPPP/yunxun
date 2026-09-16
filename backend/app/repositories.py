@@ -319,3 +319,94 @@ def delete_plot_with_records(plot_id: str) -> int:
         conn.execute("DELETE FROM farm_records WHERE plot_id = ?", (plot_id,))
         conn.execute("DELETE FROM plots WHERE id = ?", (plot_id,))
     return removed
+
+
+# 台账查询统一带出地块名称，接口因此自解释，前端不必再按 plot_id 映射。
+FARM_RECORD_SELECT = """
+    SELECT r.*, COALESCE(p.name, '') AS plot_name
+    FROM farm_records r
+    LEFT JOIN plots p ON p.id = r.plot_id
+"""
+
+
+def public_farm_record(record: dict[str, Any]) -> dict[str, Any]:
+    raw_cost = record["cost"]
+    return {
+        "id": record["id"],
+        "plot_id": record["plot_id"],
+        "plot_name": record["plot_name"],
+        "kind": record["kind"],
+        "happened_on": record["happened_on"],
+        "crop": record["crop"],
+        "detail": record["detail"],
+        "quantity": record["quantity"],
+        "cost": None if raw_cost is None else float(raw_cost),
+        "created_at": record["created_at"],
+    }
+
+
+def create_farm_record(
+    user_id: str,
+    plot_id: str,
+    kind: str,
+    happened_on: str,
+    crop: str,
+    detail: str,
+    quantity: str,
+    cost: float | None,
+) -> dict[str, Any]:
+    record_id = uuid.uuid4().hex
+    created_at = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO farm_records
+                (id, user_id, plot_id, kind, happened_on, crop, detail, quantity, cost, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (record_id, user_id, plot_id, kind, happened_on, crop, detail, quantity, cost, created_at),
+        )
+        row = conn.execute(FARM_RECORD_SELECT + " WHERE r.id = ?", (record_id,)).fetchone()
+    return public_farm_record(dict(row))
+
+
+def get_farm_record(record_id: str) -> dict[str, Any] | None:
+    return _fetchone(FARM_RECORD_SELECT + " WHERE r.id = ?", (record_id,))
+
+
+def list_farm_records_page(
+    user_id: str,
+    *,
+    plot_id: str | None = None,
+    limit: int = 20,
+    cursor: tuple[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
+    """按作业日期倒序翻页；游标复用 (happened_on, id)。"""
+    conditions = ["r.user_id = ?"]
+    params: list[Any] = [user_id]
+    if plot_id:
+        conditions.append("r.plot_id = ?")
+        params.append(plot_id)
+    if cursor:
+        conditions.append("(r.happened_on < ? OR (r.happened_on = ? AND r.id < ?))")
+        params.extend([cursor[0], cursor[0], cursor[1]])
+    params.append(limit + 1)
+    with get_connection() as conn:
+        rows = conn.execute(
+            FARM_RECORD_SELECT + " WHERE " + " AND ".join(conditions)
+            + " ORDER BY r.happened_on DESC, r.id DESC LIMIT ?",
+            tuple(params),
+        ).fetchall()
+    has_more = len(rows) > limit
+    return [public_farm_record(dict(row)) for row in rows[:limit]], has_more
+
+
+def delete_farm_record(record_id: str) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM farm_records WHERE id = ?", (record_id,))
+
+
+def count_farm_records(user_id: str) -> int:
+    with get_connection() as conn:
+        row = conn.execute("SELECT COUNT(*) AS total FROM farm_records WHERE user_id = ?", (user_id,)).fetchone()
+    return int(row["total"]) if row else 0

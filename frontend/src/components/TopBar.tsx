@@ -7,6 +7,7 @@ import { formatAppVersion } from "../lib/appVersion";
 const featureTitles: Record<FeatureKey, { title: string; subtitle: string }> = {
   decision: { title: "今日农活计划", subtitle: "结合天气、墒情和生长期生成今天可执行的安排。" },
   plots: { title: "农事地块", subtitle: "登记地块的面积、土壤、灌溉条件和当季作物。" },
+  ledger: { title: "农事台账", subtitle: "按地块记录每次作业的日期、用量和费用。" },
   stats: { title: "统计面板", subtitle: "回顾历史农活建议的使用情况。" },
 };
 

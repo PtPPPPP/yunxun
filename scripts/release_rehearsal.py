@@ -101,10 +101,47 @@ def main() -> None:
                 data={"crop": "玉米", "stage": "快速生长期", "rain_prob": 55, "soil_moisture": 42, "temperature": 24.5},
             )
             assert status == 200 and "今日建议" in advice["reply"]
+
+            status, created_plot, _ = api(
+                "/api/plots",
+                method="POST",
+                token=token,
+                data={
+                    "name": "演练地块",
+                    "area_mu": 3.5,
+                    "soil_type": "壤土",
+                    "irrigation": "井灌",
+                    "crop": "玉米",
+                    "planted_on": "2026-05-12",
+                    "notes": "发布演练",
+                },
+            )
+            assert status == 200 and created_plot["plot"]["record_count"] == 0
+            status, created_record, _ = api(
+                "/api/farm-records",
+                method="POST",
+                token=token,
+                data={
+                    "plot_id": created_plot["plot"]["id"],
+                    "kind": "施肥",
+                    "happened_on": "2026-06-01",
+                    "quantity": "15 公斤/亩",
+                    "cost": 120.5,
+                    "detail": "发布演练",
+                },
+            )
+            assert status == 200 and created_record["record"]["plot_name"] == "演练地块"
         with running_backend(python, project, env):
             _, records, _ = api("/api/tool-records?limit=10", token=token)
             assert len(records["records"]) == 1
             assert records["records"][0]["crop"] == "玉米"
+
+            _, plots, _ = api("/api/plots", token=token)
+            assert len(plots["plots"]) == 1
+            assert plots["plots"][0]["record_count"] == 1
+            _, ledger, _ = api("/api/farm-records?limit=10", token=token)
+            assert len(ledger["records"]) == 1
+            assert ledger["records"][0]["cost"] == 120.5
         backup_dir = workspace / "backups"
         run([str(python), "scripts/database_admin.py", "backup", "--dir", str(backup_dir)], project, env)
         backup = next(backup_dir.glob("yunxun-*.db"))
@@ -114,6 +151,12 @@ def main() -> None:
             assert len(records["records"]) == 1
             _, stats, _ = api("/api/tool-records/stats", token=token)
             assert stats["counts_by_kind"] == {"decision": 1}
+
+            _, plots, _ = api("/api/plots", token=token)
+            assert len(plots["plots"]) == 1
+            assert plots["plots"][0]["record_count"] == 1
+            _, farm_stats, _ = api("/api/farm-records/stats", token=token)
+            assert farm_stats["plot_count"] == 1 and farm_stats["record_count"] == 1
     print("发布演练通过：干净安装、构建、启动、重启、数据持久化和备份恢复均正常。")
 
 

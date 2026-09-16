@@ -30,6 +30,16 @@ class PlotUpdateRequest(PlotCreateRequest):
     """地块整体替换：与创建同一套字段，避免部分更新带来的空值歧义。"""
 
 
+class FarmRecordCreateRequest(BaseModel):
+    plot_id: str = Field(..., min_length=1, max_length=64)
+    kind: str = Field(..., min_length=1, max_length=16)
+    happened_on: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    crop: str = Field("", max_length=20)
+    detail: str = Field("", max_length=300)
+    quantity: str = Field("", max_length=40)
+    cost: float | None = Field(None, ge=0, le=1_000_000)
+
+
 class DecisionRequest(BaseModel):
     crop: str = Field(..., min_length=1, max_length=20)
     stage: str = Field(..., min_length=1, max_length=20)

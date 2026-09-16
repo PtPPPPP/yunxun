@@ -962,3 +962,21 @@ button:disabled:hover {
     grid-template-columns: 1fr;
   }
 }
+
+/* 农事台账 */
+.ledger-filter {
+  flex: 0 1 200px;
+  min-width: 150px;
+}
+
+.ledger-delete {
+  margin-left: auto;
+  padding: 4px 8px;
+  min-height: 0;
+  font-size: 0.8rem;
+}
+
+.stats-summary {
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+}
+

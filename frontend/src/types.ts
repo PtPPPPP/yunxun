@@ -1,6 +1,26 @@
-export type FeatureKey = "decision" | "plots" | "stats";
+export type FeatureKey = "decision" | "plots" | "ledger" | "stats";
 
 export type ToolRecordKind = "decision";
+
+export type FarmRecordKind = "播种" | "施肥" | "打药" | "灌溉" | "除草" | "采收" | "其他";
+
+export interface FarmRecord {
+  id: string;
+  plot_id: string;
+  plot_name: string;
+  kind: FarmRecordKind;
+  happened_on: string;
+  crop: string;
+  detail: string;
+  quantity: string;
+  cost: number | null;
+  created_at: string;
+}
+
+export interface FarmStatsPayload {
+  plot_count: number;
+  record_count: number;
+}
 
 export interface Plot {
   id: string;

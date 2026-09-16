@@ -29,7 +29,7 @@ test("建议会写入统计面板的历史记录与趋势", async ({ page }) => 
   await expect(page.locator(".stats-records .stats-record")).toHaveCount(1);
   await expect(page.locator(".stats-records")).toContainText("玉米");
   await expect(page.locator(".stats-crops")).toContainText("玉米");
-  await expect(page.locator(".stat-card").first()).toContainText("1");
+  await expect(page.locator(".stat-card").filter({ hasText: "农活建议" })).toContainText("1");
 });
 
 test("帮助与关于软件使用去 AI 后的名称", async ({ page }) => {
@@ -41,7 +41,7 @@ test("帮助与关于软件使用去 AI 后的名称", async ({ page }) => {
   await page.getByRole("button", { name: "关于软件" }).click();
   const about = page.getByRole("dialog");
   await expect(about).toContainText("云寻");
-  await expect(about).toContainText("地块档案、今日农活计划与农活建议统计");
+  await expect(about).toContainText("地块档案、农事台账、今日农活计划与农活建议统计");
   await expect(about).not.toContainText("AI");
 });
 

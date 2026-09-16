@@ -1,5 +1,7 @@
 import { CalendarCheck2 } from "lucide-react";
 
+import { Plot } from "../types";
+
 interface DecisionWorkspaceProps {
   crop: string;
   stage: string;
@@ -8,7 +10,10 @@ interface DecisionWorkspaceProps {
   temperature: number;
   result: string;
   busy: boolean;
+  plots: Plot[];
+  selectedPlotId: string;
   onChange: (field: "crop" | "stage" | "rainProb" | "soilMoisture" | "temperature", value: string | number) => void;
+  onPlotChange: (plotId: string) => void;
   onSubmit: () => void;
 }
 
@@ -16,7 +21,10 @@ const crops = ["玉米", "水稻", "小麦", "大豆", "番茄", "黄瓜", "辣�
 const stages = ["播种出苗期", "苗期", "快速生长期", "开花坐果期", "灌浆成熟期", "采收期"];
 
 export function DecisionWorkspace(props: DecisionWorkspaceProps) {
-  const { crop, stage, rainProb, soilMoisture, temperature, result, busy, onChange, onSubmit } = props;
+  const {
+    crop, stage, rainProb, soilMoisture, temperature, result, busy,
+    plots, selectedPlotId, onChange, onPlotChange, onSubmit,
+  } = props;
 
   return (
     <section className="workspace-grid workspace-grid--decision">
@@ -29,6 +37,22 @@ export function DecisionWorkspace(props: DecisionWorkspaceProps) {
         </div>
 
         <div className="field-grid">
+          {plots.length > 0 && (
+            <label className="field">
+              <span>按地块带入</span>
+              <div className="field-control field-control--select">
+                <select value={selectedPlotId} onChange={(event) => onPlotChange(event.target.value)}>
+                  <option value="">不选地块</option>
+                  {plots.map((plot) => (
+                    <option key={plot.id} value={plot.id}>
+                      {plot.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </label>
+          )}
+
           <label className="field">
             <span>作物</span>
             <div className="field-control field-control--select">

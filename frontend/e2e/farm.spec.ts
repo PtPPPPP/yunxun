@@ -12,12 +12,129 @@ async function openPlots(page: Page) {
   await expect(page.getByRole("heading", { name: "农事地块" })).toBeVisible();
 }
 
+async function openLedger(page: Page) {
+  await page.getByRole("button", { name: "农事台账" }).click();
+  await expect(page.getByRole("heading", { name: "农事台账" })).toBeVisible();
+}
+
 async function createPlot(page: Page, name: string, area: string) {
   await page.getByPlaceholder("例如：东坡三亩地").fill(name);
   await page.getByLabel("面积（亩）").fill(area);
   await page.getByRole("button", { name: "新建地块" }).click();
   await expect(page.locator(".plot-card").filter({ hasText: name })).toBeVisible();
 }
+
+async function addRecord(page: Page, quantity: string, cost: string) {
+  await page.getByPlaceholder("例如：15 公斤/亩").fill(quantity);
+  await page.getByPlaceholder("可留空", { exact: true }).fill(cost);
+  await page.getByRole("button", { name: "记入台账" }).click();
+  await expect(page.locator(".stats-records .stats-record")).toHaveCount(1);
+}
+
+test("农事台账在还没有地块时给出引导", async ({ page }) => {
+  await guestLogin(page);
+  await openLedger(page);
+  await expect(page.getByRole("heading", { name: "还没有地块" })).toBeVisible();
+});
+
+test("可以在地块下记一条农事并在台账中回看", async ({ page }) => {
+  await openPlots(page);
+  await createPlot(page, "东坡三亩地", "3.5");
+  await openLedger(page);
+
+  await page.getByPlaceholder("例如：雨后追尿素，重点看低洼处").fill("雨后追尿素");
+  await addRecord(page, "15 公斤/亩", "120.5");
+
+  const row = page.locator(".stats-records .stats-record");
+  await expect(row).toContainText("施肥");
+  await expect(row).toContainText("东坡三亩地");
+  await expect(row).toContainText("玉米");
+  await expect(row).toContainText("15 公斤/亩");
+  await expect(row).toContainText("¥120.5");
+  await expect(row).toContainText("雨后追尿素");
+});
+
+test("记录会同步到地块卡片的作业次数与统计面板", async ({ page }) => {
+  await openPlots(page);
+  await createPlot(page, "西洼两亩地", "2");
+  await openLedger(page);
+  await addRecord(page, "20 毫升/亩", "");
+
+  await page.getByRole("button", { name: "地块档案" }).click();
+  await expect(page.locator(".plot-card")).toContainText("本季 1 次作业");
+
+  await page.getByRole("button", { name: "统计面板" }).click();
+  const cards = page.locator(".stat-card");
+  await expect(cards.filter({ hasText: "地块数" })).toContainText("1");
+  await expect(cards.filter({ hasText: "作业记录" })).toContainText("1");
+});
+
+test("可以按地块筛选台账记录", async ({ page }) => {
+  await openPlots(page);
+  await createPlot(page, "东坡三亩地", "3.5");
+  await createPlot(page, "西洼两亩地", "2");
+  await openLedger(page);
+
+  // 表单的记录目标和列表筛选是两个独立控件，这里显式指定要记到哪块地。
+  await page.getByLabel("记录到地块").selectOption({ label: "东坡三亩地" });
+  await page.getByLabel("按地块筛选").selectOption({ label: "东坡三亩地" });
+  await addRecord(page, "15 公斤/亩", "");
+  await expect(page.locator(".stats-record")).toContainText("东坡三亩地");
+
+  await page.getByLabel("按地块筛选").selectOption({ label: "西洼两亩地" });
+  await expect(page.locator(".stats-records .stats-record")).toHaveCount(0);
+  await expect(page.locator(".stats-empty")).toContainText("暂无台账记录");
+});
+
+test("删除台账记录需要二次确认", async ({ page }) => {
+  await openPlots(page);
+  await createPlot(page, "北坡一亩地", "1");
+  await openLedger(page);
+  await addRecord(page, "10 公斤/亩", "");
+
+  await page.getByRole("button", { name: "删除 施肥 记录" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("删除这条农事记录？");
+  await expect(dialog).toContainText("北坡一亩地");
+
+  await page.getByRole("button", { name: "确认删除" }).click();
+  await expect(page.locator(".stats-records .stats-record")).toHaveCount(0);
+  await expect(page.locator(".stats-empty")).toContainText("暂无台账记录");
+});
+
+test("删除有记录的地块会提示连带删除的条数", async ({ page }) => {
+  await openPlots(page);
+  await createPlot(page, "东坡三亩地", "3.5");
+  await openLedger(page);
+  await addRecord(page, "15 公斤/亩", "");
+
+  await page.getByRole("button", { name: "地块档案" }).click();
+  await expect(page.locator(".plot-card")).toContainText("本季 1 次作业");
+  await page.getByRole("button", { name: "删除" }).click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("东坡三亩地");
+  await expect(dialog).toContainText("1 条农事台账记录");
+  await page.getByRole("button", { name: "确认删除" }).click();
+  await expect(page.locator(".plot-card")).toHaveCount(0);
+
+  await openLedger(page);
+  await expect(page.getByRole("heading", { name: "还没有地块" })).toBeVisible();
+});
+
+test("今日农活可以选地块带出作物", async ({ page }) => {
+  await openPlots(page);
+  await createPlot(page, "西洼两亩地", "2");
+
+  await page.getByRole("button", { name: "编辑" }).click();
+  await page.getByLabel("当前作物").selectOption("大豆");
+  await page.getByRole("button", { name: "保存修改" }).click();
+  await expect(page.locator(".plot-card")).toContainText("大豆");
+
+  await page.getByRole("button", { name: "今日农活" }).click();
+  await page.getByLabel("按地块带入").selectOption({ label: "西洼两亩地" });
+  await expect(page.getByLabel("作物")).toHaveValue("大豆");
+});
 
 test("地块档案初始为空状态", async ({ page }) => {
   await openPlots(page);

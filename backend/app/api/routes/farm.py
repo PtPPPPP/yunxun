@@ -1,17 +1,26 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from backend.app.api.deps import get_current_user
 from backend.app.core.exceptions import success_payload
-from backend.app.schemas import PlotCreateRequest, PlotUpdateRequest
+from backend.app.core.pagination import decode_cursor, encode_cursor
+from backend.app.schemas import FarmRecordCreateRequest, PlotCreateRequest, PlotUpdateRequest
 from backend.app.services.farm import (
+    create_user_farm_record,
     create_user_plot,
+    delete_user_farm_record,
     delete_user_plot,
+    list_user_farm_records,
     list_user_plots,
+    summarize_user_farm_records,
     update_user_plot,
 )
 
 
 router = APIRouter(prefix="/api", tags=["farm"])
+
+# 允许值放在这里而不是数据库 CHECK 约束里：tool_records 的 CHECK 曾导致新增
+# 取值只能整表重建，这里改一个集合即可扩展。
+FARM_RECORD_KINDS = ("播种", "施肥", "打药", "灌溉", "除草", "采收", "其他")
 
 
 @router.get("/plots")
@@ -72,3 +81,68 @@ async def delete_plot_api(
     client_host = http_request.client.host if http_request.client else "local"
     removed_records = delete_user_plot(plot_id, user["id"], client_host)
     return success_payload(message="地块已删除。", deleted_records=removed_records)
+
+
+@router.get("/farm-records")
+async def list_farm_records_api(
+    plot_id: str | None = Query(default=None, max_length=64, description="按地块筛选。"),
+    limit: int = Query(default=20, ge=1, le=100, description="每页数量。"),
+    cursor: str | None = Query(default=None, max_length=512, description="分页游标。"),
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    try:
+        parsed_cursor = decode_cursor(cursor) if cursor else None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    records, has_more = list_user_farm_records(
+        user["id"],
+        plot_id=plot_id,
+        limit=limit,
+        cursor=parsed_cursor,
+    )
+    next_cursor = None
+    if has_more and records:
+        next_cursor = encode_cursor(records[-1]["happened_on"], records[-1]["id"])
+    return success_payload(records=records, pagination={"has_more": has_more, "next_cursor": next_cursor})
+
+
+@router.post("/farm-records")
+async def create_farm_record_api(
+    request: FarmRecordCreateRequest,
+    http_request: Request,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    normalized_kind = request.kind.strip()
+    if normalized_kind not in FARM_RECORD_KINDS:
+        raise HTTPException(status_code=400, detail="作业类型只能是：" + "、".join(FARM_RECORD_KINDS) + "。")
+    client_host = http_request.client.host if http_request.client else "local"
+    record = create_user_farm_record(
+        user_id=user["id"],
+        client_host=client_host,
+        plot_id=request.plot_id,
+        kind=normalized_kind,
+        happened_on=request.happened_on,
+        crop=request.crop,
+        detail=request.detail,
+        quantity=request.quantity,
+        cost=request.cost,
+    )
+    return success_payload(record=record)
+
+
+@router.delete("/farm-records/{record_id}")
+async def delete_farm_record_api(
+    record_id: str,
+    http_request: Request,
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    client_host = http_request.client.host if http_request.client else "local"
+    delete_user_farm_record(record_id, user["id"], client_host)
+    return success_payload(message="农事记录已删除。")
+
+
+@router.get("/farm-records/stats")
+async def farm_records_stats_api(
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    return success_payload(**summarize_user_farm_records(user["id"]))

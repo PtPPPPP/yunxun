@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api, getErrorMessage } from "../lib/api";
-import { ToolRecord, ToolStatsPayload } from "../types";
+import { FarmStatsPayload, ToolRecord, ToolStatsPayload } from "../types";
 
 const PAGE_SIZE = 20;
 
@@ -36,6 +36,7 @@ function excerpt(text: string, max = 60): string {
 
 export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
   const [stats, setStats] = useState<ToolStatsPayload | null>(null);
+  const [farmStats, setFarmStats] = useState<FarmStatsPayload | null>(null);
   const [records, setRecords] = useState<ToolRecord[]>([]);
   const [pagination, setPagination] = useState<{ has_more: boolean; next_cursor: string | null }>({
     has_more: false,
@@ -46,8 +47,12 @@ export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
 
   const loadStats = useCallback(async () => {
     try {
-      const response = await api.get<{ success: true } & ToolStatsPayload>("/api/tool-records/stats");
-      setStats(response.data);
+      const [adviceResponse, farmResponse] = await Promise.all([
+        api.get<{ success: true } & ToolStatsPayload>("/api/tool-records/stats"),
+        api.get<{ success: true } & FarmStatsPayload>("/api/farm-records/stats"),
+      ]);
+      setStats(adviceResponse.data);
+      setFarmStats(farmResponse.data);
       onError("");
     } catch (error) {
       onError(getErrorMessage(error));
@@ -119,10 +124,12 @@ export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
         <div className="panel__header">
           <div>
             <h3>使用汇总</h3>
-            <p>农活建议的累计情况。</p>
+            <p>地块、台账与农活建议的累计情况。</p>
           </div>
         </div>
         <div className="stats-summary">
+          <div className="stat-card"><span>地块数</span><strong>{loading ? "—" : farmStats?.plot_count ?? 0}</strong></div>
+          <div className="stat-card"><span>作业记录</span><strong>{loading ? "—" : farmStats?.record_count ?? 0}</strong></div>
           <div className="stat-card"><span>农活建议</span><strong>{loading ? "—" : decisionCount}</strong></div>
           <div className="stat-card"><span>覆盖作物</span><strong>{loading ? "—" : cropCount}</strong></div>
           <div className="stat-card"><span>{stats?.by_day_days ?? 14} 天记录</span><strong>{loading ? "—" : trendTotal}</strong></div>
