@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api, getErrorMessage } from "../lib/api";
-import { FarmStatsPayload, ToolRecord, ToolStatsPayload } from "../types";
+import { FarmStatsPayload, PlotEconomics, ToolRecord, ToolStatsPayload } from "../types";
 
 const PAGE_SIZE = 20;
 
@@ -29,6 +29,10 @@ function formatDateTime(value: string): string {
   }).format(new Date(value));
 }
 
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 function excerpt(text: string, max = 60): string {
   const compact = text.replace(/\s+/g, " ").trim();
   return compact.length > max ? `${compact.slice(0, max)}…` : compact;
@@ -37,6 +41,7 @@ function excerpt(text: string, max = 60): string {
 export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
   const [stats, setStats] = useState<ToolStatsPayload | null>(null);
   const [farmStats, setFarmStats] = useState<FarmStatsPayload | null>(null);
+  const [economics, setEconomics] = useState<PlotEconomics[]>([]);
   const [records, setRecords] = useState<ToolRecord[]>([]);
   const [pagination, setPagination] = useState<{ has_more: boolean; next_cursor: string | null }>({
     has_more: false,
@@ -47,12 +52,14 @@ export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
 
   const loadStats = useCallback(async () => {
     try {
-      const [adviceResponse, farmResponse] = await Promise.all([
+      const [adviceResponse, farmResponse, economicsResponse] = await Promise.all([
         api.get<{ success: true } & ToolStatsPayload>("/api/tool-records/stats"),
         api.get<{ success: true } & FarmStatsPayload>("/api/farm-records/stats"),
+        api.get<{ success: true; plots: PlotEconomics[] }>("/api/farm-records/economics"),
       ]);
       setStats(adviceResponse.data);
       setFarmStats(farmResponse.data);
+      setEconomics(economicsResponse.data.plots);
       onError("");
     } catch (error) {
       onError(getErrorMessage(error));
@@ -117,6 +124,16 @@ export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
   const trendTotal = useMemo(() => trend.reduce((sum, item) => sum + item.total, 0), [trend]);
   const decisionCount = stats?.counts_by_kind.decision ?? 0;
   const cropCount = stats?.top_crops.length ?? 0;
+  const totalCost = useMemo(() => economics.reduce((sum, item) => sum + item.total_cost, 0), [economics]);
+  const totalRevenue = useMemo(() => economics.reduce((sum, item) => sum + item.total_revenue, 0), [economics]);
+
+  function money(value: number | null): string {
+    return value === null ? "—" : `¥${value}`;
+  }
+
+  function kilograms(value: number | null): string {
+    return value === null ? "—" : `${value} 公斤`;
+  }
 
   return (
     <section className="workspace-grid workspace-grid--stats">
@@ -133,7 +150,59 @@ export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
           <div className="stat-card"><span>农活建议</span><strong>{loading ? "—" : decisionCount}</strong></div>
           <div className="stat-card"><span>覆盖作物</span><strong>{loading ? "—" : cropCount}</strong></div>
           <div className="stat-card"><span>{stats?.by_day_days ?? 14} 天记录</span><strong>{loading ? "—" : trendTotal}</strong></div>
+          <div className="stat-card"><span>累计投入</span><strong>{loading ? "—" : `¥${round2(totalCost)}`}</strong></div>
+          <div className="stat-card"><span>累计收入</span><strong>{loading ? "—" : `¥${round2(totalRevenue)}`}</strong></div>
+          <div className="stat-card"><span>净收益</span><strong>{loading ? "—" : `¥${round2(totalRevenue - totalCost)}`}</strong></div>
         </div>
+      </div>
+
+      <div className="panel panel--full">
+        <div className="panel__header">
+          <div>
+            <h3>投入产出</h3>
+            <p>按地块汇总投入、产量与收入；采收记录填了产量和单价后这里才有数字。</p>
+          </div>
+        </div>
+        {economics.length === 0 ? (
+          <p className="stats-empty">还没有地块，先去「地块档案」登记一块地吧。</p>
+        ) : (
+          <div className="economics-table-wrap">
+            <table className="economics-table">
+              <thead>
+                <tr>
+                  <th>地块</th>
+                  <th>面积</th>
+                  <th>作物</th>
+                  <th>投入</th>
+                  <th>产量</th>
+                  <th>收入</th>
+                  <th>净收益</th>
+                  <th>亩均成本</th>
+                  <th>亩产</th>
+                  <th>亩均净收益</th>
+                </tr>
+              </thead>
+              <tbody>
+                {economics.map((item) => (
+                  <tr key={item.plot_id}>
+                    <td>{item.plot_name}</td>
+                    <td>{item.area_mu} 亩</td>
+                    <td>{item.crop}</td>
+                    <td>¥{item.total_cost}</td>
+                    <td>{item.total_yield_kg} 公斤</td>
+                    <td>¥{item.total_revenue}</td>
+                    <td className={item.net_revenue < 0 ? "economics-negative" : ""}>¥{item.net_revenue}</td>
+                    <td>{money(item.cost_per_mu)}</td>
+                    <td>{kilograms(item.yield_per_mu)}</td>
+                    <td className={item.net_per_mu !== null && item.net_per_mu < 0 ? "economics-negative" : ""}>
+                      {money(item.net_per_mu)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="panel">

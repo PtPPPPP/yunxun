@@ -14,7 +14,25 @@ export interface FarmRecord {
   detail: string;
   quantity: string;
   cost: number | null;
+  yield_kg: number | null;
+  unit_price: number | null;
   created_at: string;
+}
+
+export interface PlotEconomics {
+  plot_id: string;
+  plot_name: string;
+  crop: string;
+  area_mu: number;
+  record_count: number;
+  total_cost: number;
+  total_yield_kg: number;
+  total_revenue: number;
+  net_revenue: number;
+  cost_per_mu: number | null;
+  yield_per_mu: number | null;
+  revenue_per_mu: number | null;
+  net_per_mu: number | null;
 }
 
 export interface FarmStatsPayload {

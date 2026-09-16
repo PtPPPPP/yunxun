@@ -31,6 +31,44 @@ async function addRecord(page: Page, quantity: string, cost: string) {
   await expect(page.locator(".stats-records .stats-record")).toHaveCount(1);
 }
 
+test("采收记录填产量与单价后，统计面板算出投入产出", async ({ page }) => {
+  await openPlots(page);
+  await createPlot(page, "东坡三亩地", "3");
+  await openLedger(page);
+
+  await page.getByLabel("作业类型").selectOption("施肥");
+  await page.getByPlaceholder("可留空", { exact: true }).fill("300");
+  await page.getByRole("button", { name: "记入台账" }).click();
+  await expect(page.locator(".stats-records .stats-record")).toHaveCount(1);
+
+  await page.getByLabel("作业类型").selectOption("采收");
+  await page.getByPlaceholder("例如：2100").fill("2100");
+  await page.getByPlaceholder("例如：2.4").fill("2.4");
+  await page.getByRole("button", { name: "记入台账" }).click();
+
+  const rows = page.locator(".stats-records .stats-record");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText("产量 2100 公斤");
+  await expect(rows.first()).toContainText("收入 ¥5040");
+
+  await page.getByRole("button", { name: "统计面板" }).click();
+  const cards = page.locator(".stat-card");
+  await expect(cards.filter({ hasText: "累计投入" })).toContainText("¥300");
+  await expect(cards.filter({ hasText: "累计收入" })).toContainText("¥5040");
+  await expect(cards.filter({ hasText: "净收益" })).toContainText("¥4740");
+
+  const row = page.locator(".economics-table tbody tr");
+  await expect(row).toContainText("东坡三亩地");
+  await expect(row).toContainText("3 亩");
+  await expect(row).toContainText("¥300");
+  await expect(row).toContainText("2100 公斤");
+  await expect(row).toContainText("¥5040");
+  await expect(row).toContainText("¥4740");
+  await expect(row).toContainText("¥100");
+  await expect(row).toContainText("700 公斤");
+  await expect(row).toContainText("¥1580");
+});
+
 test("农事台账在还没有地块时给出引导", async ({ page }) => {
   await guestLogin(page);
   await openLedger(page);

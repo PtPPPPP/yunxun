@@ -11,7 +11,7 @@ from backend.app.api.routes.farm import router
 from backend.app.core.database import init_db
 from backend.app.core.errors import AppError, ErrorCode
 from backend.app.core.exceptions import http_exception_handler
-from backend.app.repositories import create_plot, create_user, list_plots
+from backend.app.repositories import create_plot, create_user, list_plots, summarize_farm_economics
 from backend.app.services.farm import (
     create_user_farm_record,
     delete_user_farm_record,
@@ -149,6 +149,59 @@ class FarmRecordServiceTestCase(unittest.TestCase):
         with self.assertRaises(AppError):
             delete_user_farm_record(record["id"], self.user_id, "127.0.0.1")
 
+    def test_economics_aggregates_cost_yield_and_revenue(self) -> None:
+        create_user_farm_record(
+            user_id=self.user_id, client_host="127.0.0.1", plot_id=self.plot["id"],
+            kind="播种", happened_on="2026-05-12", crop="", detail="", quantity="", cost=180.0,
+        )
+        # 两次采收单价不同，逐笔保留
+        create_user_farm_record(
+            user_id=self.user_id, client_host="127.0.0.1", plot_id=self.plot["id"],
+            kind="采收", happened_on="2026-09-20", crop="", detail="", quantity="",
+            cost=260.0, yield_kg=2100.0, unit_price=2.4,
+        )
+        create_user_farm_record(
+            user_id=self.user_id, client_host="127.0.0.1", plot_id=self.plot["id"],
+            kind="采收", happened_on="2026-09-28", crop="", detail="", quantity="",
+            cost=80.0, yield_kg=600.0, unit_price=2.6,
+        )
+
+        economics = summarize_farm_economics(self.user_id)
+        self.assertEqual(len(economics), 1)
+        item = economics[0]
+        self.assertEqual(item["plot_name"], "东坡三亩地")
+        self.assertEqual(item["record_count"], 3)
+        self.assertEqual(item["total_cost"], 520.0)
+        self.assertEqual(item["total_yield_kg"], 2700.0)
+        self.assertEqual(item["total_revenue"], 6600.0)
+        self.assertEqual(item["net_revenue"], 6080.0)
+        # 地块面积 3.5 亩
+        self.assertEqual(item["cost_per_mu"], 148.57)
+        self.assertEqual(item["yield_per_mu"], 771.43)
+        self.assertEqual(item["revenue_per_mu"], 1885.71)
+        self.assertEqual(item["net_per_mu"], 1737.14)
+
+    def test_economics_needs_both_yield_and_price_for_revenue(self) -> None:
+        create_user_farm_record(
+            user_id=self.user_id, client_host="127.0.0.1", plot_id=self.plot["id"],
+            kind="采收", happened_on="2026-09-20", crop="", detail="", quantity="",
+            cost=100.0, yield_kg=500.0, unit_price=None,
+        )
+        item = summarize_farm_economics(self.user_id)[0]
+        self.assertEqual(item["total_yield_kg"], 500.0)
+        self.assertEqual(item["total_revenue"], 0.0)
+        self.assertEqual(item["net_revenue"], -100.0)
+
+    def test_economics_handles_plot_without_records(self) -> None:
+        item = summarize_farm_economics(self.user_id)[0]
+        self.assertEqual(item["record_count"], 0)
+        self.assertEqual(item["total_cost"], 0.0)
+        self.assertEqual(item["net_revenue"], 0.0)
+        self.assertEqual(item["net_per_mu"], 0.0)
+
+    def test_economics_is_isolated_by_user(self) -> None:
+        self.assertEqual(summarize_farm_economics("user-other"), [])
+
     def test_plot_delete_reports_removed_records(self) -> None:
         for day in ("2026-06-01", "2026-06-10"):
             create_user_farm_record(
@@ -251,6 +304,35 @@ class FarmRecordRoutesTestCase(unittest.TestCase):
     def test_record_count_is_reflected_on_plot_list(self) -> None:
         self.client.post("/api/farm-records", json=self.payload())
         self.assertEqual(self.client.get("/api/plots").json()["plots"][0]["record_count"], 1)
+
+    def test_harvest_record_keeps_yield_and_price(self) -> None:
+        created = self.client.post(
+            "/api/farm-records",
+            json=self.payload(kind="采收", yield_kg=2100.0, unit_price=2.4),
+        )
+        self.assertEqual(created.status_code, 200)
+        record = created.json()["record"]
+        self.assertEqual(record["yield_kg"], 2100.0)
+        self.assertEqual(record["unit_price"], 2.4)
+
+    def test_negative_yield_is_rejected(self) -> None:
+        self.assertEqual(self.client.post("/api/farm-records", json=self.payload(yield_kg=-1)).status_code, 422)
+        self.assertEqual(self.client.post("/api/farm-records", json=self.payload(unit_price=-1)).status_code, 422)
+
+    def test_economics_endpoint_returns_per_plot_totals(self) -> None:
+        self.client.post("/api/farm-records", json=self.payload(kind="施肥", cost=320.5))
+        self.client.post(
+            "/api/farm-records",
+            json=self.payload(kind="采收", happened_on="2026-09-20", yield_kg=2100.0, unit_price=2.4, cost=0),
+        )
+        response = self.client.get("/api/farm-records/economics")
+        self.assertEqual(response.status_code, 200)
+        plots = response.json()["plots"]
+        self.assertEqual(len(plots), 1)
+        self.assertEqual(plots[0]["plot_name"], "东坡三亩地")
+        self.assertEqual(plots[0]["total_cost"], 320.5)
+        self.assertEqual(plots[0]["total_revenue"], 5040.0)
+        self.assertEqual(plots[0]["net_revenue"], 4719.5)
 
     def test_other_users_cannot_read_or_delete_records(self) -> None:
         record_id = self.client.post("/api/farm-records", json=self.payload()).json()["record"]["id"]

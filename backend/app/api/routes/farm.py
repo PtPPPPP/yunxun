@@ -11,6 +11,7 @@ from backend.app.services.farm import (
     delete_user_plot,
     list_user_farm_records,
     list_user_plots,
+    summarize_user_farm_economics,
     summarize_user_farm_records,
     update_user_plot,
 )
@@ -126,6 +127,8 @@ async def create_farm_record_api(
         detail=request.detail,
         quantity=request.quantity,
         cost=request.cost,
+        yield_kg=request.yield_kg,
+        unit_price=request.unit_price,
     )
     return success_payload(record=record)
 
@@ -146,3 +149,10 @@ async def farm_records_stats_api(
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:
     return success_payload(**summarize_user_farm_records(user["id"]))
+
+
+@router.get("/farm-records/economics")
+async def farm_records_economics_api(
+    user: dict[str, str] = Depends(get_current_user),
+) -> dict[str, object]:
+    return success_payload(**summarize_user_farm_economics(user["id"]))

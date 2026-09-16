@@ -331,6 +331,8 @@ FARM_RECORD_SELECT = """
 
 def public_farm_record(record: dict[str, Any]) -> dict[str, Any]:
     raw_cost = record["cost"]
+    raw_yield = record["yield_kg"]
+    raw_price = record["unit_price"]
     return {
         "id": record["id"],
         "plot_id": record["plot_id"],
@@ -341,6 +343,8 @@ def public_farm_record(record: dict[str, Any]) -> dict[str, Any]:
         "detail": record["detail"],
         "quantity": record["quantity"],
         "cost": None if raw_cost is None else float(raw_cost),
+        "yield_kg": None if raw_yield is None else float(raw_yield),
+        "unit_price": None if raw_price is None else float(raw_price),
         "created_at": record["created_at"],
     }
 
@@ -354,6 +358,8 @@ def create_farm_record(
     detail: str,
     quantity: str,
     cost: float | None,
+    yield_kg: float | None = None,
+    unit_price: float | None = None,
 ) -> dict[str, Any]:
     record_id = uuid.uuid4().hex
     created_at = now_iso()
@@ -361,10 +367,14 @@ def create_farm_record(
         conn.execute(
             """
             INSERT INTO farm_records
-                (id, user_id, plot_id, kind, happened_on, crop, detail, quantity, cost, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, user_id, plot_id, kind, happened_on, crop, detail, quantity, cost,
+                 yield_kg, unit_price, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (record_id, user_id, plot_id, kind, happened_on, crop, detail, quantity, cost, created_at),
+            (
+                record_id, user_id, plot_id, kind, happened_on, crop, detail, quantity, cost,
+                yield_kg, unit_price, created_at,
+            ),
         )
         row = conn.execute(FARM_RECORD_SELECT + " WHERE r.id = ?", (record_id,)).fetchone()
     return public_farm_record(dict(row))
@@ -410,3 +420,57 @@ def count_farm_records(user_id: str) -> int:
     with get_connection() as conn:
         row = conn.execute("SELECT COUNT(*) AS total FROM farm_records WHERE user_id = ?", (user_id,)).fetchone()
     return int(row["total"]) if row else 0
+
+
+def summarize_farm_economics(user_id: str) -> list[dict[str, Any]]:
+    """按地块汇总投入与产出。
+
+    亩均指标在 Python 里算而不是写进 SQL：面积理论上恒大于 0（建表时校验过），
+    但脏数据不该让整个查询报除零。
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                p.id AS plot_id,
+                p.name AS plot_name,
+                p.crop AS crop,
+                p.area_mu AS area_mu,
+                p.updated_at AS updated_at,
+                COUNT(r.id) AS record_count,
+                COALESCE(SUM(r.cost), 0) AS total_cost,
+                COALESCE(SUM(r.yield_kg), 0) AS total_yield_kg,
+                COALESCE(SUM(r.yield_kg * r.unit_price), 0) AS total_revenue
+            FROM plots p
+            LEFT JOIN farm_records r ON r.plot_id = p.id
+            WHERE p.user_id = ?
+            GROUP BY p.id, p.name, p.crop, p.area_mu, p.updated_at
+            ORDER BY p.updated_at DESC, p.id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+
+    economics: list[dict[str, Any]] = []
+    for row in rows:
+        area = float(row["area_mu"])
+        total_cost = float(row["total_cost"])
+        total_yield = float(row["total_yield_kg"])
+        total_revenue = float(row["total_revenue"])
+        economics.append(
+            {
+                "plot_id": row["plot_id"],
+                "plot_name": row["plot_name"],
+                "crop": row["crop"],
+                "area_mu": area,
+                "record_count": int(row["record_count"]),
+                "total_cost": round(total_cost, 2),
+                "total_yield_kg": round(total_yield, 2),
+                "total_revenue": round(total_revenue, 2),
+                "net_revenue": round(total_revenue - total_cost, 2),
+                "cost_per_mu": round(total_cost / area, 2) if area > 0 else None,
+                "yield_per_mu": round(total_yield / area, 2) if area > 0 else None,
+                "revenue_per_mu": round(total_revenue / area, 2) if area > 0 else None,
+                "net_per_mu": round((total_revenue - total_cost) / area, 2) if area > 0 else None,
+            }
+        )
+    return economics

@@ -41,6 +41,10 @@ function formatCost(value: number | null): string {
   return value === null ? "未记费用" : `¥${value}`;
 }
 
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 export function LedgerWorkspace(props: LedgerWorkspaceProps) {
   const { plots, onError, onRecordsChanged } = props;
   const [form, setForm] = useState({
@@ -50,6 +54,8 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
     crop: "",
     quantity: "",
     cost: "",
+    yield_kg: "",
+    unit_price: "",
     detail: "",
   });
   const [plotFilter, setPlotFilter] = useState("");
@@ -119,9 +125,11 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
           crop: form.crop,
           quantity: form.quantity,
           cost: form.cost.trim() === "" ? null : Number(form.cost),
+          yield_kg: form.yield_kg.trim() === "" ? null : Number(form.yield_kg),
+          unit_price: form.unit_price.trim() === "" ? null : Number(form.unit_price),
           detail: form.detail,
         });
-        setForm((current) => ({ ...current, quantity: "", cost: "", detail: "" }));
+        setForm((current) => ({ ...current, quantity: "", cost: "", yield_kg: "", unit_price: "", detail: "" }));
         onError("");
         const data = await loadRecords(null, plotFilter);
         setRecords(data.records);
@@ -268,6 +276,38 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
             </div>
           </label>
 
+          {form.kind === "采收" && (
+            <>
+              <label className="field">
+                <span>产量（公斤）</span>
+                <div className="field-control">
+                  <input
+                    type="number"
+                    value={form.yield_kg}
+                    min={0}
+                    step={0.1}
+                    placeholder="例如：2100"
+                    onChange={(event) => setForm((current) => ({ ...current, yield_kg: event.target.value }))}
+                  />
+                </div>
+              </label>
+
+              <label className="field">
+                <span>单价（元/公斤）</span>
+                <div className="field-control">
+                  <input
+                    type="number"
+                    value={form.unit_price}
+                    min={0}
+                    step={0.01}
+                    placeholder="例如：2.4"
+                    onChange={(event) => setForm((current) => ({ ...current, unit_price: event.target.value }))}
+                  />
+                </div>
+              </label>
+            </>
+          )}
+
           <label className="field field--full">
             <span>作业说明</span>
             <div className="field-control field-control--textarea">
@@ -321,6 +361,11 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
                   <span className="stats-record__time">{record.crop}</span>
                   {record.quantity && <span className="stats-record__time">{record.quantity}</span>}
                   <span className="stats-record__time">{formatCost(record.cost)}</span>
+                  {record.yield_kg !== null && <span className="stats-record__time">产量 {record.yield_kg} 公斤</span>}
+                  {record.unit_price !== null && <span className="stats-record__time">{record.unit_price} 元/公斤</span>}
+                  {record.yield_kg !== null && record.unit_price !== null && (
+                    <span className="stats-record__time">收入 ¥{round2(record.yield_kg * record.unit_price)}</span>
+                  )}
                   <button
                     className="ghost-button danger ledger-delete"
                     type="button"

@@ -38,6 +38,8 @@ class FarmRecordCreateRequest(BaseModel):
     detail: str = Field("", max_length=300)
     quantity: str = Field("", max_length=40)
     cost: float | None = Field(None, ge=0, le=1_000_000)
+    yield_kg: float | None = Field(None, ge=0, le=10_000_000)
+    unit_price: float | None = Field(None, ge=0, le=1_000_000)
 
 
 class DecisionRequest(BaseModel):

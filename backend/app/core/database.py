@@ -10,7 +10,7 @@ from backend.app.core.config import get_settings
 
 
 logger = logging.getLogger("yunxun.backend.database")
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 def get_db_path() -> Path:
@@ -243,6 +243,41 @@ def _table_names(conn: sqlite3.Connection) -> set[str]:
     return {row[0] for row in rows}
 
 
+def _apply_schema_v8(conn: sqlite3.Connection) -> None:
+    """台账扩展投入品、安全间隔期与采收产量，并新增农事待办表。"""
+    record_columns = _table_columns(conn, "farm_records")
+    additions = (
+        ("material", "material TEXT"),
+        ("safe_days", "safe_days INTEGER"),
+        ("yield_kg", "yield_kg REAL"),
+        ("unit_price", "unit_price REAL"),
+    )
+    for column, ddl in additions:
+        if column not in record_columns:
+            conn.execute(f"ALTER TABLE farm_records ADD COLUMN {ddl}")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS farm_tasks (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            plot_id TEXT,
+            title TEXT NOT NULL,
+            due_on TEXT NOT NULL,
+            done_at TEXT,
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(plot_id) REFERENCES plots(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_farm_tasks_user_due "
+        "ON farm_tasks(user_id, done_at, due_on, id)"
+    )
+
+
 def _apply_schema_v6(conn: sqlite3.Connection) -> None:
     """移除 AI 能力：删除会话、消息与幂等表，并去掉用户模型偏好字段。"""
     # chat_messages 通过外键指向 chat_sessions 且没有级联，必须先删子表。
@@ -339,6 +374,17 @@ def migrate_schema(conn: sqlite3.Connection) -> tuple[int, list[str]]:
             raise
         applied.append("7_farm_plots_and_records")
         current = 7
+    if current < 8:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            _apply_schema_v8(conn)
+            conn.execute("PRAGMA user_version = 8")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        applied.append("8_harvest_yield_and_tasks")
+        current = 8
     return starting_version, applied
 
 

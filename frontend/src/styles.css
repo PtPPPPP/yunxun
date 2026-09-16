@@ -980,3 +980,42 @@ button:disabled:hover {
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
 }
 
+/* 投入产出表：列较多，窄屏允许横向滚动而不是挤压内容 */
+.economics-table-wrap {
+  overflow-x: auto;
+}
+
+.economics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.economics-table th,
+.economics-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+}
+
+.economics-table th:first-child,
+.economics-table td:first-child,
+.economics-table th:nth-child(3),
+.economics-table td:nth-child(3) {
+  text-align: left;
+}
+
+.economics-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.economics-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.economics-negative {
+  color: var(--danger);
+}
+

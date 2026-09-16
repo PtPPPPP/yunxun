@@ -15,6 +15,7 @@ from backend.app.repositories import (
     get_plot,
     list_farm_records_page,
     list_plots,
+    summarize_farm_economics,
     update_plot,
 )
 
@@ -139,6 +140,8 @@ def create_user_farm_record(
     detail: str,
     quantity: str,
     cost: float | None,
+    yield_kg: float | None = None,
+    unit_price: float | None = None,
 ) -> dict[str, Any]:
     plot = require_plot_owner(plot_id, user_id)
     record = create_farm_record(
@@ -151,6 +154,8 @@ def create_user_farm_record(
         detail=detail.strip(),
         quantity=quantity.strip(),
         cost=cost,
+        yield_kg=yield_kg,
+        unit_price=unit_price,
     )
     log_event(
         logger,
@@ -182,3 +187,7 @@ def delete_user_farm_record(record_id: str, user_id: str, client_host: str) -> N
 
 def summarize_user_farm_records(user_id: str) -> dict[str, int]:
     return {"plot_count": count_plots(user_id), "record_count": count_farm_records(user_id)}
+
+
+def summarize_user_farm_economics(user_id: str) -> dict[str, Any]:
+    return {"plots": summarize_farm_economics(user_id)}

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.api.deps import get_current_user
 from backend.app.api.routes.farm import router
-from backend.app.core.database import SCHEMA_VERSION, init_db
+from backend.app.core.database import SCHEMA_VERSION, init_db, migrate_schema
 from backend.app.core.errors import AppError, ErrorCode
 from backend.app.core.exceptions import http_exception_handler
 from backend.app.repositories import create_user, list_plots
@@ -74,9 +74,30 @@ class PlotMigrationTestCase(unittest.TestCase):
             record_columns,
             {
                 "id", "user_id", "plot_id", "kind", "happened_on", "crop",
-                "detail", "quantity", "cost", "created_at",
+                "detail", "quantity", "cost", "material", "safe_days",
+                "yield_kg", "unit_price", "created_at",
             },
         )
+
+    def test_v7_database_gains_harvest_columns_and_task_table(self) -> None:
+        # 先造一个 v7 形态的库：没有 v8 的四列，也没有 farm_tasks。
+        init_db()
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            for column in ("material", "safe_days", "yield_kg", "unit_price"):
+                conn.execute(f"ALTER TABLE farm_records DROP COLUMN {column}")
+            conn.execute("DROP TABLE farm_tasks")
+            conn.execute("PRAGMA user_version = 7")
+            conn.commit()
+
+            applied = migrate_schema(conn)[1]
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+            record_columns = {row[1] for row in conn.execute("PRAGMA table_info(farm_records)")}
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+
+        self.assertEqual(applied, ["8_harvest_yield_and_tasks"])
+        self.assertEqual(version, SCHEMA_VERSION)
+        self.assertTrue({"material", "safe_days", "yield_kg", "unit_price"} <= record_columns)
+        self.assertIn("farm_tasks", tables)
 
 
 class PlotServiceTestCase(unittest.TestCase):
