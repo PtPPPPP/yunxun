@@ -68,14 +68,14 @@ class PlotMigrationTestCase(unittest.TestCase):
             plot_columns,
             {
                 "id", "user_id", "name", "area_mu", "soil_type", "irrigation",
-                "notes", "created_at", "updated_at",
+                "notes", "created_at", "updated_at", "is_demo", "deleted_at",
             },
         )
         self.assertEqual(
             season_columns,
             {
                 "id", "user_id", "plot_id", "crop", "started_on", "ended_on",
-                "notes", "created_at", "updated_at",
+                "notes", "created_at", "updated_at", "is_demo",
             },
         )
         self.assertEqual(
@@ -83,7 +83,7 @@ class PlotMigrationTestCase(unittest.TestCase):
             {
                 "id", "user_id", "plot_id", "kind", "happened_on", "crop",
                 "detail", "quantity", "cost", "material", "safe_days",
-                "yield_kg", "unit_price", "season_id", "created_at",
+                "yield_kg", "unit_price", "season_id", "created_at", "is_demo", "deleted_at",
             },
         )
         # 作物已经属于茬次，地块上不该再有这两列
@@ -105,6 +105,8 @@ class PlotMigrationTestCase(unittest.TestCase):
               material TEXT, safe_days INTEGER, yield_kg REAL, unit_price REAL, created_at TEXT NOT NULL);
             CREATE TABLE tool_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL,
               crop TEXT NOT NULL, payload TEXT, result TEXT NOT NULL, mode TEXT NOT NULL, created_at TEXT NOT NULL);
+            CREATE TABLE farm_tasks (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, plot_id TEXT,
+              title TEXT NOT NULL, due_on TEXT NOT NULL, done_at TEXT, notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
             INSERT INTO users VALUES ('u1','farmer','hash','农户','now','now');
             INSERT INTO plots VALUES ('p1','u1','东坡三亩地',3.0,'壤土','井灌','玉米','2026-05-12','','now','now');
             INSERT INTO plots VALUES ('p2','u1','空地块',1.0,'砂土','雨养','',NULL,'','now','now');
@@ -140,7 +142,7 @@ class PlotMigrationTestCase(unittest.TestCase):
             record_columns = {row[1] for row in conn.execute("PRAGMA table_info(farm_records)")}
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
 
-        self.assertEqual(applied, ["8_harvest_yield_and_tasks", "9_plot_seasons"])
+        self.assertEqual(applied, ["8_harvest_yield_and_tasks", "9_plot_seasons", "10_onboarding_and_demo_origin", "11_account_recovery", "12_recoverable_deletion"])
         self.assertEqual(version, SCHEMA_VERSION)
         self.assertTrue({"material", "safe_days", "yield_kg", "unit_price"} <= record_columns)
         self.assertIn("farm_tasks", tables)
@@ -198,7 +200,7 @@ class PlotServiceTestCase(unittest.TestCase):
         with self.assertRaises(AppError):
             require_plot_owner("missing-plot", self.user_id)
 
-    def test_delete_plot_removes_its_records_and_reports_count(self) -> None:
+    def test_delete_plot_hides_and_preserves_its_records_and_reports_count(self) -> None:
         plot = create_user_plot(user_id=self.user_id, client_host="127.0.0.1", **PLOT_FIELDS)
         insert_farm_record(self.db_path, plot["id"])
         self.assertEqual(list_plots(self.user_id)[0]["record_count"], 1)
@@ -208,7 +210,11 @@ class PlotServiceTestCase(unittest.TestCase):
         self.assertEqual(removed_tasks, 0)
         self.assertEqual(list_plots(self.user_id), [])
         with closing(sqlite3.connect(self.db_path)) as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM farm_records").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM farm_records").fetchone()[0], 1)
+            self.assertIsNotNone(conn.execute("SELECT deleted_at FROM plots WHERE id=?", (plot["id"],)).fetchone()[0])
+        from backend.app.repositories_trash import restore_plot
+        self.assertTrue(restore_plot(plot["id"], self.user_id))
+        self.assertEqual(list_plots(self.user_id)[0]["record_count"], 1)
 
     def test_delete_missing_plot_is_rejected(self) -> None:
         with self.assertRaises(AppError):

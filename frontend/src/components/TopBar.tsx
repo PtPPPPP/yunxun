@@ -6,11 +6,14 @@ import { formatAppVersion } from "../lib/appVersion";
 
 // 标题与侧边栏的功能名保持一致：同一个模块在导航和页面标题上必须是同一个词。
 const featureTitles: Record<FeatureKey, { title: string; subtitle: string }> = {
+  home: { title: "首页", subtitle: "先看今天要做的事，做完再记一笔农活。" },
   decision: { title: "今日农活", subtitle: "按你判断的天气、墒情和生长期生成今天可执行的安排。" },
   plots: { title: "地块档案", subtitle: "登记地块的面积、土壤与灌溉条件，按茬次记录当季作物。" },
   ledger: { title: "农事台账", subtitle: "按地块记录每次作业的日期、用量、费用与采收产量。" },
   tasks: { title: "农事待办", subtitle: "把接下来要做的事排好，逾期会标红。" },
-  stats: { title: "统计面板", subtitle: "汇总地块、台账、待办与投入产出。" },
+  stats: { title: "统计面板", subtitle: "核对每茬已记录收支、待补录账目与历史农活建议。" },
+  account: { title: "账号安全", subtitle: "修改密码，离线保管恢复码。" },
+  trash: { title: "回收站", subtitle: "恢复地块和台账，最终删除前保留关联资料。" },
 };
 
 export interface TaskSummary {

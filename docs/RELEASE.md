@@ -1,12 +1,14 @@
 # 发布与回滚
 
+本轮仅完成本机验收与材料草稿；没有发布、部署、推送、提交 PR 或改动申报主体信息。发布与版本另行确认。当前证据见 [整体验收记录](acceptance/current-2026-10-19/README.md)。
+
 ## 发布前
 
 - 后端编译、单元测试、前端测试、lint、build、E2E 和依赖审计全部通过。
 - 执行 `python scripts/check_release.py`。
 - 使用 `scripts/database_admin.py` 创建并验证备份。
 - 生产 Secret 至少 32 字符，关闭 Debug，CORS 只允许正式来源。
-- 核对当前代码支持的 Schema（当前为 9）；跨大版本升级前必须确认目标数据库已备份，Schema 6 会删除会话、消息和幂等表以及用户模型偏好字段。
+- 核对当前代码支持的 Schema（当前为 12）；跨大版本升级前必须确认目标数据库已备份，Schema 6 会删除会话、消息和幂等表以及用户模型偏好字段。
 - 核对 README、V1_SCOPE、CHANGELOG、软著材料和版本号。`docs/software-copyright/final-delivery/` 中的 V1.0 归档记录的是 AI 能力移除前的能力，对外申报前需重新生成材料。
 
 ## 发布演练

@@ -20,6 +20,7 @@ from backend.app.repositories import (
     now_utc,
     public_user,
     update_user_profile,
+    upgrade_guest_account,
 )
 
 
@@ -27,7 +28,7 @@ USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 logger = logging.getLogger("yunxun.backend.auth")
 
 
-def register_user(username: str, password: str, display_name: str) -> dict[str, str | dict]:
+def register_user(username: str, password: str, display_name: str, *, is_guest: bool = False) -> dict[str, str | dict]:
     normalized_username = username.strip().lower()
     normalized_display_name = display_name.strip()
 
@@ -42,9 +43,10 @@ def register_user(username: str, password: str, display_name: str) -> dict[str, 
         username=normalized_username,
         password_hash=hash_password(password),
         display_name=normalized_display_name,
+        is_guest=is_guest,
     )
     log_event(logger, "auth_register_success", user_id=user_record["id"], username=normalized_username)
-    token = issue_auth_token(user_record["id"])
+    token = issue_auth_token(user_record["id"], expected_password_hash=user_record["password_hash"])
     return {"user": public_user(user_record), "token": token}
 
 
@@ -52,8 +54,8 @@ def login_user(username: str, password: str) -> dict[str, str | dict]:
     user_record = get_user_by_username(username.strip().lower())
     if not user_record or not verify_password(password, user_record["password_hash"]):
         raise HTTPException(status_code=401, detail="用户名或密码不正确。")
+    token = issue_auth_token(user_record["id"], expected_password_hash=user_record["password_hash"])
     log_event(logger, "auth_login_success", user_id=user_record["id"], username=user_record["username"])
-    token = issue_auth_token(user_record["id"])
     return {"user": public_user(user_record), "token": token}
 
 
@@ -64,15 +66,34 @@ def guest_login() -> dict[str, str | dict]:
         username=f"guest_{suffix}",
         password=secrets.token_urlsafe(16),
         display_name=f"访客 {suffix[:4]}",
+        is_guest=True,
     )
 
 
-def issue_auth_token(user_id: str) -> str:
+def upgrade_guest_user(user: dict, username: str, password: str, display_name: str) -> dict:
+    # is_guest 来自服务端认证查询，旧账号的用户名不是身份凭据。
+    if not user.get("is_guest"):
+        raise HTTPException(status_code=403, detail="当前账号不是可升级的访客账号，不能通过此入口修改账号。")
+    normalized = username.strip().lower()
+    if not USERNAME_PATTERN.fullmatch(normalized):
+        raise HTTPException(status_code=400, detail="用户名只能包含英文字母、数字或下划线。")
+    token = create_token()
+    expires_at = (now_utc() + timedelta(hours=get_settings().token_hours)).isoformat(timespec="seconds")
+    updated = upgrade_guest_account(user["id"], normalized, hash_password(password), display_name.strip(),
+                                    hash_auth_token(token), expires_at)
+    log_event(logger, "auth_guest_upgrade", user_id=updated["id"], username=normalized)
+    return {"user": public_user(updated), "token": token}
+
+
+def issue_auth_token(user_id: str, *, expected_password_hash: str | None = None) -> str:
     settings = get_settings()
     token = create_token()
     expires_at = (now_utc() + timedelta(hours=settings.token_hours)).isoformat(timespec="seconds")
     cleanup_expired_tokens()
-    create_auth_token(user_id, hash_auth_token(token), expires_at)
+    if expected_password_hash is None:
+        create_auth_token(user_id, hash_auth_token(token), expires_at)
+    else:
+        create_auth_token(user_id, hash_auth_token(token), expires_at, expected_password_hash=expected_password_hash)
     return token
 
 

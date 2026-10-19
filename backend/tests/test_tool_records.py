@@ -57,6 +57,9 @@ class ToolRecordMigrationTestCase(unittest.TestCase):
                 "7_farm_plots_and_records",
                 "8_harvest_yield_and_tasks",
                 "9_plot_seasons",
+                "10_onboarding_and_demo_origin",
+                "11_account_recovery",
+                "12_recoverable_deletion",
             ],
         )
         self.assertEqual(version, SCHEMA_VERSION)

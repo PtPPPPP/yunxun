@@ -12,7 +12,7 @@ from backend.app.core.config import get_settings
 
 
 logger = logging.getLogger("yunxun.backend.database")
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 12
 
 
 def get_db_path() -> Path:
@@ -359,6 +359,25 @@ def _apply_schema_v6(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE users DROP COLUMN preferred_model")
 
 
+def _apply_schema_v10(conn: sqlite3.Connection) -> None:
+    """仅增加来源和引导状态，既有账号和业务数据均按真实数据保留。"""
+    for table, columns in {
+        "users": ("is_guest", "onboarding_skipped"),
+        "plots": ("is_demo",), "plot_seasons": ("is_demo",),
+        "farm_records": ("is_demo",), "farm_tasks": ("is_demo",),
+    }.items():
+        for column in columns:
+            if column not in _table_columns(conn, table):
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS demo_data_state (
+            user_id TEXT PRIMARY KEY,
+            loaded INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+
 def migrate_schema(conn: sqlite3.Connection) -> tuple[int, list[str]]:
     current = int(conn.execute("PRAGMA user_version").fetchone()[0])
     starting_version = current
@@ -466,6 +485,43 @@ def migrate_schema(conn: sqlite3.Connection) -> tuple[int, list[str]]:
             raise
         applied.append("9_plot_seasons")
         current = 9
+    if current < 10:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            _apply_schema_v10(conn)
+            conn.execute("PRAGMA user_version = 10")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        applied.append("10_onboarding_and_demo_origin")
+        current = 10
+    if current < 11:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+            if "recovery_code_hash" not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN recovery_code_hash TEXT")
+            conn.execute("PRAGMA user_version = 11")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        applied.append("11_account_recovery")
+        current = 11
+    if current < 12:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            for table in ("plots", "farm_records"):
+                if "deleted_at" not in _table_columns(conn, table):
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN deleted_at TEXT")
+                conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_user_deleted ON {table}(user_id, deleted_at)")
+            conn.execute("PRAGMA user_version = 12")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        applied.append("12_recoverable_deletion")
     return starting_version, applied
 
 

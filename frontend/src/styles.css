@@ -994,6 +994,28 @@ button:disabled:hover {
   color: var(--danger);
 }
 
+.economics-panel { min-width: 0; }
+.economics-note, .economics-completeness { color: var(--text-muted); font-size: 0.86rem; line-height: 1.65; margin: 0; }
+.economics-link { border: 0; padding: 2px 0; background: none; color: var(--green-deep); font: inherit; text-decoration: underline; cursor: pointer; overflow-wrap: anywhere; }
+.economics-quality, .economics-per-mu { display: grid; gap: 5px; }
+.economics-quality .economics-link { text-align: left; }
+.economics-trace-header { margin-bottom: 18px; }
+.economics-cards { display: none; }
+
+@media (max-width: 760px) {
+  .workspace-grid--stats > .panel { grid-template-columns: minmax(0, 1fr); }
+  .workspace-grid--stats .stats-trend { gap: 3px; }
+  .workspace-grid--stats .stats-trend__col:nth-child(even) .stats-trend__day { visibility: hidden; }
+  .economics-panel .economics-table-wrap { display: none; }
+  .economics-cards { display: grid; gap: 14px; }
+  .economics-season-card { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); }
+  .economics-season-card h4 { margin: 0; overflow-wrap: anywhere; }
+  .economics-season-card p { font-size: 0.85rem; color: var(--text-muted); overflow-wrap: anywhere; }
+  .economics-season-card dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 10px; }
+  .economics-season-card dt, .economics-season-card dd { margin: 0; overflow-wrap: anywhere; }
+  .economics-season-card dd { text-align: right; }
+}
+
 /* 用药安全间隔期 */
 .form-warning {
   margin: 0;
@@ -1094,3 +1116,130 @@ button:disabled:hover {
   }
 }
 
+.home-workspace {
+  display: grid;
+  gap: 20px;
+}
+.home-actions, .home-plots li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.home-summary, .home-task-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.home-plots {
+  list-style: none;
+  padding: 0;
+}
+.home-plots li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.record-dialog {
+  background: var(--panel, #fff);
+  color: var(--text);
+  border-radius: 18px;
+  padding: 24px;
+  width: min(850px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+.record-dialog > p { line-height: 1.7; }
+.record-dialog .secondary-button { margin-left: 8px; }
+@media (max-width: 720px) {
+  .home-task-grid { grid-template-columns: minmax(0, 1fr); }
+  .home-plots li { align-items: flex-start; flex-direction: column; }
+  .record-dialog { padding: 16px; }
+}
+.onboarding-panel { margin-bottom: 20px; gap: 12px; }
+.onboarding-panel h3 { margin: 0; }
+.onboarding-panel p { margin: 6px 0; }
+.onboarding-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.onboarding-steps li, .onboarding-demo {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.onboarding-demo { background: var(--surface-soft); }
+.demo-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  color: #79531a;
+  background: #fff0d2;
+  border-radius: 4px;
+}
+.demo-notice { color: #79531a; font-size: 0.85rem; line-height: 1.7; }
+@media (max-width: 720px) {
+  .onboarding-steps { grid-template-columns: minmax(0, 1fr); }
+  .onboarding-steps li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+  .onboarding-steps strong { font-size: 0.85rem; }
+  .onboarding-steps p { grid-column: 1 / -1; grid-row: 2; font-size: 0.8rem; margin: 0; }
+  .onboarding-steps button { grid-column: 2; grid-row: 1; padding: 6px 10px; font-size: 0.8rem; }
+}
+.guest-account-panel { margin-bottom: 18px; }
+.guest-account-panel h3 { margin: 0; }
+.guest-account-panel p { margin: 8px 0; }
+.guest-account-fields { border: 0; margin: 0; padding: 0; display: grid; gap: 16px; min-width: 0; }
+.account-security { max-width: 640px; }
+.account-security .field > input { padding: 12px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; width: 100%; box-sizing: border-box; }
+.account-security h3:not(:first-child) { margin-top: 28px; }
+.recovery-page { margin: 32px auto; width: min(640px, calc(100% - 32px)); box-sizing: border-box; }
+.recovery-secret { display: grid; gap: 12px; }
+.recovery-secret code { overflow-wrap: anywhere; user-select: all; padding: 12px; background: #f3f6f2; border-radius: 8px; }
+.csv-export { min-width: 0; max-width: 100%; margin: 12px 0; }
+.csv-export-actions { display: flex; flex-wrap: wrap; gap: 16px; }
+.csv-export-actions .csv-export { flex: 1 1 220px; }
+.csv-export-feedback { overflow-wrap: anywhere; margin: 8px 0; font-size: 0.9rem; }
+.trash-card { border-top: 1px solid var(--line); padding: 16px 0; overflow-wrap: anywhere; }
+.trash-card h4 { margin: 0 0 8px; }
+
+.ledger-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.home-quick-entry { margin-bottom: 20px; }
+.record-kind-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.record-kind-buttons button { min-width: 64px; min-height: 44px; }
+.record-kind-buttons .is-selected { background: var(--green-deep); color: white; }
+.season-hint { display: block; margin-top: 8px; line-height: 1.6; color: var(--text-muted); overflow-wrap: anywhere; }
+.ledger-form-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.ledger-save-notice { color: var(--green-deep); line-height: 1.6; }
+.ledger-extra { margin-top: 18px; }
+.ledger-extra summary { cursor: pointer; padding: 12px 0; color: var(--text-muted); }
+.field-control:focus-within { outline: 2px solid var(--green-deep); outline-offset: 2px; }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--green-deep); outline-offset: 3px; }
+.plot-card .inline-actions { flex-wrap: wrap; }
+
+@media (max-width: 720px) {
+  .ledger-form, .ledger-form .field, .record-dialog { min-width: 0; }
+  .ledger-form .field-control input, .ledger-form .field-control select,
+  .ledger-form .field-control textarea, .economics-filters select {
+    min-width: 0; max-width: 100%; min-height: 44px; font-size: 16px;
+  }
+  .ledger-form .field-control input[type="date"] { appearance: none; }
+  .ledger-kind-field { display: none; }
+  .ledger-form-actions {
+    position: sticky; bottom: 0; z-index: 1; padding: 12px 0 max(12px, env(safe-area-inset-bottom));
+    background: #fff; border-top: 1px solid var(--line);
+  }
+  .ledger-form-actions button { min-height: 48px; flex: 1 1 130px; }
+  .record-dialog .ledger-form { padding: 0; border: 0; box-shadow: none; }
+  .record-dialog .secondary-button { margin-left: 0; }
+  .record-kind-buttons { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .record-kind-buttons button { min-width: 0; padding: 10px 8px; }
+  .home-actions > .primary-button, .plot-record-button { width: 100%; min-height: 48px; }
+  .economics-link { min-height: 44px; }
+  .economics-panel .stat-card strong { overflow-wrap: anywhere; }
+  .economics-season-card dd, .economics-season-card dt { align-self: center; }
+}

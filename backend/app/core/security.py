@@ -16,6 +16,11 @@ def verify_password(password: str, password_hash: str) -> bool:
     return secrets.compare_digest(hash_password(password, salt), password_hash)
 
 
+def hash_recovery_code(code: str) -> str:
+    # 256 位随机凭据无需慢密码哈希；独立域避免与会话摘要混用。
+    return hashlib.sha256(b"yunxun:recovery:v1:" + code.encode("utf-8")).hexdigest()
+
+
 def create_token() -> str:
     return secrets.token_urlsafe(32)
 

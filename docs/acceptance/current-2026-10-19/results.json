@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-19",
+  "scope": "local acceptance, temporary databases, not production deployment",
+  "environment": {
+    "os": "Windows",
+    "python": "3.14.8",
+    "node": "24.19.0",
+    "npm": "12.2.0",
+    "pip_audit": "2.10.1",
+    "backend_versions": {
+      "fastapi": "0.146.0",
+      "pydantic": "2.14.1",
+      "uvicorn": "0.54.0",
+      "httpx": "0.28.1",
+      "starlette": "1.9.0",
+      "SQLAlchemy": "2.1.5",
+      "alembic": "1.20.0",
+      "psycopg": "3.3.6",
+      "redis": "5.3.1"
+    }
+  },
+  "checks": {
+    "backend_unittest": {
+      "passed": 277,
+      "failed": 0
+    },
+    "frontend_unit": {
+      "passed": 15,
+      "failed": 0
+    },
+    "compileall": "passed",
+    "lint": "passed",
+    "typecheck_app": "passed",
+    "typecheck_vite": "passed",
+    "production_build": "passed",
+    "production_config_temporary_db": "passed",
+    "e2e": {
+      "passed": 91,
+      "failed": 0,
+      "summary_duration": "2.5m",
+      "viewport_widths": [
+        1280,
+        390
+      ]
+    },
+    "diff_check": "passed",
+    "local_doc_links": {
+      "verified": 29,
+      "broken": 0
+    },
+    "source_hashes": {
+      "verified": 72,
+      "mismatched": 0
+    },
+    "protected_historical_and_backup_files": "unchanged",
+    "frontend_lockfile": "unchanged",
+    "local_preview_http": {
+      "frontend": 200,
+      "backend_readiness": 200
+    }
+  },
+  "audits": {
+    "frontend_vulnerabilities": 0,
+    "backend_requirements_packages": 27,
+    "backend_requirements_vulnerabilities": 0,
+    "backend_installed_packages": 28,
+    "backend_installed_vulnerabilities": 0,
+    "skipped_packages": 0
+  },
+  "not_executed": [
+    "production deployment",
+    "real mobile hardware and keyboards",
+    "Linux Python 3.11 CI",
+    "large-scale load or actual disaster recovery rehearsal",
+    "copyright formal package generation"
+  ],
+  "fixes": [
+    "logout returns registered users to login and clears auth inputs",
+    "clear cached advice and reject delayed advice from previous accounts",
+    "current product help and docs replace stale claims"
+  ]
+}

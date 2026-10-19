@@ -1,10 +1,30 @@
-export type FeatureKey = "decision" | "plots" | "ledger" | "tasks" | "stats";
+export type FeatureKey = "home" | "decision" | "plots" | "ledger" | "tasks" | "stats" | "account" | "trash";
 
 export type ToolRecordKind = "decision";
 
 export type FarmRecordKind = "播种" | "施肥" | "打药" | "灌溉" | "除草" | "采收" | "其他";
 
+export type EconomicsScope = "all" | "cost" | "revenue" | "missing_cost" | "incomplete_harvest";
+
+export interface EconomicsFilters {
+  data_scope?: string;
+  plot_id: string;
+  season_id: string;
+  year: string;
+}
+
+export interface FarmRecordFilters {
+  data_scope?: string;
+  plot_id: string;
+  season_id: string;
+  economics_scope: EconomicsScope;
+  kind: string;
+  date_from: string;
+  date_to: string;
+}
+
 export interface FarmTask {
+  is_demo?: boolean;
   id: string;
   plot_id: string | null;
   plot_name: string;
@@ -17,6 +37,7 @@ export interface FarmTask {
 }
 
 export interface PlotSeason {
+  is_demo?: boolean;
   id: string;
   plot_id: string;
   crop: string;
@@ -40,6 +61,7 @@ export interface HarvestSafety {
 }
 
 export interface FarmRecord {
+  is_demo?: boolean;
   id: string;
   plot_id: string;
   plot_name: string;
@@ -61,7 +83,8 @@ export interface FarmRecord {
 }
 
 export interface PlotEconomics {
-  /** 为空表示这条是「未归茬」——建茬之前记的，或当时地块没有进行中的茬次。 */
+  is_demo?: boolean;
+  /** 为空表示明确选择未归茬，或记录无法确定茬次归属。 */
   season_id: string | null;
   plot_id: string;
   plot_name: string;
@@ -70,6 +93,12 @@ export interface PlotEconomics {
   ended_on: string | null;
   area_mu: number;
   record_count: number;
+  recorded_cost_count: number;
+  missing_cost_count: number;
+  harvest_count: number;
+  complete_harvest_count: number;
+  incomplete_harvest_count: number;
+  recorded_yield_count: number;
   total_cost: number;
   total_yield_kg: number;
   total_revenue: number;
@@ -86,6 +115,7 @@ export interface FarmStatsPayload {
 }
 
 export interface Plot {
+  is_demo?: boolean;
   id: string;
   name: string;
   area_mu: number;
@@ -135,8 +165,19 @@ export interface HealthPayload {
 }
 
 export interface User {
+  is_guest?: boolean;
   id: string;
   username: string;
   display_name: string;
   created_at: string;
+}
+
+export interface OnboardingStatus {
+  plot_done: boolean;
+  season_done: boolean;
+  record_done: boolean;
+  first_plot_id: string | null;
+  skipped: boolean;
+  demo_loaded: boolean;
+  demo_count: number;
 }

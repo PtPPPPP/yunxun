@@ -13,6 +13,7 @@ interface AuthScreenProps {
   onChange: (field: "username" | "password" | "displayName", value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onGuestLogin: () => void;
+  onRecovery: () => void;
 }
 
 export function AuthScreen(props: AuthScreenProps) {
@@ -24,6 +25,7 @@ export function AuthScreen(props: AuthScreenProps) {
     onChange,
     onSubmit,
     onGuestLogin,
+    onRecovery,
   } = props;
 
   return (
@@ -41,16 +43,16 @@ export function AuthScreen(props: AuthScreenProps) {
           </div>
 
           <div className="auth-hero__copy">
-            <h1>把天气、墒情和生长期，算成今天能落地的农活安排。</h1>
+            <h1>记好每笔农活，看清每茬收支。</h1>
             <p>
-              云寻面向农户、合作社和基层农技员，按作物和现场条件生成当天可执行的
-              浇水、追肥和巡田建议，并保留历史记录便于回头核对。
+              按地块和茬次记录农活，用待办安排下一步，核对已记录收入与支出。
+              也可按作物和现场条件生成当天的浇水、追肥与巡田建议。
             </p>
           </div>
 
           <div className="auth-hero__meta">
             <span>面向农户、合作社和基层农技员</span>
-            <span>数据保存在本机，不联网</span>
+            <span>建议由本机规则生成，不调用外部模型</span>
           </div>
         </div>
       </section>
@@ -129,6 +131,7 @@ export function AuthScreen(props: AuthScreenProps) {
           <p className="auth-footnote">
             登录后会保留个人显示名称和农活建议历史。访客登录也能直接进入，但更适合先体验功能。
           </p>
+          <button className="ghost-button" type="button" onClick={onRecovery} disabled={loading}>用恢复码重置密码</button>
         </form>
       </section>
     </div>

@@ -1,4 +1,5 @@
 import logging
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -8,6 +9,7 @@ from backend.app.core.audit import log_event
 from backend.app.core.errors import conflict, not_found
 from backend.app.core.security import safe_fingerprint
 from backend.app.repositories import (
+    ECONOMICS_SCOPES,
     count_farm_records,
     create_season,
     count_plots,
@@ -24,6 +26,7 @@ from backend.app.repositories import (
     get_plot,
     get_season,
     list_farm_records_page,
+    list_farm_record_years,
     list_harvest_safety,
     list_open_farm_tasks,
     list_plots,
@@ -31,6 +34,7 @@ from backend.app.repositories import (
     list_seasons,
     summarize_farm_economics,
     update_farm_task,
+    update_farm_record,
     update_plot,
     update_season,
 )
@@ -234,10 +238,10 @@ def update_user_plot(
     return plot
 
 
-def delete_user_plot(plot_id: str, user_id: str, client_host: str) -> tuple[int, int]:
-    """删除地块，连带删除其作业记录与待办，返回 (记录条数, 待办条数)。"""
+def delete_user_plot(plot_id: str, user_id: str, client_host: str, expected_revision: str | None = None) -> tuple[int, int]:
+    """地块移入回收站，子项继承可见性；保留原响应计数字段。"""
     require_plot_owner(plot_id, user_id)
-    removed_records, removed_tasks = delete_plot_with_records(plot_id)
+    removed_records, removed_tasks = delete_plot_with_records(plot_id, user_id, expected_revision)
     log_event(
         logger,
         "plot_delete",
@@ -256,13 +260,43 @@ def list_user_farm_records(
     plot_id: str | None,
     limit: int,
     cursor: tuple[str, str] | None,
+    kind: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    season_id: str | None = None,
+    economics_scope: str = "all",
+    year: int | None = None,
+    data_scope: str = "all",
 ) -> tuple[list[dict[str, Any]], bool]:
-    return list_farm_records_page(user_id, plot_id=plot_id, limit=limit, cursor=cursor)
+    validate_farm_record_filters(user_id, plot_id=plot_id, season_id=season_id, date_from=date_from,
+                                 date_to=date_to, economics_scope=economics_scope, data_scope=data_scope)
+    return list_farm_records_page(user_id, plot_id=plot_id, limit=limit, cursor=cursor,
+                                  kind=kind, date_from=date_from, date_to=date_to, season_id=season_id,
+                                  economics_scope=economics_scope, year=year, data_scope=data_scope)
 
 
-def create_user_farm_record(
+def validate_farm_record_filters(
+    user_id: str, *, plot_id: str | None = None, season_id: str | None = None,
+    date_from: str | None = None, date_to: str | None = None,
+    economics_scope: str = "all", data_scope: str = "all",
+) -> None:
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=422, detail="筛选结束日期不能早于开始日期。")
+    _validate_record_season_filter(user_id, plot_id, season_id)
+    validate_data_scope(data_scope)
+    if economics_scope not in ECONOMICS_SCOPES:
+        raise HTTPException(status_code=422, detail="收支明细类型无效。")
+
+
+def _validate_record_season_filter(user_id: str, plot_id: str | None, season_id: str | None) -> None:
+    if season_id and season_id != "unassigned":
+        season = require_season_owner(season_id, user_id)
+        if plot_id and season["plot_id"] != plot_id:
+            raise not_found("茬次不属于该地块。")
+
+
+def _prepare_farm_record(
     user_id: str,
-    client_host: str,
     plot_id: str,
     kind: str,
     happened_on: str,
@@ -292,11 +326,11 @@ def create_user_farm_record(
             if (not item["started_on"] or item["started_on"] <= happened_on)
             and (not item["ended_on"] or happened_on <= item["ended_on"])
         ]
-        # 未知开始日、日期重叠、季间空档都不能推断，保留未归茬。
-        if len(candidates) == 1 and candidates[0]["started_on"]:
+        if len(candidates) > 1 or (candidates and not candidates[0]["started_on"]):
+            raise HTTPException(status_code=422, detail="无法按日期唯一确定茬次，请选择具体茬次或明确选择未归茬。")
+        if candidates:
             season = candidates[0]
-    record = create_farm_record(
-        user_id=user_id,
+    return dict(
         plot_id=plot_id,
         season_id=season["id"] if season else None,
         kind=kind,
@@ -305,11 +339,38 @@ def create_user_farm_record(
         detail=detail.strip(),
         quantity=quantity.strip(),
         cost=cost,
-        material=material.strip(),
-        safe_days=safe_days,
-        yield_kg=yield_kg,
-        unit_price=unit_price,
+        material=material.strip() if kind in {"施肥", "打药"} else "",
+        safe_days=safe_days if kind == "打药" else None,
+        yield_kg=yield_kg if kind == "采收" else None,
+        unit_price=unit_price if kind == "采收" else None,
     )
+
+
+def create_user_farm_record(
+    user_id: str,
+    client_host: str,
+    plot_id: str,
+    kind: str,
+    happened_on: str,
+    crop: str,
+    detail: str,
+    quantity: str,
+    cost: float | None,
+    material: str = "",
+    safe_days: int | None = None,
+    yield_kg: float | None = None,
+    unit_price: float | None = None,
+    season_id: str | None = None,
+    auto_select_season: bool = True,
+    submission_id: str | None = None,
+) -> dict[str, Any]:
+    values = _prepare_farm_record(
+        user_id, plot_id, kind, happened_on, crop, detail, quantity, cost,
+        material, safe_days, yield_kg, unit_price, season_id, auto_select_season,
+    )
+    # 用户参与派生主键，其他用户即使使用相同提交标识也无法命中本人的记录。
+    record_id = uuid.uuid5(uuid.NAMESPACE_URL, f"yunxun:{user_id}:{submission_id}").hex if submission_id else None
+    record = create_farm_record(user_id=user_id, record_id=record_id, **values)
     log_event(
         logger,
         "farm_record_create",
@@ -323,11 +384,25 @@ def create_user_farm_record(
     return record
 
 
+def update_user_farm_record(
+    record_id: str, user_id: str, client_host: str, **values: Any,
+) -> dict[str, Any]:
+    existing = get_farm_record(record_id)
+    if not existing or existing["user_id"] != user_id:
+        raise not_found("农事记录不存在或已被删除。")
+    prepared = _prepare_farm_record(user_id=user_id, **values)
+    record = update_farm_record(record_id, user_id, **prepared)
+    log_event(logger, "farm_record_update", user_id=user_id,
+              client_fingerprint=safe_fingerprint(client_host), record_id=record_id,
+              plot_id=record["plot_id"], kind=record["kind"], happened_on=record["happened_on"])
+    return record
+
+
 def delete_user_farm_record(record_id: str, user_id: str, client_host: str) -> None:
     record = get_farm_record(record_id)
     if not record or record["user_id"] != user_id:
         raise not_found("农事记录不存在或已被删除。")
-    delete_farm_record(record_id)
+    delete_farm_record(record_id, user_id)
     log_event(
         logger,
         "farm_record_delete",
@@ -342,8 +417,23 @@ def summarize_user_farm_records(user_id: str) -> dict[str, int]:
     return {"plot_count": count_plots(user_id), "record_count": count_farm_records(user_id)}
 
 
-def summarize_user_farm_economics(user_id: str) -> dict[str, Any]:
-    return {"plots": summarize_farm_economics(user_id)}
+def summarize_user_farm_economics(
+    user_id: str, *, plot_id: str | None = None, season_id: str | None = None, year: int | None = None, data_scope: str = "all",
+) -> dict[str, Any]:
+    if plot_id:
+        require_plot_owner(plot_id, user_id)
+    _validate_record_season_filter(user_id, plot_id, season_id)
+    validate_data_scope(data_scope)
+    return {
+        "plots": summarize_farm_economics(user_id, plot_id=plot_id, season_id=season_id, year=year, data_scope=data_scope),
+        "available_years": list_farm_record_years(user_id, data_scope),
+        "year_basis": "happened_on",
+    }
+
+
+def validate_data_scope(data_scope: str) -> None:
+    if data_scope not in {"all", "real", "demo"}:
+        raise HTTPException(status_code=422, detail="数据来源只能是全部、真实或演示。")
 
 
 def require_task_owner(task_id: str, user_id: str) -> dict[str, Any]:

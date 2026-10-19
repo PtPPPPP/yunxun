@@ -1,11 +1,13 @@
 import { CalendarPlus, MapPin, Pencil, Plus, Sprout, Trash2, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SeasonInput, SeasonUpdateInput } from "../hooks/useSeasons";
 import { PlotInput } from "../hooks/usePlots";
 import { formatDate, todayIso } from "../lib/date";
 import { Plot, PlotSeason } from "../types";
+import { api, getErrorMessage } from "../lib/api";
+import { PlotDeleteImpact } from "./TrashWorkspace";
 
 const crops = ["玉米", "水稻", "小麦", "大豆", "番茄", "黄瓜", "辣椒", "苹果", "柑橘"];
 const soilTypes = ["壤土", "砂壤土", "砂土", "黏土", "砾质土"];
@@ -24,6 +26,7 @@ const emptyForm: PlotInput = {
 type Panel = "create" | "edit" | "new-season" | "end-season";
 
 interface PlotsWorkspaceProps {
+  initialSeasonPlotId?: string;
   plots: Plot[];
   seasons: PlotSeason[];
   loading: boolean;
@@ -31,9 +34,10 @@ interface PlotsWorkspaceProps {
   seasonBusy: boolean;
   onCreate: (payload: PlotInput) => Promise<Plot | undefined>;
   onUpdate: (plotId: string, payload: PlotInput) => Promise<Plot | undefined>;
-  onRemove: (plotId: string) => Promise<number | undefined>;
+  onRemove: (plotId: string, revision?: string) => Promise<number | undefined>;
   onCreateSeason: (payload: SeasonInput) => Promise<PlotSeason | undefined>;
   onUpdateSeason: (seasonId: string, payload: SeasonUpdateInput) => Promise<PlotSeason | undefined>;
+  onRecord: (plotId: string) => void;
 }
 
 export function PlotsWorkspace(props: PlotsWorkspaceProps) {
@@ -41,16 +45,28 @@ export function PlotsWorkspace(props: PlotsWorkspaceProps) {
     plots, seasons, loading, busy, seasonBusy, onCreate, onUpdate, onRemove,
     onCreateSeason, onUpdateSeason,
   } = props;
-  const [panel, setPanel] = useState<Panel>("create");
+  const [panel, setPanel] = useState<Panel>(props.initialSeasonPlotId ? "new-season" : "create");
   const [form, setForm] = useState<PlotInput>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [targetPlotId, setTargetPlotId] = useState<string | null>(null);
+  const [targetPlotId, setTargetPlotId] = useState<string | null>(props.initialSeasonPlotId ?? null);
   const [seasonForm, setSeasonForm] = useState({
     crop: "玉米",
     started_on: todayIso(),
     ended_on: todayIso(),
   });
   const [pendingDelete, setPendingDelete] = useState<Plot | null>(null);
+  const [impact, setImpact] = useState<PlotDeleteImpact | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+
+  useEffect(() => {
+    if (!pendingDelete) return;
+    let cancelled = false;
+    setImpact(null); setDeleteError("");
+    void api.get<{ impact: PlotDeleteImpact }>(`/api/plots/${pendingDelete.id}/delete-impact`)
+      .then((response) => { if (!cancelled) setImpact(response.data.impact); })
+      .catch((error) => { if (!cancelled) setDeleteError(getErrorMessage(error)); });
+    return () => { cancelled = true; };
+  }, [pendingDelete]);
 
   const seasonCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -136,11 +152,14 @@ export function PlotsWorkspace(props: PlotsWorkspaceProps) {
   }
 
   async function confirmDelete() {
-    if (!pendingDelete) return;
-    const removed = await onRemove(pendingDelete.id);
+    if (!pendingDelete || !impact) return;
+    const removed = await onRemove(pendingDelete.id, impact.revision);
     if (removed !== undefined) {
       if (editingId === pendingDelete.id) openCreate();
       setPendingDelete(null);
+    } else {
+      setImpact(null);
+      setDeleteError("删除结果未确认或资料已变化，请取消并重新核对；若已移入回收站，可到回收站查看。");
     }
   }
 
@@ -354,6 +373,7 @@ export function PlotsWorkspace(props: PlotsWorkspaceProps) {
                   <span className="plot-card__name">
                     <MapPin size={15} />
                     {plot.name}
+                    {plot.is_demo && <span className="demo-badge">演示</span>}
                   </span>
                   <span className="stats-badge">{plot.area_mu} 亩</span>
                 </div>
@@ -378,6 +398,9 @@ export function PlotsWorkspace(props: PlotsWorkspaceProps) {
                 </div>
                 {plot.notes && <p className="plot-card__notes">{plot.notes}</p>}
                 <div className="inline-actions">
+                  <button className="primary-button plot-record-button" type="button" onClick={() => props.onRecord(plot.id)} disabled={busy || seasonBusy}>
+                    <Plus size={16} />记一笔农活
+                  </button>
                   {plot.active_season ? (
                     <button className="ghost-button" type="button" onClick={() => openEndSeason(plot)} disabled={busy || seasonBusy}>
                       <CalendarPlus size={15} />
@@ -409,10 +432,11 @@ export function PlotsWorkspace(props: PlotsWorkspaceProps) {
         title="删除这个地块？"
         description={
           pendingDelete
-            ? `「${pendingDelete.name}」及其 ${pendingDelete.record_count} 条农事台账记录、${pendingDelete.open_task_count} 项待办、${seasonCounts.get(pendingDelete.id) ?? 0} 茬记录会被永久删除，删除后无法恢复。`
+            ? deleteError || (impact ? `「${pendingDelete.name}」及其 ${impact.season_count} 茬、${impact.record_count} 条农事台账记录（含已单独删除 ${impact.trashed_record_count} 条）、${impact.task_count} 项待办（含已完成）将移入回收站，关联资料保留，可恢复。此前单独删除的台账仍留在回收站。` : "正在核对受影响的茬次、台账和全部待办数量…")
             : ""
         }
         confirmLabel="确认删除"
+        confirmDisabled={!impact || !!deleteError}
         busy={busy}
         onConfirm={() => void confirmDelete()}
         onCancel={() => setPendingDelete(null)}

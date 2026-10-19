@@ -157,17 +157,20 @@ class FarmApplicationRegressionTestCase(unittest.TestCase):
         self.assertEqual(by_id[self.first_id]["net_revenue"], 170)
         self.assertEqual(by_id[second["id"]]["record_count"], 0)
 
-    def test_gap_before_first_and_unknown_start_stay_unassigned(self) -> None:
+    def test_unknown_start_requires_explicit_season_or_unassigned(self) -> None:
         second = self.second_season(started_on=None)
         for day in ("2026-03-31", "2026-04-30", "2026-06-01", "2026-10-19"):
-            self.assertIsNone(self.record(day).json()["record"]["season_id"])
+            response = self.record(day)
+            self.assertEqual(response.status_code, 422)
+            self.assertIn("明确选择未归茬", response.json()["error"])
+            self.assertIsNone(self.record(day, season_id=None).json()["record"]["season_id"])
         # 日期未知时可明确指定；null 可明确保留未归茬。
         self.assertEqual(self.record("2026-10-19", season_id=second["id"]).json()["record"]["season_id"], second["id"])
         self.assertIsNone(self.record(season_id=None).json()["record"]["season_id"])
 
     def test_overlapping_seasons_require_explicit_choice(self) -> None:
         second = self.second_season(started_on="2026-05-01")
-        self.assertIsNone(self.record("2026-05-15").json()["record"]["season_id"])
+        self.assertEqual(self.record("2026-05-15").status_code, 422)
         self.assertEqual(self.record("2026-05-15", season_id=self.first_id).json()["record"]["season_id"], self.first_id)
         self.assertEqual(self.record("2026-05-15", season_id=second["id"]).json()["record"]["season_id"], second["id"])
 

@@ -1,44 +1,44 @@
-# 项目状态
+# 当前工作区状态
 
-审计基线：Git `v1.0.0` / `b952778`，机器版本 `1.0.0`，文案版本 `V1.0.0`。
+核对日期：2026-10-19。对象是未发布工作区，不是生产部署验收。代码默认全称「云寻智慧农业工作台软件」、简称「云寻」，后端默认值、前端 package 和材料脚本仍使用 `1.0.0` / `V1.0.0`。本次不更改名称或版本。HEAD 为 `4b02573280d95f9c11908920b0f6be4b486d0cec`，另有未提交业务改动；仅用 HEAD 无法复现当前成果，应同时保存验收源码清单。
 
-当前工作区已移除全部 AI 能力：智能问答、田间诊断、系统模型接入和相应品牌文案。保留认证、地块与茬次档案、农事台账、农事待办、今日农活建议、按茬次的投入产出核算、统计面板、审计、备份发布链路和 SQLite 数据库。
+旧文档记载 `v1.0.0` / `b952778` 为历史基线；本机当前没有可解析的 `v1.0.0` 标签，本轮未重新核验该标签。当前事实以源码、Schema 12 与[整体验收记录](acceptance/current-2026-10-19/README.md)为准。
 
-## 功能矩阵
+## 已实现与验证依据
 
-| 能力 | 状态 | 依据 |
+下列能力已实现，具体本轮测试数字、失败修正记录、审计与验证边界统一记录在整体验收记录，不沿用历史测试总数。
+
+| 能力 | 实现与验证依据 | 实际边界 |
 | --- | --- | --- |
-| 注册、登录、访客、退出 | 已实现并验证 | `backend/app/api/routes/auth.py`、`backend/tests/test_auth_tokens.py` |
-| 地块档案（面积、土壤、灌溉） | 已实现并验证 | `backend/app/services/farm.py`、`backend/app/api/routes/farm.py`、`backend/tests/test_plots.py`、`frontend/src/components/PlotsWorkspace.tsx` |
-| 茬次（每季作物与起止日期、一块地同时只一茬进行中） | 已实现并验证 | `backend/app/core/database.py`（Schema 9）、`backend/tests/test_seasons.py` |
-| 农事台账（作业类型、日期、用量、费用） | 已实现并验证 | `backend/app/services/farm.py`、`backend/tests/test_farm_records.py`、`frontend/src/components/LedgerWorkspace.tsx` |
-| 采收产量与单价、按茬次的投入产出核算（含跨年对比） | 已实现并验证 | `repositories.summarize_farm_economics`、`/api/farm-records/economics`、`frontend/src/components/StatsWorkspace.tsx` |
-| 用药安全间隔期与最早安全采收日提醒 | 已实现并验证 | `repositories.list_harvest_safety`、`frontend/src/components/LedgerWorkspace.tsx` |
-| 农事待办（分组、逾期提示、完成与重开） | 已实现并验证 | `backend/app/api/routes/farm.py`、`frontend/src/components/TasksWorkspace.tsx`、`frontend/e2e/tasks.spec.ts` |
-| 删除地块连带删除其台账记录（带条数确认） | 已实现并验证 | `repositories.delete_plot_with_records`、`frontend/src/components/ConfirmDialog.tsx`、`frontend/e2e/farm.spec.ts` |
-| 今日农活建议（可选用地块带入作物） | 已实现并验证 | `backend/app/services/decision.py`、`backend/tests/test_decision_service.py`、`frontend/src/components/DecisionWorkspace.tsx` |
-| 农活建议落库与统计（tool_records） | 已实现并验证 | `backend/app/core/database.py`（Schema 5）、`backend/app/api/routes/tools.py`、`backend/tests/test_tool_records.py` |
-| 统计面板（地块数、作业记录、使用汇总、14 天趋势、作物分布、历史记录） | 已实现并验证 | `frontend/src/components/StatsWorkspace.tsx`、`frontend/e2e/decision.spec.ts` |
-| 使用帮助与关于软件 | 已实现并验证 | `frontend/src/App.tsx`、`backend/app/services/system.py` |
-| 数据库迁移、备份恢复与发布演练 | 已实现并验证 | `backend/app/core/database.py`、`backend/app/core/backup.py`、`scripts/release_rehearsal.py` |
-| 智能问答、会话与消息、流式输出 | 已移除 | 路由、服务、数据库表和前端模块已删除（Schema 6） |
-| 田间诊断（图片识别） | 已移除 | `/api/vision`、图片校验工具和前端模块已删除（Schema 6） |
-| 系统模型接入（Key、Endpoint、演示模式） | 已移除 | `services/assistant.py`、模型配置项和 `openai` 依赖已删除 |
-| 用户手动接入模型 API Key | 已废弃 | 代码、路由、数据库表和前端入口已移除 |
-| 投入产出核算、农资库存、用药安全间隔期提醒 | 未实现 | 已评估，待新需求与安全评审 |
-| PostgreSQL、Redis、Docker、公网 SaaS、计费、多租户 | 未实现 | 不在本轮范围 |
+| 注册、登录、访客、退出、用户隔离 | auth 路由、test_auth_tokens、test_guest_upgrade | 无短信、邮箱、角色管理和外部登录 |
+| 访客原 ID 保存正式账号 | repositories_account、guest-upgrade.spec.ts | 仅服务端 is_guest；历史前缀账号不猜测转换，旧会话撤销 |
+| 改密、一次性恢复码、本机辅助恢复 | test_password_management、password.spec.ts | 恢复码本人离线保管，仅展示一次；两种凭据丢失需部署者核验；改密/重置撤销全部会话 |
+| 首次引导与可选演示 | test_onboarding、onboarding.spec.ts | 真实数据判断进度；地块创建复用第一茬；演示与真实数据区分并保护真实关联 |
+| 默认首页、真实待办和快速记账 | home.spec.ts、mobile-ledger.spec.ts | 完成待办不自动创建台账；取消/失败不改变已完成状态 |
+| 地块、历史茬次、日期与单活跃约束 | test_seasons、test_farm_regressions、farm.spec.ts | 作物属于茬次；真实日期；新建和重开冲突为 409 |
+| 台账新增、编辑、历史补录和分页筛选 | test_ledger_editing、farm.spec.ts | 自动归茬必须日期唯一且起始日已知；歧义须选择或未归茬，显式选择须符合日期 |
+| 类型字段清理、失败重试与防重复 | test_record_submission、mobile-ledger.spec.ts | 新增幂等字段可选，旧客户端不传仍可分别新增；同次已保存内容不能静默覆盖 |
+| 390px 快速表单、未保存保护 | mobile-ledger.spec.ts、useUnsavedChanges | 草稿仅页面内存，无持久保存、后台离线队列和自动重试；真机另验 |
+| 每茬已记录收支、完整度和追溯 | test_economics_trace、economics.spec.ts | 收入仅完整产量×单价；费用 NULL 与 0 区分；不含未知人工/地租；年度按作业日期 |
+| CSV 汇总与全部筛选明细 | test_csv_exports、exports.spec.ts | UTF-8 BOM、缺失留空、文本公式防护；不是整库恢复备份 |
+| 采收登记间隔期计算 | test_farm_regressions、test_ledger_editing | 同一地块相关登记记录取最晚日期，换茬不解除；只验证输入算术，不确认标签或合规 |
+| 地块和台账回收站 | test_trash、trash.spec.ts | 保留至主动最终删除，无自动清理；单独删除台账单独恢复；冲突不覆盖 |
+| 今日农活建议与建议历史 | test_decision_service、decision.spec.ts、current-acceptance.spec.ts | 现场条件由用户输入，本机规则计算，无实时天气服务或自动诊断 |
+| Schema 迁移及运维备份恢复 | test_database_migrations、test_backup、test_current_acceptance | 当前 12；9→12 保留业务数据；Schema 6 删除已移除 AI 会话；不自动降级 |
+| 桌面和手机完整业务链路 | current-acceptance.spec.ts | 临时 SQLite + 本机 Chromium；UI 403 与断网为注入，真实权限另由后端验证 |
 
-## 数据与风险
+## 未实现、未验证和限制
 
-- 迁移版本从 Schema 1 前进到 Schema 8：Schema 3 移除旧凭据表和会话关联列，Schema 4 增加会话置顶字段，Schema 5 新增 `tool_records` 表保存农活建议历史，Schema 6 删除 `chat_sessions`、`chat_messages`、`idempotency_requests` 并移除 `users.preferred_model`，Schema 7 新增 `plots` 与 `farm_records`，Schema 8 给台账补上 `material`、`safe_days`、`yield_kg`、`unit_price` 并新增 `farm_tasks`；Schema 9 新增 `plot_seasons` 并把每块地当时的作物搬成一条进行中的茬次（该地块既有记录一并归茬），随后删掉 `plots.crop` 与 `plots.planted_on`。
-- **Schema 6 迁移会丢弃既有会话与消息数据。**升级前必须用 `scripts/database_admin.py backup` 生成备份；升级后旧代码无法打开该数据库（`migrate_schema` 会拒绝过高的 `user_version`）。
-- 投入产出按茬次汇总：同一地块种第二茬后，上一茬的投入不会和这一茬的收成混在一起；跨年对比直接看同一地块不同茬次的行。未归茬（建茬之前记的）单独成行不丢数据。
-- 安全间隔期的权威来源是产品标签：应用不内置标准答案，只提供常见参考值预填并明确标注以标签为准，负责日期运算与跨记录比对。
-- 待办不做推送：本地单机应用没有推送通道，用顶栏常驻计数和逾期警示色代替。
-- 新接口不做限流，只写审计日志。限流保留给计算密集的 `/api/decision` 和防爆破的 `/api/auth/*`；台账录入是廉价插入，加上每分钟 20 次的默认限制反而会挡住补录。
-- 审计不输出任何密钥内容。
-- SQLite 适用于单机部署；公网和多实例能力不在 V1.0。
+- 未实现：跨页面持久草稿、常用单位记忆、后台离线同步、待办推送、回收站自动到期清理、复杂历史版本恢复、农资库存、短信/邮件找回、独立管理员网页。
+- 已移除且不提供：AI 问答、会话消息、图片诊断、模型服务和用户模型 API Key。当前农事演示不等于旧版模型演示模式。
+- 未验证：真实手机及 iOS/Android 软键盘、浏览器强制杀进程保留、大容量回收站压力、生产部署、HTTPS/代理/备份计划实际配置、Linux/Python 3.11 CI 本轮执行。
+- 限流保存在单进程内，重启会重置；SQLite 和当前配置面向单机，不是已验收的公网多实例 SaaS。
+- 只为地块和台账提供回收站。单独删除待办是永久删除；茬次删除接口不提供回收站，有回收站台账关联时拒绝删除。
+- 历史硬删除、最终删除或丢失数据库不能凭空恢复。运维整库备份单独负责灾难恢复。
+- requirements 未锁定全部精确版本，未来解析可能不同；SQLAlchemy、Alembic、psycopg、redis 仍列在声明中，当前业务源码没有相应接入，不能据此宣称已支持这些服务。
 
-## 唯一下一方向
+## 当前版软著材料
 
-AI 能力移除与地块/台账落地均已完成迁移、测试与回归。继续扩展业务功能需新的需求与安全评审；`docs/software-copyright/final-delivery/` 中的 V1.0 归档仍记录移除前的能力，对外申报前需重新生成。
+新草稿在 [current-draft-2026-10-19](software-copyright/current-draft-2026-10-19/README.md)，包含当前功能说明、截图计划和确认事项。历史 final-delivery、原申请表和 docs/superpowers 不改写。
+
+名称、申报版本以及是否沿用历史材料须申请人确认。申请主体、开发完成日期、首次发表日期、权属与签章信息本轮不作推定。技术验收通过后可准备新草稿，不等于已完成正式申报交付。

@@ -16,6 +16,7 @@ interface TasksWorkspaceProps {
   onUpdate: (taskId: string, payload: TaskInput, done: boolean) => Promise<FarmTask | undefined>;
   onToggle: (task: FarmTask) => Promise<FarmTask | undefined>;
   onRemove: (taskId: string) => Promise<boolean>;
+  onRecord: (task: FarmTask) => void;
 }
 
 function groupLabel(dueOn: string, today: string): string {
@@ -27,7 +28,7 @@ function groupLabel(dueOn: string, today: string): string {
 }
 
 export function TasksWorkspace(props: TasksWorkspaceProps) {
-  const { tasks, recentDone, plots, loading, busy, onCreate, onUpdate, onToggle, onRemove } = props;
+  const { tasks, recentDone, plots, loading, busy, onCreate, onUpdate, onToggle, onRemove, onRecord } = props;
   const today = todayIso();
   const [form, setForm] = useState<TaskInput>({
     plot_id: null,
@@ -178,6 +179,7 @@ export function TasksWorkspace(props: TasksWorkspaceProps) {
                   <li className="task-card" key={task.id}>
                     <div className="task-card__head">
                       <span className="task-card__title">{task.title}</span>
+                      {task.is_demo && <span className="demo-badge">演示</span>}
                       <span className="stats-record__time">{formatDate(task.due_on)}</span>
                     </div>
                     {task.plot_name && <div className="plot-card__meta"><span>{task.plot_name}</span></div>}
@@ -211,6 +213,7 @@ export function TasksWorkspace(props: TasksWorkspaceProps) {
                 <li className="task-card task-card--done" key={task.id}>
                   <div className="task-card__head">
                     <span className="task-card__title">{task.title}</span>
+                    {task.is_demo && <span className="demo-badge">演示</span>}
                     <span className="stats-record__time">{formatDate(task.due_on)}</span>
                   </div>
                   <div className="inline-actions">
@@ -218,6 +221,7 @@ export function TasksWorkspace(props: TasksWorkspaceProps) {
                       <RotateCcw size={15} />
                       重新打开
                     </button>
+                    <button className="ghost-button" type="button" onClick={() => onRecord(task)} disabled={busy}>顺便记入台账</button>
                     <button className="ghost-button danger" type="button" onClick={() => setPendingDelete(task)} disabled={busy}>
                       <Trash2 size={15} />
                       删除

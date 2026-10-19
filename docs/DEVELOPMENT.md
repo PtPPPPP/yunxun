@@ -3,7 +3,7 @@
 ## 环境
 
 - Windows 10/11，PowerShell 5+ 或 7+。
-- Python 3.10+。
+- CI 声明 Python 3.11；本轮 Windows 本机验收使用 Python 3.14.8。其他版本不据此视为已验收。
 - Node.js `^22.12.0 || >=24.0.0`（vitest 5 的下限；CI 与本地均使用 Node 24）。
 
 ## 初始化
@@ -15,7 +15,7 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r backend\requirements.txt
 Set-Location frontend
-npm install
+npm ci
 ```
 
 ## 启动
@@ -50,3 +50,5 @@ npm run dev
 - 不在 V1.0 维护中加入 PostgreSQL、Redis、Docker、SaaS 或计费。
 - 新能力只有在代码、测试、运行验证和文档一致后才能标记完成。
 - 脚本用途见 `scripts/README.md`，不要未经引用检查移动脚本。
+
+本轮干净安装与类型/构建验证见 TESTING.md 和整体验收记录。npm 12 遇到混合镜像锁文件可用 `npm ci --replace-registry-host=always` 将下载映射到所配置的官方 registry，保持完整性校验，不必放开远程依赖或关闭审计。安装前停止占用该工作区 esbuild 的 Vite 进程。

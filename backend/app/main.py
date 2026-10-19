@@ -53,6 +53,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=settings.cors_methods,
         allow_headers=settings.cors_headers,
+        expose_headers=["Content-Disposition", "X-Export-Row-Count"],
     )
 
     @app.middleware("http")

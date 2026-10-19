@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Annotated
 
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, UUID4, field_validator
 
 
 def validate_iso_date(value: str) -> str:
@@ -24,8 +24,49 @@ class LoginRequest(BaseModel):
     password: str = Field(..., min_length=4, max_length=64)
 
 
+class GuestUpgradeRequest(RegisterRequest):
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("username", "display_name", mode="before")
+    @classmethod
+    def strip_names(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("password")
+    @classmethod
+    def reject_blank_password(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("密码不能全为空格。")
+        return value
+
+
 class ProfileUpdateRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=32)
+
+
+def reject_blank_secret(value: str) -> str:
+    if not value.strip():
+        raise ValueError("密码不能全为空格。")
+    return value
+
+
+NewPassword = Annotated[str, Field(min_length=8, max_length=64), AfterValidator(reject_blank_secret)]
+
+
+class PasswordProofRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    current_password: str = Field(..., min_length=1, max_length=64)
+
+
+class PasswordChangeRequest(PasswordProofRequest):
+    new_password: NewPassword
+
+
+class PasswordRecoveryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(..., min_length=1, max_length=32)
+    recovery_code: str = Field(..., min_length=1, max_length=128)
+    new_password: NewPassword
 
 
 class PlotBaseRequest(BaseModel):
@@ -83,6 +124,11 @@ class FarmRecordCreateRequest(BaseModel):
     unit_price: float | None = Field(None, ge=0, le=1_000_000)
 
 
+class FarmRecordSubmissionRequest(FarmRecordCreateRequest):
+    # 一次确认保存使用同一 UUID，断线重试复用已有记录主键，无需新建幂等表。
+    submission_id: UUID4 | None = None
+
+
 class FarmTaskCreateRequest(BaseModel):
     plot_id: str | None = Field(None, max_length=64)
     title: str = Field(..., min_length=1, max_length=60)
@@ -101,3 +147,7 @@ class DecisionRequest(BaseModel):
     rain_prob: int = Field(..., ge=0, le=100)
     soil_moisture: int = Field(42, ge=0, le=100)
     temperature: float = Field(24.5, ge=-20, le=55)
+
+
+class OnboardingUpdateRequest(BaseModel):
+    skipped: bool

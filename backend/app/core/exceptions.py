@@ -31,7 +31,10 @@ async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse
     detail = exc.detail if isinstance(exc.detail, str) else "请求处理失败。"
     # AppError 是 HTTPException 的子类，统一在这里暴露稳定的 code 字段。
     code = getattr(exc, "code", None)
-    return error_response(detail, exc.status_code, code=code)
+    response = error_response(detail, exc.status_code, code=code)
+    if exc.headers:
+        response.headers.update(exc.headers)
+    return response
 
 
 async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:

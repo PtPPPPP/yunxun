@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api, getErrorMessage } from "../lib/api";
-import { addDays, formatDate } from "../lib/date";
-import { FarmStatsPayload, PlotEconomics, ToolRecord, ToolStatsPayload } from "../types";
+import { addDays } from "../lib/date";
+import { FarmStatsPayload, ToolRecord, ToolStatsPayload } from "../types";
+import { EconomicsPanel } from "./EconomicsPanel";
 
 const PAGE_SIZE = 20;
 
-interface StatsWorkspaceProps {
-  onError: (message: string) => void;
-}
+type StatsWorkspaceProps = Parameters<typeof EconomicsPanel>[0];
 
 interface RecordsResponse {
   success: true;
@@ -30,19 +29,15 @@ function formatDateTime(value: string): string {
   }).format(new Date(value));
 }
 
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
 function excerpt(text: string, max = 60): string {
   const compact = text.replace(/\s+/g, " ").trim();
   return compact.length > max ? `${compact.slice(0, max)}…` : compact;
 }
 
-export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
+export function StatsWorkspace(props: StatsWorkspaceProps) {
+  const { onError } = props;
   const [stats, setStats] = useState<ToolStatsPayload | null>(null);
   const [farmStats, setFarmStats] = useState<FarmStatsPayload | null>(null);
-  const [economics, setEconomics] = useState<PlotEconomics[]>([]);
   const [records, setRecords] = useState<ToolRecord[]>([]);
   const [pagination, setPagination] = useState<{ has_more: boolean; next_cursor: string | null }>({
     has_more: false,
@@ -53,14 +48,12 @@ export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
 
   const loadStats = useCallback(async () => {
     try {
-      const [adviceResponse, farmResponse, economicsResponse] = await Promise.all([
+      const [adviceResponse, farmResponse] = await Promise.all([
         api.get<{ success: true } & ToolStatsPayload>("/api/tool-records/stats"),
         api.get<{ success: true } & FarmStatsPayload>("/api/farm-records/stats"),
-        api.get<{ success: true; plots: PlotEconomics[] }>("/api/farm-records/economics"),
       ]);
       setStats(adviceResponse.data);
       setFarmStats(farmResponse.data);
-      setEconomics(economicsResponse.data.plots);
       onError("");
     } catch (error) {
       onError(getErrorMessage(error));
@@ -121,21 +114,6 @@ export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
   const maxDaily = useMemo(() => Math.max(1, ...trend.map((item) => item.total)), [trend]);
 
   const decisionCount = stats?.counts_by_kind.decision ?? 0;
-  // 只保留「净收益」：全场合计的利润在下面的按茬表格里加不出来。
-  // 累计投入与累计收入是那张表的列合计，逐行看得到，不再重复一张卡。
-  const netRevenue = useMemo(
-    () => economics.reduce((sum, item) => sum + item.net_revenue, 0),
-    [economics],
-  );
-
-  function money(value: number | null): string {
-    return value === null ? "—" : `¥${value}`;
-  }
-
-  function kilograms(value: number | null): string {
-    return value === null ? "—" : `${value} 公斤`;
-  }
-
   return (
     <section className="workspace-grid workspace-grid--stats">
       <div className="panel panel--full">
@@ -149,64 +127,10 @@ export function StatsWorkspace({ onError }: StatsWorkspaceProps) {
           <div className="stat-card"><span>地块数</span><strong>{loading ? "—" : farmStats?.plot_count ?? 0}</strong></div>
           <div className="stat-card"><span>作业记录</span><strong>{loading ? "—" : farmStats?.record_count ?? 0}</strong></div>
           <div className="stat-card"><span>农活建议</span><strong>{loading ? "—" : decisionCount}</strong></div>
-          <div className="stat-card"><span>净收益</span><strong>{loading ? "—" : `¥${round2(netRevenue)}`}</strong></div>
         </div>
       </div>
 
-      <div className="panel panel--full">
-        <div className="panel__header">
-          <div>
-            <h3>投入产出</h3>
-            <p>按茬次汇总投入、产量与收入；采收记录填了产量和单价后这里才有数字。建茬之前记的归到「未归茬」。</p>
-          </div>
-        </div>
-        {economics.length === 0 ? (
-          <p className="stats-empty">还没有地块，先去「地块档案」登记一块地吧。</p>
-        ) : (
-          <div className="economics-table-wrap">
-            <table className="economics-table">
-              <thead>
-                <tr>
-                  <th>地块</th>
-                  <th>茬次</th>
-                  <th>起止</th>
-                  <th>面积</th>
-                  <th>投入</th>
-                  <th>产量</th>
-                  <th>收入</th>
-                  <th>净收益</th>
-                  <th>亩均成本</th>
-                  <th>亩产</th>
-                  <th>亩均净收益</th>
-                </tr>
-              </thead>
-              <tbody>
-                {economics.map((item) => (
-                  <tr key={`${item.plot_id}:${item.season_id ?? "unassigned"}`}>
-                    <td>{item.plot_name}</td>
-                    <td>{item.season_id === null ? "未归茬" : item.crop}</td>
-                    <td>
-                      {item.started_on ? formatDate(item.started_on) : "—"}
-                      {" ~ "}
-                      {item.ended_on ? formatDate(item.ended_on) : "进行中"}
-                    </td>
-                    <td>{item.area_mu} 亩</td>
-                    <td>¥{item.total_cost}</td>
-                    <td>{item.total_yield_kg} 公斤</td>
-                    <td>¥{item.total_revenue}</td>
-                    <td className={item.net_revenue < 0 ? "economics-negative" : ""}>¥{item.net_revenue}</td>
-                    <td>{money(item.cost_per_mu)}</td>
-                    <td>{kilograms(item.yield_per_mu)}</td>
-                    <td className={item.net_per_mu !== null && item.net_per_mu < 0 ? "economics-negative" : ""}>
-                      {money(item.net_per_mu)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <EconomicsPanel {...props} />
 
       <div className="panel">
         <div className="panel__header">

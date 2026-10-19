@@ -77,6 +77,7 @@ test("删除待办需要二次确认", async ({ page }) => {
 
 test("今日农活可以把整段建议存为待办", async ({ page }) => {
   await guestLogin(page);
+  await page.getByRole("button", { name: "今日农活", exact: true }).click();
   await page.getByRole("button", { name: "生成今日建议" }).click();
   await expect(page.locator(".report-block")).toContainText("今日建议");
 
@@ -97,7 +98,8 @@ test("台账记完后可以一键加为待办", async ({ page }) => {
   await expect(page.locator(".plot-card")).toBeVisible();
 
   await page.getByRole("button", { name: "农事台账" }).click();
-  await page.getByLabel("作业类型").selectOption("施肥");
+  await page.getByLabel("所属茬次").selectOption("unassigned");
+  await page.getByRole("combobox", { name: "作业类型", exact: true }).selectOption("施肥");
   await page.getByRole("button", { name: "记入台账" }).click();
   await expect(page.locator(".follow-up")).toContainText("已记入台账");
 
