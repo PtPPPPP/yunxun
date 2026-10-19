@@ -8,7 +8,8 @@ from fastapi import HTTPException
 
 from backend.app.core.audit import log_event
 from backend.app.core.config import get_settings
-from backend.app.core.security import create_token, hash_auth_token, hash_password, verify_password
+from backend.app.core.time import now_utc
+from backend.app.core.security import create_token, hash_auth_token, hash_password, verify_password, session_reference
 from backend.app.repositories import (
     cleanup_expired_tokens,
     create_auth_token,
@@ -17,7 +18,6 @@ from backend.app.repositories import (
     get_user_by_id,
     get_user_by_token_hash,
     get_user_by_username,
-    now_utc,
     public_user,
     update_user_profile,
     upgrade_guest_account,
@@ -47,7 +47,7 @@ def register_user(username: str, password: str, display_name: str, *, is_guest: 
     )
     log_event(logger, "auth_register_success", user_id=user_record["id"], username=normalized_username)
     token = issue_auth_token(user_record["id"], expected_password_hash=user_record["password_hash"])
-    return {"user": public_user(user_record), "token": token}
+    return {"user": public_user(user_record), "token": token, "session_id": session_reference(token)}
 
 
 def login_user(username: str, password: str) -> dict[str, str | dict]:
@@ -56,7 +56,7 @@ def login_user(username: str, password: str) -> dict[str, str | dict]:
         raise HTTPException(status_code=401, detail="用户名或密码不正确。")
     token = issue_auth_token(user_record["id"], expected_password_hash=user_record["password_hash"])
     log_event(logger, "auth_login_success", user_id=user_record["id"], username=user_record["username"])
-    return {"user": public_user(user_record), "token": token}
+    return {"user": public_user(user_record), "token": token, "session_id": session_reference(token)}
 
 
 def guest_login() -> dict[str, str | dict]:
@@ -82,7 +82,7 @@ def upgrade_guest_user(user: dict, username: str, password: str, display_name: s
     updated = upgrade_guest_account(user["id"], normalized, hash_password(password), display_name.strip(),
                                     hash_auth_token(token), expires_at)
     log_event(logger, "auth_guest_upgrade", user_id=updated["id"], username=normalized)
-    return {"user": public_user(updated), "token": token}
+    return {"user": public_user(updated), "token": token, "session_id": session_reference(token)}
 
 
 def issue_auth_token(user_id: str, *, expected_password_hash: str | None = None) -> str:

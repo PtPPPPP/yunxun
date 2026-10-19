@@ -1,16 +1,18 @@
 import { FormEvent, useState } from "react";
 
 import { useAsyncGuard } from "../hooks/useAsyncGuard";
+import { useSessionGuard } from "../hooks/useSessionBoundary";
 import { api, getApiErrorInfo, getErrorMessage } from "../lib/api";
 import { User } from "../types";
 
 interface GuestAccountPanelProps {
   user: User;
-  onSaved: (user: User) => void;
+  onSaved: (user: User, sessionId: string) => void;
   onReturnToLogin: (username: string) => void;
 }
 
 export function GuestAccountPanel({ user, onSaved, onReturnToLogin }: GuestAccountPanelProps) {
+  const isCurrent = useSessionGuard();
   const [expanded, setExpanded] = useState(false);
   const [form, setForm] = useState({ username: "", password: "", confirmation: "", display_name: user.display_name });
   const [error, setError] = useState("");
@@ -19,10 +21,12 @@ export function GuestAccountPanel({ user, onSaved, onReturnToLogin }: GuestAccou
   const action = useAsyncGuard();
 
   async function checkResult(fallback: string) {
+    if (!isCurrent()) return;
     try {
-      const response = await api.get<{ user: User }>("/api/me");
+      const response = await api.get<{ user: User; session_id: string }>("/api/me");
+      if (!isCurrent()) return;
       if (response.data.user.id === user.id && !response.data.user.is_guest) {
-        onSaved(response.data.user);
+        onSaved(response.data.user, response.data.session_id);
         return;
       }
       if (response.data.user.id !== user.id) {
@@ -34,6 +38,7 @@ export function GuestAccountPanel({ user, onSaved, onReturnToLogin }: GuestAccou
       setNeedsLogin(false);
       setError(fallback);
     } catch (requestError) {
+      if (!isCurrent()) return;
       if (getApiErrorInfo(requestError).status === 401) {
         setNeedsLogin(true);
         setError("会话已失效，账号可能已经保存。请使用刚设置的用户名和密码登录确认，原有数据仍归原账号。");
@@ -54,9 +59,11 @@ export function GuestAccountPanel({ user, onSaved, onReturnToLogin }: GuestAccou
     await action.run(async () => {
       setError("");
       try {
-        const response = await api.post<{ user: User }>("/api/auth/upgrade-guest", payload);
-        onSaved(response.data.user);
+        const response = await api.post<{ user: User; session_id: string }>("/api/auth/upgrade-guest", payload);
+        if (!isCurrent()) return;
+        onSaved(response.data.user, response.data.session_id);
       } catch (requestError) {
+        if (!isCurrent()) return;
         const info = getApiErrorInfo(requestError);
         const failureMessage = info.status === 403 ? "账号或安全校验未通过，请刷新页面后重试。" : getErrorMessage(requestError);
         setError(failureMessage);

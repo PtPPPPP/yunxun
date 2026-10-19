@@ -1,12 +1,14 @@
 # 云寻智慧农业工作台软件
 
-云寻是面向田块管理的农业工作台：登记地块档案并按**茬次**记录每季作物，按地块记录每次农事作业（含用量、费用、采收产量与单价），用待办排好接下来的活，并结合作物、生长期、降雨概率和土壤墒情生成当天可执行的建议。打药记录会按安全间隔期给出最早采收日，统计面板按茬次算出投入产出，便于跨年对比。全部计算在本地规则引擎完成，不依赖任何外部服务。
+云寻是面向田块管理的农业工作台：登记地块档案并按**茬次**记录每季作物，按地块记录每次农事作业（含用量、费用、采收产量与单价），用待办排好接下来的活，并按用户填写或估计的降雨概率和土壤湿度给出水分条件提示。作物、生长期和气温只作记录，不参与提示分支；没有自动天气或传感器数据，不是综合风险评估或用药依据。打药记录会按安全间隔期给出最早采收日，统计面板按茬次算出投入产出，便于跨年对比。全部计算在本地规则引擎完成，不依赖任何外部服务。
 
 ## 当前工作区与历史版本
 
-当前机器版本仍为 `1.0.0`，页面为 `V1.0.0`，数据库 Schema 12；新增能力尚未发布，本轮不自动确定申报名称或版本。旧文档记录 `v1.0.0` / `b952778` 为历史基线，本机当前没有可解析的该标签，不能将其当作当前工作区的验收结果。
+当前机器版本仍为 `1.0.0`，页面为 `V1.0.0`，数据库 Schema 12；新增能力尚未发布，本轮不自动确定申报名称或版本。`v1.0.0` / `b952778` 是历史基线，本轮已从配置远端取回该标签以验证打包；历史基线不等于当前工作区的验收结果。
 
-本轮整体验收、真实测试数字、依赖审计与限制见 [验收记录](docs/acceptance/current-2026-10-19/README.md)，逐项状态见 [PROJECT_STATUS](docs/PROJECT_STATUS.md)。新的软著功能与截图草稿在 [当前版材料目录](docs/software-copyright/current-draft-2026-10-19/README.md)，尚未生成正式申报包。
+较早的整体验收、测试数字、依赖审计与限制见 [验收记录](docs/acceptance/current-2026-10-19/README.md)，逐项状态见 [PROJECT_STATUS](docs/PROJECT_STATUS.md)。新的软著功能与截图草稿在 [当前版材料目录](docs/software-copyright/current-draft-2026-10-19/README.md)，尚未生成正式申报包。
+
+后续 F1—F6 修复与有限架构整理的最新回归见 [架构整理验收](docs/acceptance/architecture-2026-10-19/README.md)，当前职责说明见 [ARCHITECTURE](docs/ARCHITECTURE.md)。上述较早验收记录保留当时结果。
 
 > 该基线包含智能问答与图片诊断能力，已封存在 `docs/software-copyright/final-delivery/`。当前工作区按要求移除了这两项能力、全部模型接入和 AI 品牌文案，因此那份归档只是历史快照，与当前代码不一致；对外申报前需重新生成材料。
 
@@ -14,6 +16,9 @@
 
 ```powershell
 Copy-Item .env.example .env
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r backend/requirements.txt
 python backend/main.py
 Set-Location frontend
 npm ci
@@ -23,6 +28,7 @@ npm run dev
 ## 测试
 
 ```powershell
+python -m pip install -r backend/requirements-test.txt
 python -m unittest
 Set-Location frontend
 npm run test
@@ -30,6 +36,8 @@ npm run lint
 npm run build
 npm run test:e2e
 ```
+
+运行依赖与测试依赖分开安装，共用精确版本约束；Python 支持范围、升级流程和旧超时配置兼容处理见 [依赖与配置维护](docs/DEPENDENCIES.md)。
 
 ## 目录
 

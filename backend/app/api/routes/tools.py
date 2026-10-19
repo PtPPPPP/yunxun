@@ -18,7 +18,7 @@ TOOL_RECORD_KINDS = {"decision"}
 
 
 @router.post("/decision")
-async def decision_api(
+def decision_api(
     request: DecisionRequest,
     http_request: Request,
     user: dict[str, str] = Depends(get_current_user),
@@ -37,7 +37,7 @@ async def decision_api(
 
 
 @router.get("/tool-records")
-async def list_tool_records_api(
+def list_tool_records_api(
     kind: str | None = Query(default=None, description="记录类型：decision，不传则返回全部。"),
     limit: int = Query(default=20, ge=1, le=100, description="每页数量。"),
     cursor: str | None = Query(default=None, max_length=512, description="分页游标。"),
@@ -63,7 +63,7 @@ async def list_tool_records_api(
 
 
 @router.get("/tool-records/stats")
-async def tool_records_stats_api(
+def tool_records_stats_api(
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:
     summary = summarize_tool_records(user["id"])

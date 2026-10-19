@@ -47,7 +47,8 @@ class CsvExportsTestCase(unittest.TestCase):
         update_season(self.first["id"], "玉米", "2025-10-01", "2026-05-31", "")
         self.second = create_season(self.user["id"], self.plot["id"], "大豆", "2026-10-01", "")
         self.other = register_user("other_farmer", "other-password", "其他用户")
-        self.foreign = make_plot(self.other["user"]["id"], name="他人的地块", crop="私有作物")
+        # 隔离测试的台账日期也须在所属茬次内，不能借无效历史数据绕过写入校验。
+        self.foreign = make_plot(self.other["user"]["id"], name="他人的地块", crop="私有作物", started_on="2025-10-01")
 
     def record(self, **overrides):
         return create_farm_record(**{"user_id": self.user["id"], "plot_id": self.plot["id"], "season_id": self.first["id"],
@@ -74,7 +75,7 @@ class CsvExportsTestCase(unittest.TestCase):
         self.record(happened_on="2026-01-01", detail="日期后")
         self.record(kind="采收", detail="其他类型")
         self.record(season_id=self.second["id"], happened_on="2026-10-01", detail="其他茬")
-        another = make_plot(self.user["id"], name="本人另一地块")
+        another = make_plot(self.user["id"], name="本人另一地块", started_on="2025-10-01")
         self.record(plot_id=another["id"], season_id=get_active_season(another["id"])["id"], detail="其他地块")
         self.record(user_id=self.other["user"]["id"], plot_id=self.foreign["id"], season_id=get_active_season(self.foreign["id"])["id"], detail="他人记录")
         filters = {"plot_id": self.plot["id"], "season_id": self.first["id"], "kind": "施肥",

@@ -20,7 +20,7 @@ class ConfigParsingTestCase(unittest.TestCase):
 
     def test_parse_int_reports_invalid_value(self) -> None:
         with self.assertRaises(ValueError) as invalid:
-            config._parse_int("YUNXUN_REQUEST_TIMEOUT_SECONDS", "abc", default=45, minimum=1)
+            config._parse_int("YUNXUN_PORT", "abc", default=8001, minimum=1)
         self.assertIn("必须是整数", str(invalid.exception))
         self.assertIn("abc", str(invalid.exception))
 
@@ -86,7 +86,6 @@ class ConfigParsingTestCase(unittest.TestCase):
                 "YUNXUN_PORT": "8123",
                 "YUNXUN_REQUESTS_PER_MINUTE": "12",
                 "YUNXUN_TOKEN_EXPIRE_HOURS": "24",
-                "YUNXUN_REQUEST_TIMEOUT_SECONDS": "30",
                 "YUNXUN_AUTH_REQUESTS_PER_MINUTE": "200",
                 "YUNXUN_AUTH_WINDOW_SECONDS": "30",
             },
@@ -97,10 +96,24 @@ class ConfigParsingTestCase(unittest.TestCase):
         self.assertEqual(settings.port, 8123)
         self.assertEqual(settings.requests_per_minute, 12)
         self.assertEqual(settings.token_hours, 24)
-        self.assertEqual(settings.request_timeout_seconds, 30.0)
         self.assertEqual(settings.auth_requests_per_minute, 200)
         self.assertEqual(settings.auth_window_seconds, 30)
         config.get_settings.cache_clear()
+
+    def test_removed_timeout_environment_is_ignored_even_when_invalid(self) -> None:
+        from backend.app.core.runtime_status import build_runtime_status
+
+        self.addCleanup(config.get_settings.cache_clear)
+        for value in ("30", "abc", "-1", ""):
+            with self.subTest(value=value), patch.dict("os.environ", {
+                "YUNXUN_REQUEST_TIMEOUT_SECONDS": value,
+                "YUNXUN_ENV": "test", "YUNXUN_JWT_SECRET": "test-only-secret",
+            }):
+                config.get_settings.cache_clear()
+                settings = config.get_settings()
+                config.validate_startup_settings(settings)
+                self.assertFalse(hasattr(settings, "request_timeout_seconds"))
+                self.assertNotIn("request_timeout_seconds", build_runtime_status(settings))
 
 
 if __name__ == "__main__":

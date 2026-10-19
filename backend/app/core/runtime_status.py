@@ -28,7 +28,6 @@ def build_runtime_status(settings: Settings) -> dict[str, Any]:
         "allowed_origins": settings.allowed_origins,
         "requests_per_minute": settings.requests_per_minute,
         "token_hours": settings.token_hours,
-        "request_timeout_seconds": settings.request_timeout_seconds,
         "warnings": build_runtime_warnings(settings),
     }
 

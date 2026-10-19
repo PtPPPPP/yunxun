@@ -69,6 +69,10 @@ def main() -> None:
             "node_version": subprocess.check_output(["node", "--version"], text=True).strip(),
             "frontend_lockfile_hash": hashlib.sha256((ROOT / "frontend/package-lock.json").read_bytes()).hexdigest(),
             "backend_dependency_hash": hashlib.sha256((ROOT / "backend/requirements.txt").read_bytes()).hexdigest(),
+            "backend_dependency_hashes": {
+                name: hashlib.sha256((ROOT / "backend" / name).read_bytes()).hexdigest()
+                for name in ("requirements.txt", "requirements-test.txt", "constraints.txt")
+            },
             "included_files_count": len(files) + 1,
         }
         (stage / "release-manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")

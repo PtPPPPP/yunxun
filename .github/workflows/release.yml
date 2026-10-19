@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: backend/*.txt
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -26,7 +26,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install and verify backend
         run: |
-          python -m pip install -r backend/requirements.txt
+          python -m pip install -r backend/requirements-test.txt
+          python -m pip check
           python -m compileall backend
           python -m unittest
       - name: Install and verify frontend

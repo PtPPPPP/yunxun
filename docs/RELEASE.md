@@ -17,7 +17,11 @@
 python scripts\release_rehearsal.py
 ```
 
-演练在临时目录中安装依赖、构建、启动、重启，验证农活建议落库持久化和备份恢复，不使用正式数据库。通过后再生成发布候选：
+演练在临时目录中安装依赖、构建、启动、重启，验证农活建议落库持久化和备份恢复，不使用正式数据库。
+
+演练和发布 CI 安装 `backend/requirements-test.txt` 以运行完整后端测试；实际部署仅安装 `requirements.txt`。两者都自动使用 `constraints.txt`。发布清单保留原 `backend_dependency_hash`，另以 `backend_dependency_hashes` 记录三份依赖文件的 SHA-256，发布包应同时携带这些文件。
+
+通过后再生成发布候选：
 
 ```powershell
 python scripts\package_release.py

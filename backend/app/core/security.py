@@ -30,6 +30,12 @@ def hash_auth_token(raw_token: str) -> str:
     return hmac.new(secret, raw_token.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def session_reference(raw_token: str) -> str:
+    # 仅用于绑定退出意图，不能用作 Bearer 或数据库中的认证摘要。
+    secret = get_settings().jwt_secret.encode("utf-8")
+    return hmac.new(secret, b"yunxun:logout:v1:" + raw_token.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
 def safe_fingerprint(value: str) -> str:
     secret = get_settings().jwt_secret.encode("utf-8")
     return hmac.new(secret, value.encode("utf-8"), hashlib.sha256).hexdigest()[:12]

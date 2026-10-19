@@ -1,0 +1,7 @@
+{
+  "baseline_seconds": 0.026,
+  "during_write_lock_seconds": 2.109,
+  "health_status": 200,
+  "write_status": 200,
+  "injected_lock_seconds": 2.5
+}

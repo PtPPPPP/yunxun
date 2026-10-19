@@ -26,7 +26,8 @@ def ensure_parent_dir() -> None:
 @contextmanager
 def get_connection() -> Iterator[sqlite3.Connection]:
     ensure_parent_dir()
-    connection = sqlite3.connect(get_db_path(), check_same_thread=False, timeout=10)
+    # 每个同步业务单元独占连接；保留 SQLite 默认的同线程校验。
+    connection = sqlite3.connect(get_db_path(), timeout=10)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA busy_timeout = 10000")

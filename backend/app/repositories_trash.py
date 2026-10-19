@@ -5,7 +5,7 @@ import sqlite3
 
 from backend.app.core.database import get_connection
 from backend.app.core.errors import conflict, not_found
-from backend.app.repositories import now_utc
+from backend.app.core.time import now_utc
 
 
 def _owned(conn, table, entity_id, user_id):

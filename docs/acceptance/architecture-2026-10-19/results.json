@@ -1,0 +1,126 @@
+{
+  "checked_at_utc": "2026-10-19T09:18:10+00:00",
+  "head_at_verification": "cb022e0e11ab9ba81eaaa1d0cbeb129174c8a396",
+  "working_tree_modified": true,
+  "platform": "Windows x64",
+  "schema_version": 12,
+  "node": "v24.19.0",
+  "npm": "12.2.0",
+  "backend_full": {
+    "3.11.17": {
+      "command": "python -m unittest",
+      "passed": 309,
+      "failed": 0,
+      "seconds": 87.879
+    },
+    "3.14.8": {
+      "command": "python -m unittest",
+      "passed": 309,
+      "failed": 0,
+      "seconds": 91.563
+    }
+  },
+  "frontend_unit": {
+    "passed": 15,
+    "failed": 0
+  },
+  "frontend_lint": "passed",
+  "frontend_build_and_types": "passed",
+  "e2e_full": {
+    "passed": 125,
+    "failed": 0,
+    "backend_python": "3.11.17",
+    "browser": "Chromium",
+    "workers": 1,
+    "retries": 0,
+    "elapsed_reported": "3.0m",
+    "by_file": {
+      "architecture-regression.spec.ts": 3,
+      "current-acceptance.spec.ts": 4,
+      "decision-consistency.spec.ts": 17,
+      "decision.spec.ts": 6,
+      "economics.spec.ts": 7,
+      "exports.spec.ts": 4,
+      "farm.spec.ts": 22,
+      "guest-upgrade.spec.ts": 10,
+      "home.spec.ts": 7,
+      "mobile-ledger.spec.ts": 7,
+      "onboarding.spec.ts": 7,
+      "password.spec.ts": 5,
+      "session.spec.ts": 14,
+      "tasks.spec.ts": 7,
+      "trash.spec.ts": 5
+    }
+  },
+  "e2e_focused": {
+    "passed": 3,
+    "failed": 0,
+    "seconds": 9.6
+  },
+  "backend_compileall": {
+    "3.11.17": "passed",
+    "3.14.8": "passed"
+  },
+  "independent_trash_import": "passed",
+  "repository_business_ast_unchanged": true,
+  "not_executed": [
+    "Ubuntu/GitHub Actions",
+    "Python 3.14 Chromium E2E in this round",
+    "fresh dependency installation/audit in this round",
+    "release rehearsal/packaging/deployment in this round",
+    "physical mobile devices",
+    "production TLS/proxy/backups",
+    "capacity and long-running load"
+  ],
+  "pre_refactor_snapshots_sha256": {
+    "App.tsx": "b9ca3f05a7458dd29783e2a6f3f64817a524fa0dd6f131319c8ba23f05548578",
+    "LedgerWorkspace.tsx": "ec2c11b61b3d08ffe2331c7a226c67ea11084418c0033feefb2c18a230ef4738",
+    "repositories.py": "d0f269b4b3588117721d0ddf720fa814bf672b14b1afadee5ee4eccf0dadd9dd"
+  },
+  "source_sha256": {
+    "frontend/src/App.tsx": "e2de009d2f50581abebd45c36ea472e7c0fe9ad202c980573c14be19213f328c",
+    "frontend/src/hooks/useAuthSession.ts": "ae195d323d5b86b46d33eeb2333456044eafe8781931cae53994ca35d145e98a",
+    "frontend/src/hooks/useSessionBoundary.tsx": "ec49ae4226058cf95fe5ef95456a0306533d5c8d30055a87588dab43517d8f14",
+    "frontend/src/hooks/useAccountGuard.ts": "2164b2aeb4dc8d9a6f0f6b86c5f327d52ba0b2ab30067a8c12f4ebb50d043378",
+    "frontend/src/hooks/useAsyncGuard.ts": "fe8d8ce41329c36e90ea02654c396478f365bfb439b871b7daddb5e78a88ad73",
+    "frontend/src/hooks/useUnsavedChanges.tsx": "383cb707c1e7181fbe4cf6eeabd136d817a041ef5c32bb4e055f61b91f4f620d",
+    "frontend/src/hooks/useDialogFocus.ts": "47ed110475ad07da4c13b76bac77aa7f67c4548580c754f8da10eda6390c4fac",
+    "frontend/src/lib/logoutIntent.ts": "78e8fe2db18559a7ba99f2b34ef9c668e1600dc390918ad5e185d51b7bd02d48",
+    "frontend/src/lib/taskLedger.ts": "f0d86b237cf802e3df486d40d82a19b5c5b74182df543ba24ebdb47874e9f795",
+    "frontend/src/components/FarmRecordForm.tsx": "b6ee41377ad46923e3cfa338d22ab60d13f1341ec59548a70a1e3e93f168d223",
+    "frontend/src/components/LedgerWorkspace.tsx": "70f2f0fa9a846cd3e43a21f3d3a81d301d592e45e4052160f5c8c9a924ee838c",
+    "frontend/src/components/EconomicsPanel.tsx": "514116c30c68bd28eaf975047bf1aafbcdce5818331c9f1134ba21485ae4dcbf",
+    "backend/app/core/time.py": "f8127f6efbb027475262e231424bb4705850912a4097423d12ba6fee99920790",
+    "backend/app/core/database.py": "9119e77d2cbc7c34018769fd549a5c87c4ce1e5fe41aec2876884526f9a46e5f",
+    "backend/app/core/security.py": "4d0e1a2754e616b97b15863ef1149f3c6cde52e67d2e84b065b0153c4cda3c5a",
+    "backend/app/main.py": "0cdb46dce8f9f81a8dca260f9a47761945151aa3a185c14c46c633c9b62447c4",
+    "backend/app/repositories.py": "f92ed8bc6329d9ce795cc6ad8e14e552aa0345d4ed5d0f5bf41271536a333941",
+    "backend/app/repositories_trash.py": "c05de1223f7c8b661b86717c6feba632841285032632b5352a300a2bb02d2325",
+    "backend/app/repositories_account.py": "bd37ed8df4e7cca892868286e41f8c307656c3542bc3f8f484704f511d2bedec",
+    "backend/app/repositories_onboarding.py": "fee5f72b6e499c5837bb3553a3d84082b8464abf7946fc11ca4f90d342f98b66",
+    "backend/app/services/auth.py": "12fc9eb099bb7b9e1765af11031745a77a5fdaad787d2696b71e5ba161293f22",
+    "backend/app/services/decision.py": "3694b9d0c84b84c00fe4e30e544c220f178bd190053a69911307b4c5433ff155",
+    "backend/app/api/routes/auth.py": "76564351b3adf8cc414518a545f53a11f8cb781a2cd8c4022964d77dc118daca",
+    "backend/app/api/routes/farm.py": "6169e38d802f940ad0ad3ebf4d4874d4edd8d8b957f231ea2ca05c971c90ddf4",
+    "backend/app/api/routes/system.py": "f8b8737d1afeee69f6cd7f60021cff1d339604dc3675d9c65eb0b7934128f527",
+    "backend/app/api/routes/tools.py": "29e9cdbcac2e3fa923dccd1ce00bba235ab00b25a3df4fb41d36d67668c6f495",
+    "backend/tests/test_logout_sessions.py": "418ac2c5b6dc54d963801ebcb7ed8f1d0256f906f9c24f38266a33e17f7496fb",
+    "backend/tests/test_farm_transactions.py": "02d6169b463347a2999ed4aa6dbd7b18dc122b16fb7f0769bd88e3e70aee6455",
+    "backend/tests/test_service_concurrency.py": "6c14269462cbfb668b58a8fd8b8bb4d9e182df721a1dce86485f2e17ae0ec388",
+    "backend/tests/test_decision_service.py": "40203863c43bb4cb96862d6afe1afaf4931c81fab1920fac8da029701b2449f9",
+    "backend/tests/test_farm_regressions.py": "c2b954885d9fb121801b72949e0addb1533ac24217a213f57632b1215d9456af",
+    "backend/tests/test_csv_exports.py": "e2cc38fdabb79edf80e5b70f534aa598436d1840b87c0365188b90744b431c58",
+    "backend/tests/test_economics_trace.py": "0c866fff9c2c6fbbd7040ef37c8a2f30961b91c4116a3cc7d39ff6fb89164fbb",
+    "backend/tests/test_trash.py": "4cd4949c7a21925345b2037ad674c4ba6f1041409869edd0c1d5cd6044cf99b6",
+    "frontend/e2e/architecture-regression.spec.ts": "f737cafe2e3f51833d815101128ef9c7a846f02bab1ee482d2d3c2b98dca5211",
+    "frontend/e2e/session.spec.ts": "796f3979dedd9b6dd7e2dea7b008bde7a4935a5b0cf9dc89efd54aeba9482fc3",
+    "frontend/e2e/decision-consistency.spec.ts": "15155da36332c5a4ddd0e651c9c7c7780b3b3578aaa32cd67afdb35f8acbc9ea",
+    "frontend/e2e/farm.spec.ts": "71a31a7cd93884f06fc482aa7ceaa98a11f6fcf7fd87eb71c00d24886830721a",
+    "frontend/e2e/economics.spec.ts": "695401ee2b3aada60134c8710773440bb1fa02e322525bcf9e94400edd478129",
+    "frontend/e2e/mobile-ledger.spec.ts": "6c982779061891d4726aa95c8cabd5db8c596dd407300fac476b33c41c2116fd",
+    "backend/requirements.txt": "73fa7d1719c61905cf9e5bd8b00ce88ce42e991cbb89eb8860e3cd5559b08ce8",
+    "backend/requirements-test.txt": "496a3e53fc7790989b15e2154e0b61aa74ca49905d10f9b91f28e48841d6e43e",
+    "backend/constraints.txt": "bb2e266262d9d41614d52d0c1abaeb848a064992610cdee5a163cfd07925eb3a",
+    "frontend/package-lock.json": "d32b2460b79d7766b656f9796b1782156613506addbe004476f953a432e81bd6"
+  }
+}

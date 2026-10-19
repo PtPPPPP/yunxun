@@ -1,19 +1,14 @@
 import json
 import sqlite3
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Any
+
+from fastapi import HTTPException
 
 from backend.app.core.database import get_connection
 from backend.app.core.errors import AppError, ErrorCode, conflict, not_found
-
-
-def now_utc() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def now_iso() -> str:
-    return now_utc().isoformat(timespec="seconds")
+from backend.app.core.time import now_iso, now_utc  # 保留原导入入口的兼容性。
 
 
 def add_days(iso_date: str | None, days: int | None) -> str | None:
@@ -55,13 +50,19 @@ def create_user(username: str, password_hash: str, display_name: str, *, is_gues
     user_id = uuid.uuid4().hex
     timestamp = now_iso()
     with get_connection() as conn:
-        conn.execute(
-            """
-            INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at, is_guest)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (user_id, username, password_hash, display_name, timestamp, timestamp, int(is_guest)),
-        )
+        try:
+            conn.execute(
+                """
+                INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at, is_guest)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, username, password_hash, display_name, timestamp, timestamp, int(is_guest)),
+            )
+        except sqlite3.IntegrityError as exc:
+            # 并发注册可能同时通过用户名预检，最终以数据库唯一约束为准。
+            if exc.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE and "users.username" in str(exc):
+                raise conflict("用户名已存在，请换一个用户名。") from exc
+            raise
         row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     return dict(row)
 
@@ -311,26 +312,37 @@ def public_plot(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def create_plot(
-    user_id: str,
-    name: str,
-    area_mu: float,
-    soil_type: str,
-    irrigation: str,
-    notes: str,
+def _insert_plot(
+    conn: sqlite3.Connection, user_id: str, name: str, area_mu: float,
+    soil_type: str, irrigation: str, notes: str,
 ) -> dict[str, Any]:
     plot_id = uuid.uuid4().hex
     timestamp = now_iso()
+    conn.execute(
+        """INSERT INTO plots (id, user_id, name, area_mu, soil_type, irrigation, notes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (plot_id, user_id, name, area_mu, soil_type, irrigation, notes, timestamp, timestamp),
+    )
+    return public_plot(dict(conn.execute("SELECT * FROM plots WHERE id=?", (plot_id,)).fetchone()))
+
+
+def create_plot(
+    user_id: str, name: str, area_mu: float, soil_type: str, irrigation: str, notes: str,
+) -> dict[str, Any]:
     with get_connection() as conn:
-        conn.execute(
-            """
-            INSERT INTO plots (id, user_id, name, area_mu, soil_type, irrigation, notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (plot_id, user_id, name, area_mu, soil_type, irrigation, notes, timestamp, timestamp),
-        )
-        row = conn.execute("SELECT * FROM plots WHERE id = ?", (plot_id,)).fetchone()
-    return public_plot(dict(row))
+        return _insert_plot(conn, user_id, name, area_mu, soil_type, irrigation, notes)
+
+
+def create_plot_with_first_season(
+    user_id: str, name: str, area_mu: float, soil_type: str, irrigation: str,
+    notes: str, crop: str, started_on: str | None,
+) -> dict[str, Any]:
+    """一个业务操作只有一个提交点；第二次 INSERT 失败时地块也回滚。"""
+    with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        plot = _insert_plot(conn, user_id, name, area_mu, soil_type, irrigation, notes)
+        _insert_season(conn, user_id, plot["id"], crop, started_on, "")
+        return plot
 
 
 def get_plot(plot_id: str) -> dict[str, Any] | None:
@@ -392,28 +404,43 @@ def count_plots(user_id: str) -> int:
     return int(row["total"]) if row else 0
 
 
-def update_plot(
-    plot_id: str,
-    name: str,
-    area_mu: float,
-    soil_type: str,
-    irrigation: str,
-    notes: str,
+def _update_plot_row(
+    conn: sqlite3.Connection, plot_id: str, name: str, area_mu: float,
+    soil_type: str, irrigation: str, notes: str,
 ) -> dict[str, Any]:
-    updated_at = now_iso()
-    with get_connection() as conn:
-        conn.execute(
-            """
-            UPDATE plots
-            SET name = ?, area_mu = ?, soil_type = ?, irrigation = ?, notes = ?, updated_at = ?
-            WHERE id = ? AND deleted_at IS NULL
-            """,
-            (name, area_mu, soil_type, irrigation, notes, updated_at, plot_id),
-        )
-        row = conn.execute("SELECT * FROM plots WHERE id = ? AND deleted_at IS NULL", (plot_id,)).fetchone()
+    conn.execute(
+        """UPDATE plots SET name=?, area_mu=?, soil_type=?, irrigation=?, notes=?, updated_at=?
+        WHERE id=? AND deleted_at IS NULL""",
+        (name, area_mu, soil_type, irrigation, notes, now_iso(), plot_id),
+    )
+    row = conn.execute("SELECT * FROM plots WHERE id=? AND deleted_at IS NULL", (plot_id,)).fetchone()
     if row is None:
         raise not_found("地块不存在或已移入回收站。")
     return public_plot(dict(row))
+
+
+def update_plot(
+    plot_id: str, name: str, area_mu: float, soil_type: str, irrigation: str, notes: str,
+) -> dict[str, Any]:
+    with get_connection() as conn:
+        return _update_plot_row(conn, plot_id, name, area_mu, soil_type, irrigation, notes)
+
+
+def update_plot_with_active_season(
+    plot_id: str, user_id: str, name: str, area_mu: float, soil_type: str,
+    irrigation: str, notes: str, crop: str | None, started_on: str | None,
+) -> dict[str, Any]:
+    """兼容旧地块编辑：地块与当前茬次同改同回滚，不使用锁外的当前茬次快照。"""
+    with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        _validate_farm_links(conn, user_id, plot_id)
+        plot = _update_plot_row(conn, plot_id, name, area_mu, soil_type, irrigation, notes)
+        if crop:
+            active = conn.execute("SELECT * FROM plot_seasons WHERE plot_id=? AND user_id=? AND ended_on IS NULL",
+                                  (plot_id, user_id)).fetchone()
+            if active:
+                _update_season_row(conn, active["id"], crop, started_on, None, active["notes"])
+        return plot
 
 
 def delete_plot_with_records(plot_id: str, user_id: str | None = None, expected_revision: str | None = None) -> tuple[int, int]:
@@ -546,33 +573,33 @@ def public_season(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def create_season(
-    user_id: str,
-    plot_id: str,
-    crop: str,
-    started_on: str | None,
-    notes: str,
+def _insert_season(
+    conn: sqlite3.Connection, user_id: str, plot_id: str, crop: str,
+    started_on: str | None, notes: str,
 ) -> dict[str, Any]:
     season_id = uuid.uuid4().hex
     timestamp = now_iso()
+    _validate_farm_links(conn, user_id, plot_id)
+    try:
+        conn.execute(
+            """INSERT INTO plot_seasons
+                (id, user_id, plot_id, crop, started_on, ended_on, notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)""",
+            (season_id, user_id, plot_id, crop, started_on, notes, timestamp, timestamp),
+        )
+    except sqlite3.IntegrityError as exc:
+        if exc.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE and "plot_seasons.plot_id" in str(exc):
+            raise conflict("该地块已有进行中的茬次，请刷新后重试。") from exc
+        raise
+    return public_season(dict(conn.execute("SELECT * FROM plot_seasons WHERE id=?", (season_id,)).fetchone()))
+
+
+def create_season(
+    user_id: str, plot_id: str, crop: str, started_on: str | None, notes: str,
+) -> dict[str, Any]:
     with get_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        _validate_farm_links(conn, user_id, plot_id)
-        try:
-            conn.execute(
-                """
-                INSERT INTO plot_seasons
-                    (id, user_id, plot_id, crop, started_on, ended_on, notes, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)
-                """,
-                (season_id, user_id, plot_id, crop, started_on, notes, timestamp, timestamp),
-            )
-        except sqlite3.IntegrityError as exc:
-            if exc.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE and "plot_seasons.plot_id" in str(exc):
-                raise conflict("该地块已有进行中的茬次，请刷新后重试。") from exc
-            raise
-        row = conn.execute("SELECT * FROM plot_seasons WHERE id = ?", (season_id,)).fetchone()
-    return public_season(dict(row))
+        return _insert_season(conn, user_id, plot_id, crop, started_on, notes)
 
 
 def get_season(season_id: str) -> dict[str, Any] | None:
@@ -602,35 +629,50 @@ def list_seasons(user_id: str, *, plot_id: str | None = None) -> list[dict[str, 
     return [public_season(dict(row)) for row in rows]
 
 
-def update_season(
-    season_id: str,
-    crop: str,
-    started_on: str | None,
-    ended_on: str | None,
-    notes: str,
+def _validate_season_record_dates(
+    conn: sqlite3.Connection, season_id: str, started_on: str | None, ended_on: str | None,
+) -> None:
+    if started_on and ended_on and ended_on < started_on:
+        raise HTTPException(status_code=422, detail="结束日期不能早于开始日期。")
+    # 不过滤 deleted_at：回收站台账仍保留归茬关系，必须一并保护。
+    impact = conn.execute(
+        """SELECT COUNT(*) AS total, COALESCE(SUM(deleted_at IS NOT NULL), 0) AS trashed
+        FROM farm_records WHERE season_id=? AND
+            ((? IS NOT NULL AND happened_on<?) OR (? IS NOT NULL AND happened_on>?))""",
+        (season_id, started_on, started_on, ended_on, ended_on),
+    ).fetchone()
+    if impact["total"]:
+        raise conflict(f"修改日期会使 {impact['total']} 条台账超出该茬次范围（含回收站 {impact['trashed']} 条）。"
+                       "请核对台账，保留能够覆盖这些作业日期的茬次起止日期后重试；未修改任何记录。")
+
+
+def _update_season_row(
+    conn: sqlite3.Connection, season_id: str, crop: str, started_on: str | None,
+    ended_on: str | None, notes: str,
 ) -> dict[str, Any]:
-    updated_at = now_iso()
+    current = conn.execute("SELECT * FROM plot_seasons WHERE id=?", (season_id,)).fetchone()
+    if not current:
+        raise not_found("茬次不存在。")
+    _validate_farm_links(conn, current["user_id"], current["plot_id"])
+    _validate_season_record_dates(conn, season_id, started_on, ended_on)
+    try:
+        conn.execute(
+            """UPDATE plot_seasons SET crop=?, started_on=?, ended_on=?, notes=?, updated_at=? WHERE id=?""",
+            (crop, started_on, ended_on, notes, now_iso(), season_id),
+        )
+    except sqlite3.IntegrityError as exc:
+        if exc.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE and "plot_seasons.plot_id" in str(exc):
+            raise conflict("该地块已有进行中的茬次，请刷新后重试。") from exc
+        raise
+    return public_season(dict(conn.execute("SELECT * FROM plot_seasons WHERE id=?", (season_id,)).fetchone()))
+
+
+def update_season(
+    season_id: str, crop: str, started_on: str | None, ended_on: str | None, notes: str,
+) -> dict[str, Any]:
     with get_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        current = conn.execute("SELECT * FROM plot_seasons WHERE id=?", (season_id,)).fetchone()
-        if not current:
-            raise not_found("茬次不存在。")
-        _validate_farm_links(conn, current["user_id"], current["plot_id"])
-        try:
-            conn.execute(
-                """
-                UPDATE plot_seasons
-                SET crop = ?, started_on = ?, ended_on = ?, notes = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (crop, started_on, ended_on, notes, updated_at, season_id),
-            )
-        except sqlite3.IntegrityError as exc:
-            if exc.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE and "plot_seasons.plot_id" in str(exc):
-                raise conflict("该地块已有进行中的茬次，请刷新后重试。") from exc
-            raise
-        row = conn.execute("SELECT * FROM plot_seasons WHERE id = ?", (season_id,)).fetchone()
-    return public_season(dict(row))
+        return _update_season_row(conn, season_id, crop, started_on, ended_on, notes)
 
 
 def delete_season(season_id: str) -> None:
@@ -693,6 +735,29 @@ def _validate_farm_links(conn: sqlite3.Connection, user_id: str, plot_id: str | 
         raise conflict("关联茬次已变化，请刷新后重新选择。")
 
 
+def _resolve_record_season(
+    conn: sqlite3.Connection, user_id: str, plot_id: str, season_id: str | None,
+    happened_on: str, auto_select_season: bool,
+) -> sqlite3.Row | None:
+    """调用方已持有写锁；与茬次改期串行决定最终日期、归茬与默认作物。"""
+    _validate_farm_links(conn, user_id, plot_id, season_id)
+    if season_id is not None:
+        season = conn.execute("SELECT * FROM plot_seasons WHERE id=? AND plot_id=? AND user_id=?",
+                              (season_id, plot_id, user_id)).fetchone()
+        if ((season["started_on"] and happened_on < season["started_on"])
+                or (season["ended_on"] and happened_on > season["ended_on"])):
+            raise HTTPException(status_code=422, detail="作业日期不在所选茬次的起止日期内。")
+        return season
+    if not auto_select_season:
+        return None
+    candidates = conn.execute("""SELECT * FROM plot_seasons WHERE user_id=? AND plot_id=?
+        AND (started_on IS NULL OR started_on<=?) AND (ended_on IS NULL OR ended_on>=?)""",
+        (user_id, plot_id, happened_on, happened_on)).fetchall()
+    if len(candidates) > 1 or (candidates and not candidates[0]["started_on"]):
+        raise HTTPException(status_code=422, detail="无法按日期唯一确定茬次，请选择具体茬次或明确选择未归茬。")
+    return candidates[0] if candidates else None
+
+
 def create_farm_record(
     user_id: str,
     plot_id: str,
@@ -708,12 +773,15 @@ def create_farm_record(
     unit_price: float | None = None,
     season_id: str | None = None,
     record_id: str | None = None,
+    auto_select_season: bool = False,
 ) -> dict[str, Any]:
     record_id = record_id or uuid.uuid4().hex
     created_at = now_iso()
     with get_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        _validate_farm_links(conn, user_id, plot_id, season_id)
+        season = _resolve_record_season(conn, user_id, plot_id, season_id, happened_on, auto_select_season)
+        season_id = season["id"] if season else None
+        crop = crop or (season["crop"] if season else "")
         conn.execute(
             """
             INSERT INTO farm_records
@@ -751,7 +819,10 @@ def update_farm_record(record_id: str, user_id: str, **values: Any) -> dict[str,
                "cost", "material", "safe_days", "yield_kg", "unit_price")
     with get_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        _validate_farm_links(conn, user_id, values["plot_id"], values["season_id"])
+        season = _resolve_record_season(conn, user_id, values["plot_id"], values["season_id"],
+                                        values["happened_on"], values.get("auto_select_season", False))
+        values["season_id"] = season["id"] if season else None
+        values["crop"] = values["crop"] or (season["crop"] if season else "")
         try:
             result = conn.execute(
                 "UPDATE farm_records SET " + ", ".join(f"{column} = ?" for column in columns)

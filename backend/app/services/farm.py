@@ -15,7 +15,7 @@ from backend.app.repositories import (
     count_plots,
     create_farm_record,
     create_farm_task,
-    create_plot,
+    create_plot_with_first_season,
     delete_farm_record,
     delete_farm_task,
     delete_plot_with_records,
@@ -35,7 +35,7 @@ from backend.app.repositories import (
     summarize_farm_economics,
     update_farm_task,
     update_farm_record,
-    update_plot,
+    update_plot_with_active_season,
     update_season,
 )
 
@@ -167,21 +167,15 @@ def create_user_plot(
     planted_on: str | None,
     notes: str,
 ) -> dict[str, Any]:
-    plot = create_plot(
+    plot = create_plot_with_first_season(
         user_id=user_id,
         name=name.strip(),
         area_mu=area_mu,
         soil_type=soil_type.strip(),
         irrigation=irrigation.strip(),
         notes=notes.strip(),
-    )
-    # 建地块时填的作物与日期就是第一茬，顺手建出来，省得再点一次「开始新茬」。
-    create_season(
-        user_id=user_id,
-        plot_id=plot["id"],
         crop=crop.strip(),
         started_on=planted_on or None,
-        notes="",
     )
     log_event(
         logger,
@@ -202,30 +196,22 @@ def update_user_plot(
     area_mu: float,
     soil_type: str,
     irrigation: str,
-    crop: str,
+    crop: str | None,
     planted_on: str | None,
     notes: str,
 ) -> dict[str, Any]:
     require_plot_owner(plot_id, user_id)
-    update_plot(
+    update_plot_with_active_season(
         plot_id,
+        user_id=user_id,
         name=name.strip(),
         area_mu=area_mu,
         soil_type=soil_type.strip(),
         irrigation=irrigation.strip(),
         notes=notes.strip(),
+        crop=crop.strip() if crop else None,
+        started_on=planted_on or None,
     )
-    # 兼容旧界面：地块编辑里给了作物就改当前茬次的作物与开始日。
-    if crop is not None and crop.strip():
-        active = get_active_season(plot_id)
-        if active:
-            update_season(
-                active["id"],
-                crop=crop.strip(),
-                started_on=planted_on or None,
-                ended_on=None,
-                notes=active["notes"],
-            )
     plot = _plot_by_id(user_id, plot_id)
     log_event(
         logger,
@@ -311,31 +297,19 @@ def _prepare_farm_record(
     season_id: str | None = None,
     auto_select_season: bool = True,
 ) -> dict[str, Any]:
+    # 此处只规范化输入和初查归属；日期、自动归茬及默认作物在写事务内确定。
     require_plot_owner(plot_id, user_id)
-    season = None
     if season_id is not None:
         season = require_season_owner(season_id, user_id)
         if season["plot_id"] != plot_id:
             raise not_found("茬次不属于该地块。")
-        if ((season["started_on"] and happened_on < season["started_on"])
-                or (season["ended_on"] and happened_on > season["ended_on"])):
-            raise HTTPException(status_code=422, detail="作业日期不在所选茬次的起止日期内。")
-    elif auto_select_season:
-        candidates = [
-            item for item in list_seasons(user_id, plot_id=plot_id)
-            if (not item["started_on"] or item["started_on"] <= happened_on)
-            and (not item["ended_on"] or happened_on <= item["ended_on"])
-        ]
-        if len(candidates) > 1 or (candidates and not candidates[0]["started_on"]):
-            raise HTTPException(status_code=422, detail="无法按日期唯一确定茬次，请选择具体茬次或明确选择未归茬。")
-        if candidates:
-            season = candidates[0]
     return dict(
         plot_id=plot_id,
-        season_id=season["id"] if season else None,
+        season_id=season_id,
+        auto_select_season=auto_select_season,
         kind=kind,
         happened_on=happened_on,
-        crop=crop.strip() or (season["crop"] if season else ""),
+        crop=crop.strip(),
         detail=detail.strip(),
         quantity=quantity.strip(),
         cost=cost,

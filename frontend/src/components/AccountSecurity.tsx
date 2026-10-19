@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 
 import { useAsyncGuard } from "../hooks/useAsyncGuard";
+import { useSessionGuard } from "../hooks/useSessionBoundary";
 import { api, getApiErrorInfo, getErrorMessage } from "../lib/api";
 
 function passwordError(password: string, confirmation: string) {
@@ -19,6 +20,7 @@ function NewPasswordFields({ password, confirmation, onPassword, onConfirmation 
 }
 
 export function AccountSecurity({ onReturnToLogin }: { onReturnToLogin: (message: string) => void }) {
+  const isCurrent = useSessionGuard();
   const [oldPassword, setOldPassword] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -36,8 +38,9 @@ export function AccountSecurity({ onReturnToLogin }: { onReturnToLogin: (message
       setError(""); setUncertain(false);
       try {
         const response = await api.post<{ message: string }>("/api/auth/change-password", { current_password: oldPassword, new_password: password });
-        onReturnToLogin(response.data.message);
+        if (isCurrent()) onReturnToLogin(response.data.message);
       } catch (requestError) {
+        if (!isCurrent()) return;
         const info = getApiErrorInfo(requestError);
         const unknown = !info.status || info.status >= 500 || info.status === 401;
         setUncertain(unknown);
@@ -52,8 +55,10 @@ export function AccountSecurity({ onReturnToLogin }: { onReturnToLogin: (message
       setError(""); setCode("");
       try {
         const response = await api.post<{ recovery_code: string }>("/api/auth/recovery-code", { current_password: proof });
+        if (!isCurrent()) return;
         setCode(response.data.recovery_code); setProof("");
       } catch (requestError) {
+        if (!isCurrent()) return;
         const info = getApiErrorInfo(requestError);
         setError(info.retryable ? "未能确认生成结果，旧码可能已失效。请重新生成并以最后收到的恢复码为准。" : info.message);
       }
@@ -82,6 +87,7 @@ export function AccountSecurity({ onReturnToLogin }: { onReturnToLogin: (message
 }
 
 export function PasswordRecovery({ onReturnToLogin }: { onReturnToLogin: (username: string, message?: string) => void }) {
+  const isCurrent = useSessionGuard();
   const [username, setUsername] = useState("");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
@@ -97,8 +103,8 @@ export function PasswordRecovery({ onReturnToLogin }: { onReturnToLogin: (userna
       setError("");
       try {
         const response = await api.post<{ message: string }>("/api/auth/recover-password", { username: username.trim(), recovery_code: code.trim(), new_password: password });
-        onReturnToLogin(username.trim(), response.data.message);
-      } catch (requestError) { setError(getErrorMessage(requestError)); }
+        if (isCurrent()) onReturnToLogin(username.trim(), response.data.message);
+      } catch (requestError) { if (isCurrent()) setError(getErrorMessage(requestError)); }
     });
   }
 

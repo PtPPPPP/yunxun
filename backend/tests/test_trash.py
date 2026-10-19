@@ -282,7 +282,11 @@ class TrashTestCase(unittest.TestCase):
         record = self.record()
         self.client.delete(f"/api/farm-records/{record['id']}")
         self.assertEqual(self.client.delete(f"/api/seasons/{self.first['id']}").status_code, 409)
-        self.assertEqual(self.client.patch(f"/api/seasons/{self.first['id']}", json={"crop": "玉米", "started_on": "2026-05-01", "ended_on": "2026-05-31"}).status_code, 200)
+        self.assertEqual(self.client.patch(f"/api/seasons/{self.first['id']}", json={"crop": "玉米", "started_on": "2026-05-01", "ended_on": "2026-05-31"}).status_code, 409)
+        self.assertEqual(repositories.get_season(self.first["id"])["started_on"], "2026-04-01")
+        # 模拟历史/外部损坏，继续验证恢复入口的独立防线；正常编辑已拒绝此状态。
+        with get_connection() as conn:
+            conn.execute("UPDATE plot_seasons SET started_on='2026-05-01' WHERE id=?", (self.first["id"],))
         self.assertEqual(self.restore("records", record["id"]).status_code, 409)
         self.client.patch(f"/api/seasons/{self.first['id']}", json={"crop": "玉米", "started_on": "2026-04-01", "ended_on": "2026-05-31"})
         self.assertEqual(self.restore("records", record["id"]).status_code, 200)

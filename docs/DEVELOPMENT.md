@@ -3,7 +3,7 @@
 ## 环境
 
 - Windows 10/11，PowerShell 5+ 或 7+。
-- CI 声明 Python 3.11；本轮 Windows 本机验收使用 Python 3.14.8。其他版本不据此视为已验收。
+- 后端目标为 CPython 3.11 和 3.14，CI 按这两个版本执行后端回归；其他 Python 版本不据此视为已验收。实际平台与版本结果见 [依赖维护记录](audits/2026-10-19/依赖与配置清理验证.md)。
 - Node.js `^22.12.0 || >=24.0.0`（vitest 5 的下限；CI 与本地均使用 Node 24）。
 
 ## 初始化
@@ -13,7 +13,8 @@ Copy-Item .env.example .env
 Copy-Item frontend\.env.example frontend\.env
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r backend\requirements.txt
+python -m pip install -r backend\requirements-test.txt
+python -m pip check
 Set-Location frontend
 npm ci
 ```
@@ -43,6 +44,8 @@ npm run dev
 - CI：`.github/workflows/`。
 
 `YUNXUN_DATABASE_URL` 和 `YUNXUN_PORT` 是文档主入口。`YUNXUN_DB_PATH` 与 `PORT` 只作为历史或平台兼容变量，不应在本地模板中与主变量重复配置。
+
+运行部署只安装 `backend/requirements.txt`；开发与后端测试安装 `backend/requirements-test.txt`，后者包含前者。两者自动读取相邻的 `constraints.txt`，不要省略此文件。旧 `YUNXUN_REQUEST_TIMEOUT_SECONDS` 从未执行服务端请求截止，现在忽略该变量；详见 [依赖与配置维护](DEPENDENCIES.md)。
 
 ## 修改原则
 

@@ -24,6 +24,10 @@ class LoginRequest(BaseModel):
     password: str = Field(..., min_length=4, max_length=64)
 
 
+class LogoutRequest(BaseModel):
+    session_id: str = Field(..., pattern=r"^[a-f0-9]{64}$")
+
+
 class GuestUpgradeRequest(RegisterRequest):
     model_config = ConfigDict(extra="forbid")
 

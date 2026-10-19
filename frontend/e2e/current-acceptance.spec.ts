@@ -225,11 +225,11 @@ for (const width of [1280, 390]) {
     await page.getByRole("button", { name: "退出登录" }).click();
     await page.getByRole("button", { name: "访客登录" }).click();
     await navigate(page, "今日农活");
-    await expect(page.locator(".report-block")).toHaveText("填写条件后，这里会生成建议。");
+    await expect(page.locator(".report-block")).toHaveText("请核对当前条件并生成建议。旧建议在条件变更或重新生成时清除。");
     await expect(page.getByRole("combobox", { name: "作物", exact: true })).toHaveValue("玉米");
     const oldResponse = page.waitForResponse((response) => response.url().endsWith("/api/decision"));
     releaseAdvice(); await (await oldResponse).finished();
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-    await expect(page.locator(".report-block")).toHaveText("填写条件后，这里会生成建议。");
+    await expect(page.locator(".report-block")).toHaveText("请核对当前条件并生成建议。旧建议在条件变更或重新生成时清除。");
   });
 }

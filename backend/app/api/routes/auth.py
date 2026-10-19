@@ -1,9 +1,11 @@
+import secrets
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 
-from backend.app.api.deps import get_current_user
+from backend.app.api.deps import get_current_user, get_session_reference
 from backend.app.core.exceptions import success_payload
 from backend.app.repositories import public_user
-from backend.app.schemas import GuestUpgradeRequest, LoginRequest, ProfileUpdateRequest, RegisterRequest, PasswordChangeRequest, PasswordProofRequest, PasswordRecoveryRequest
+from backend.app.schemas import GuestUpgradeRequest, LoginRequest, LogoutRequest, ProfileUpdateRequest, RegisterRequest, PasswordChangeRequest, PasswordProofRequest, PasswordRecoveryRequest
 from backend.app.services.auth import get_current_user_from_header, guest_login, login_user, logout_user, register_user, update_profile, upgrade_guest_user
 from backend.app.core.rate_limit import InMemoryRateLimiter
 from backend.app.core.security import safe_fingerprint
@@ -31,7 +33,7 @@ def _clear_browser_session(response: Response) -> None:
 
 
 @router.post("/change-password")
-async def change_password_api(request: PasswordChangeRequest, response: Response, user: dict = Depends(get_current_user)) -> dict[str, object]:
+def change_password_api(request: PasswordChangeRequest, response: Response, user: dict = Depends(get_current_user)) -> dict[str, object]:
     _limit_credential_proof(user["id"])
     manage_credentials(user, request.current_password, new_password=request.new_password)
     _clear_browser_session(response)
@@ -40,7 +42,7 @@ async def change_password_api(request: PasswordChangeRequest, response: Response
 
 
 @router.post("/recovery-code")
-async def recovery_code_api(request: PasswordProofRequest, response: Response, user: dict = Depends(get_current_user)) -> dict[str, object]:
+def recovery_code_api(request: PasswordProofRequest, response: Response, user: dict = Depends(get_current_user)) -> dict[str, object]:
     _limit_credential_proof(user["id"])
     code = manage_credentials(user, request.current_password)
     response.headers["Cache-Control"] = "no-store"
@@ -49,7 +51,7 @@ async def recovery_code_api(request: PasswordProofRequest, response: Response, u
 
 
 @router.post("/recover-password")
-async def recover_password_api(request: PasswordRecoveryRequest, http_request: Request, response: Response) -> dict[str, object]:
+def recover_password_api(request: PasswordRecoveryRequest, http_request: Request, response: Response) -> dict[str, object]:
     _limit_auth(http_request)
     host = http_request.client.host if http_request.client else "local"
     credential_rate_limiter.cleanup()
@@ -79,7 +81,7 @@ def _set_browser_session(response: Response, token: str) -> None:
 
 
 @router.post("/register")
-async def register_api(request: RegisterRequest, http_request: Request, response: Response) -> dict[str, object]:
+def register_api(request: RegisterRequest, http_request: Request, response: Response) -> dict[str, object]:
     _limit_auth(http_request)
     payload = register_user(request.username, request.password, request.display_name)
     _set_browser_session(response, str(payload["token"]))
@@ -87,14 +89,14 @@ async def register_api(request: RegisterRequest, http_request: Request, response
 
 
 @router.get("/csrf", include_in_schema=False)
-async def csrf_api(response: Response) -> dict[str, object]:
+def csrf_api(response: Response) -> dict[str, object]:
     settings = get_settings()
     response.set_cookie(CSRF_COOKIE_NAME, create_csrf_token(), httponly=False, secure=settings.cookie_secure, samesite=settings.cookie_same_site, path="/", max_age=settings.token_hours * 3600)
     return success_payload(message="CSRF token issued")
 
 
 @router.post("/login")
-async def login_api(request: LoginRequest, http_request: Request, response: Response) -> dict[str, object]:
+def login_api(request: LoginRequest, http_request: Request, response: Response) -> dict[str, object]:
     _limit_auth(http_request)
     payload = login_user(request.username, request.password)
     _set_browser_session(response, str(payload["token"]))
@@ -102,7 +104,7 @@ async def login_api(request: LoginRequest, http_request: Request, response: Resp
 
 
 @router.post("/guest")
-async def guest_login_api(request: Request, response: Response) -> dict[str, object]:
+def guest_login_api(request: Request, response: Response) -> dict[str, object]:
     _limit_auth(request)
     payload = guest_login()
     _set_browser_session(response, str(payload["token"]))
@@ -110,8 +112,11 @@ async def guest_login_api(request: Request, response: Response) -> dict[str, obj
 
 
 @router.post("/logout")
-async def logout_api(http_request: Request, response: Response, authorization: str | None = Header(default=None)) -> dict[str, object]:
-    if not authorization and http_request.cookies.get("yunxun_session"):
+def logout_api(http_request: Request, response: Response, authorization: str | None = Header(default=None), request: LogoutRequest | None = None) -> dict[str, object]:
+    current_session = get_session_reference(http_request, authorization)
+    if request and current_session and not secrets.compare_digest(request.session_id, current_session):
+        raise HTTPException(status_code=409, detail="当前会话已变化，旧退出请求不能退出新会话。")
+    if http_request.cookies.get("yunxun_session"):
         authorization = f"Bearer {http_request.cookies['yunxun_session']}"
     user_id: str | None = None
     if authorization and authorization.startswith("Bearer "):
@@ -120,13 +125,14 @@ async def logout_api(http_request: Request, response: Response, authorization: s
         except HTTPException:
             user_id = None
     logout_user(authorization, user_id=user_id)
-    response.delete_cookie("yunxun_session", path="/")
-    response.delete_cookie(CSRF_COOKIE_NAME, path="/")
+    # 撤销即退出。不能发 Set-Cookie：迟到响应可能删除其后登录的新 Cookie。
+    # 已撤销的 HttpOnly Cookie 不再能认证，由下次登录覆盖或自然过期。
+    response.headers["Cache-Control"] = "no-store"
     return success_payload(message="已退出登录。")
 
 
 @router.post("/upgrade-guest")
-async def upgrade_guest_api(
+def upgrade_guest_api(
     request: GuestUpgradeRequest, http_request: Request, response: Response,
     user: dict = Depends(get_current_user),
 ) -> dict[str, object]:
@@ -138,12 +144,12 @@ async def upgrade_guest_api(
 
 
 @router.get("/me", include_in_schema=False)
-async def auth_me_api(user: dict[str, str] = Depends(get_current_user)) -> dict[str, object]:
-    return success_payload(user=public_user(user))
+def auth_me_api(user: dict[str, str] = Depends(get_current_user), session_id: str = Depends(get_session_reference)) -> dict[str, object]:
+    return success_payload(user=public_user(user), session_id=session_id)
 
 
 @router.patch("/profile", include_in_schema=False)
-async def auth_profile_api(
+def auth_profile_api(
     request: ProfileUpdateRequest,
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:

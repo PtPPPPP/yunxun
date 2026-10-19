@@ -418,6 +418,13 @@ button:disabled:hover {
   gap: 14px;
 }
 
+.decision-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
 .field-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

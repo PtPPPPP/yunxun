@@ -1,6 +1,14 @@
 from fastapi import Header, Request
 
 from backend.app.services.auth import get_current_user_from_header
+from backend.app.core.security import session_reference
+
+
+def get_session_reference(request: Request, authorization: str | None = Header(default=None)) -> str:
+    token = request.cookies.get("yunxun_session")
+    if not token and authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    return session_reference(token) if token else ""
 
 
 def get_current_user(request: Request, authorization: str | None = Header(default=None)) -> dict[str, str]:

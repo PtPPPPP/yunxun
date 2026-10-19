@@ -6,7 +6,7 @@ from backend.app.core.database import get_connection
 from fastapi import HTTPException
 
 from backend.app.core.errors import conflict, not_found
-from backend.app.repositories import now_iso
+from backend.app.core.time import now_iso
 
 
 def onboarding_status(user_id: str) -> dict:

@@ -1,0 +1,16 @@
+{
+  "season_dates": {
+    "season_update_status": 200,
+    "record_edit_status": 422,
+    "record_edit_error": {
+      "success": false,
+      "error": "作业日期不在所选茬次的起止日期内。"
+    }
+  },
+  "atomicity": {
+    "create_status": 500,
+    "plots_before": 1,
+    "plots_after": 2,
+    "persisted_plot_has_season": false
+  }
+}

@@ -9,7 +9,9 @@ interface DecisionWorkspaceProps {
   soilMoisture: number;
   temperature: number;
   result: string;
+  resultContext: string;
   busy: boolean;
+  saving: boolean;
   plots: Plot[];
   selectedPlotId: string;
   onChange: (field: "crop" | "stage" | "rainProb" | "soilMoisture" | "temperature", value: string | number) => void;
@@ -25,7 +27,7 @@ const stages = ["播种出苗期", "苗期", "快速生长期", "开花坐果期
 
 export function DecisionWorkspace(props: DecisionWorkspaceProps) {
   const {
-    crop, stage, rainProb, soilMoisture, temperature, result, busy,
+    crop, stage, rainProb, soilMoisture, temperature, result, resultContext, busy, saving,
     plots, selectedPlotId, onChange, onPlotChange, onSubmit,
     onSaveAdviceAsTask, adviceSaved,
   } = props;
@@ -36,11 +38,11 @@ export function DecisionWorkspace(props: DecisionWorkspaceProps) {
         <div className="panel__header">
           <div>
             <h3>田间条件</h3>
-            <p>把天气、墒情和生长期作为统一输入，让今天的建议更可执行。</p>
+            <p>条件由你填写或估计，初始数值仅为示例，没有自动天气或传感器数据。选地块只带入当季作物，其余条件请自行核对。</p>
           </div>
         </div>
 
-        <div className="field-grid">
+        <fieldset className="field-grid decision-fields" disabled={saving}>
           {plots.length > 0 && (
             <label className="field">
               <span>按地块带入</span>
@@ -122,9 +124,10 @@ export function DecisionWorkspace(props: DecisionWorkspaceProps) {
               />
             </div>
           </label>
-        </div>
+        </fieldset>
 
-        <button className="primary-button" type="button" onClick={onSubmit} disabled={busy}>
+        <p>仅按降雨概率和土壤湿度给出水分条件提示。作物、生长期和气温只作记录，不参与分支判断。修改任一条件会清除旧建议，请重新生成。</p>
+        <button className="primary-button" type="button" onClick={onSubmit} disabled={busy || saving}>
           <CalendarCheck2 size={16} />
           {busy ? "生成中…" : "生成今日建议"}
         </button>
@@ -133,15 +136,16 @@ export function DecisionWorkspace(props: DecisionWorkspaceProps) {
       <div className="panel">
         <div className="panel__header">
           <div>
-            <h3>输出结果</h3>
-            <p>适合直接给农户说明，也适合留作当天巡田计划。</p>
+            <h3>水分条件提示</h3>
+            <p>供核对浇排水与巡田安排，不是综合风险评估或用药依据。实际农事请结合现场情况核对。</p>
           </div>
         </div>
-        <div className="report-block">{result || "填写条件后，这里会生成建议。"}</div>
+        {result && <p role="status">{resultContext}</p>}
+        <div className="report-block">{result || "请核对当前条件并生成建议。旧建议在条件变更或重新生成时清除。"}</div>
         {result && (
-          <button className="secondary-button" type="button" onClick={onSaveAdviceAsTask} disabled={adviceSaved}>
+          <button className="secondary-button" type="button" onClick={onSaveAdviceAsTask} disabled={adviceSaved || saving}>
             <CalendarPlus size={16} />
-            {adviceSaved ? "已存为待办" : "把建议存为待办"}
+            {saving ? "正在存为待办…" : adviceSaved ? "已存为待办" : "把建议存为待办"}
           </button>
         )}
       </div>

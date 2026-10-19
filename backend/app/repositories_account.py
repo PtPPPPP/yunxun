@@ -6,7 +6,7 @@ from fastapi import HTTPException
 
 from backend.app.core.database import get_connection
 from backend.app.core.security import hash_password, hash_recovery_code, verify_password
-from backend.app.repositories import now_iso
+from backend.app.core.time import now_iso
 
 
 INVALID_RECOVERY = "账号或恢复凭据无效，请核对后重试；无法恢复时请联系部署者。"

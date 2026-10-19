@@ -6,6 +6,15 @@ V1.0 面向 Windows 本机或同一局域网内的单机部署。后端默认监
 
 ## 本机启动
 
+在选定的 CPython 3.11 或 3.14 虚拟环境内安装运行依赖（清单会自动应用 `backend/constraints.txt`）：
+
+```powershell
+python -m pip install -r backend/requirements.txt
+python -m pip check
+```
+
+测试使用额外的 `requirements-test.txt`，运行部署不要求安装 httpx 或审计工具。精确版本、支持范围与升级方式见 [依赖与配置维护](DEPENDENCIES.md)。
+
 ```powershell
 powershell -File scripts\start_backend.ps1
 powershell -File scripts\build_frontend.ps1
@@ -27,6 +36,8 @@ powershell -File scripts\build_frontend.ps1
 - `/health/ready`：数据库连接、Schema 和核心表就绪。
 
 健康检查只读取本机数据库和配置，不访问任何外部服务。
+
+旧环境变量 `YUNXUN_REQUEST_TIMEOUT_SECONDS` 已移除，已有 `.env` 中残留的任何值均忽略，不阻止启动。它原先没有执行请求截止，不能作为服务端超时保证。前端 HTTP 客户端的 45 秒超时仍保留；客户端停止等待不意味着 SQLite 事务被取消。
 
 ## 数据库与备份
 

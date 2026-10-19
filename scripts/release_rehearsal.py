@@ -93,7 +93,8 @@ def main() -> None:
         venv = workspace / "venv"
         run([sys.executable, "-m", "venv", str(venv)], workspace)
         python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-        run([str(python), "-m", "pip", "install", "-r", "backend/requirements.txt"], project)
+        run([str(python), "-m", "pip", "install", "-r", "backend/requirements-test.txt"], project)
+        run([str(python), "-m", "pip", "check"], project)
         run([str(python), "-m", "compileall", "backend"], project)
         run([str(python), "-m", "unittest"], project)
         npm = "npm.cmd" if os.name == "nt" else "npm"

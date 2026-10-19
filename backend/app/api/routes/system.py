@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from backend.app.api.deps import get_current_user
+from backend.app.api.deps import get_current_user, get_session_reference
 from backend.app.core.exceptions import success_payload
 from backend.app.repositories import public_user
 from backend.app.schemas import ProfileUpdateRequest
@@ -12,37 +12,38 @@ router = APIRouter(tags=["system"])
 
 
 @router.get("/")
-async def root_api() -> dict[str, object]:
+def root_api() -> dict[str, object]:
     return success_payload(message="云寻智慧农业工作台软件后端已启动。")
 
 
 @router.get("/api/health")
-async def health_api() -> dict[str, object]:
+def health_api() -> dict[str, object]:
     return success_payload(**build_health_payload())
 
 
 @router.get("/health")
-async def public_health_api() -> dict[str, object]:
+def public_health_api() -> dict[str, object]:
     return success_payload(**build_health_payload())
 
 
 @router.get("/health/live")
 async def liveness_api() -> dict[str, object]:
+    # 仅访问内存；独立于等待 SQLite 锁或密码计算的业务线程。
     return success_payload(**build_liveness_payload())
 
 
 @router.get("/health/ready")
-async def readiness_api() -> dict[str, object]:
+def readiness_api() -> dict[str, object]:
     return success_payload(**build_readiness_payload())
 
 
 @router.get("/api/me")
-async def me_api(user: dict[str, str] = Depends(get_current_user)) -> dict[str, object]:
-    return success_payload(user=public_user(user))
+def me_api(user: dict[str, str] = Depends(get_current_user), session_id: str = Depends(get_session_reference)) -> dict[str, object]:
+    return success_payload(user=public_user(user), session_id=session_id)
 
 
 @router.patch("/api/me/profile")
-async def profile_api(
+def profile_api(
     request: ProfileUpdateRequest,
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:

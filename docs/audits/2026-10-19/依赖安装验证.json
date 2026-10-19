@@ -1,0 +1,135 @@
+{
+  "platform": "Windows x64",
+  "environments": {
+    "runtime311": {
+      "python": "3.11.17",
+      "project_distributions": 15,
+      "packages": {
+        "annotated-doc": "0.0.5",
+        "annotated-types": "0.8.0",
+        "anyio": "4.15.1",
+        "click": "8.5.0",
+        "fastapi": "0.146.0",
+        "h11": "0.16.0",
+        "idna": "3.20",
+        "opentelemetry-api": "1.45.1",
+        "pydantic": "2.14.1",
+        "pydantic-core": "2.50.1",
+        "python-dotenv": "1.2.4",
+        "starlette": "1.9.0",
+        "typing-extensions": "4.16.0",
+        "typing-inspection": "0.4.4",
+        "uvicorn": "0.54.0"
+      },
+      "pip_check": "passed",
+      "final_constraints_offline_check": "passed"
+    },
+    "runtime314": {
+      "python": "3.14.8",
+      "project_distributions": 15,
+      "packages": {
+        "annotated-doc": "0.0.5",
+        "annotated-types": "0.8.0",
+        "anyio": "4.15.1",
+        "click": "8.5.0",
+        "fastapi": "0.146.0",
+        "h11": "0.16.0",
+        "idna": "3.20",
+        "opentelemetry-api": "1.45.1",
+        "pydantic": "2.14.1",
+        "pydantic-core": "2.50.1",
+        "python-dotenv": "1.2.4",
+        "starlette": "1.9.0",
+        "typing-extensions": "4.16.0",
+        "typing-inspection": "0.4.4",
+        "uvicorn": "0.54.0"
+      },
+      "pip_check": "passed",
+      "final_constraints_offline_check": "passed"
+    },
+    "test311": {
+      "python": "3.11.17",
+      "project_distributions": 18,
+      "packages": {
+        "annotated-doc": "0.0.5",
+        "annotated-types": "0.8.0",
+        "anyio": "4.15.1",
+        "certifi": "2026.10.18",
+        "click": "8.5.0",
+        "fastapi": "0.146.0",
+        "h11": "0.16.0",
+        "httpcore": "1.0.9",
+        "httpx": "0.28.1",
+        "idna": "3.20",
+        "opentelemetry-api": "1.45.1",
+        "pydantic": "2.14.1",
+        "pydantic-core": "2.50.1",
+        "python-dotenv": "1.2.4",
+        "starlette": "1.9.0",
+        "typing-extensions": "4.16.0",
+        "typing-inspection": "0.4.4",
+        "uvicorn": "0.54.0"
+      },
+      "pip_check": "passed",
+      "final_constraints_offline_check": "passed"
+    },
+    "test314": {
+      "python": "3.14.8",
+      "project_distributions": 18,
+      "packages": {
+        "annotated-doc": "0.0.5",
+        "annotated-types": "0.8.0",
+        "anyio": "4.15.1",
+        "certifi": "2026.10.18",
+        "click": "8.5.0",
+        "fastapi": "0.146.0",
+        "h11": "0.16.0",
+        "httpcore": "1.0.9",
+        "httpx": "0.28.1",
+        "idna": "3.20",
+        "opentelemetry-api": "1.45.1",
+        "pydantic": "2.14.1",
+        "pydantic-core": "2.50.1",
+        "python-dotenv": "1.2.4",
+        "starlette": "1.9.0",
+        "typing-extensions": "4.16.0",
+        "typing-inspection": "0.4.4",
+        "uvicorn": "0.54.0"
+      },
+      "pip_check": "passed",
+      "final_constraints_offline_check": "passed"
+    }
+  },
+  "audits": {
+    "runtime311": {
+      "distributions": 16,
+      "known_vulnerabilities": 0,
+      "skipped": 0
+    },
+    "runtime314": {
+      "distributions": 16,
+      "known_vulnerabilities": 0,
+      "skipped": 0
+    },
+    "test311": {
+      "distributions": 19,
+      "known_vulnerabilities": 0,
+      "skipped": 0
+    },
+    "test314": {
+      "distributions": 19,
+      "known_vulnerabilities": 0,
+      "skipped": 0
+    },
+    "runtime-requirements": {
+      "distributions": 15,
+      "known_vulnerabilities": 0,
+      "skipped": 0
+    },
+    "test-requirements": {
+      "distributions": 18,
+      "known_vulnerabilities": 0,
+      "skipped": 0
+    }
+  }
+}

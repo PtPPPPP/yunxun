@@ -48,24 +48,24 @@ router = APIRouter(prefix="/api", tags=["farm"])
 
 
 @router.get("/onboarding")
-async def onboarding_api(user: dict = Depends(get_current_user)) -> dict:
+def onboarding_api(user: dict = Depends(get_current_user)) -> dict:
     return success_payload(onboarding=onboarding_status(user["id"]))
 
 
 @router.patch("/onboarding")
-async def update_onboarding_api(request: OnboardingUpdateRequest, user: dict = Depends(get_current_user)) -> dict:
+def update_onboarding_api(request: OnboardingUpdateRequest, user: dict = Depends(get_current_user)) -> dict:
     set_onboarding_skipped(user["id"], request.skipped)
     return success_payload(onboarding=onboarding_status(user["id"]))
 
 
 @router.post("/demo-data")
-async def load_demo_api(user: dict = Depends(get_current_user)) -> dict:
+def load_demo_api(user: dict = Depends(get_current_user)) -> dict:
     already_loaded = load_demo_data(user["id"])
     return success_payload(already_loaded=already_loaded, onboarding=onboarding_status(user["id"]))
 
 
 @router.delete("/demo-data")
-async def clear_demo_api(user: dict = Depends(get_current_user)) -> dict:
+def clear_demo_api(user: dict = Depends(get_current_user)) -> dict:
     result = clear_demo_data(user["id"])
     return success_payload(**result, onboarding=onboarding_status(user["id"]))
 
@@ -87,12 +87,12 @@ def record_write_values(request: FarmRecordCreateRequest) -> dict:
 
 
 @router.get("/plots")
-async def list_plots_api(user: dict[str, str] = Depends(get_current_user)) -> dict[str, object]:
+def list_plots_api(user: dict[str, str] = Depends(get_current_user)) -> dict[str, object]:
     return success_payload(plots=list_user_plots(user["id"]))
 
 
 @router.post("/plots")
-async def create_plot_api(
+def create_plot_api(
     request: PlotCreateRequest,
     http_request: Request,
     user: dict[str, str] = Depends(get_current_user),
@@ -113,7 +113,7 @@ async def create_plot_api(
 
 
 @router.patch("/plots/{plot_id}")
-async def update_plot_api(
+def update_plot_api(
     plot_id: str,
     request: PlotUpdateRequest,
     http_request: Request,
@@ -136,7 +136,7 @@ async def update_plot_api(
 
 
 @router.delete("/plots/{plot_id}")
-async def delete_plot_api(
+def delete_plot_api(
     plot_id: str,
     http_request: Request,
     expected_revision: str | None = Query(default=None, max_length=128),
@@ -185,7 +185,7 @@ def trash_purge_api(kind: str, entity_id: str, confirm: bool = False,
 
 
 @router.get("/farm-records")
-async def list_farm_records_api(
+def list_farm_records_api(
     plot_id: str | None = Query(default=None, max_length=64, description="按地块筛选。"),
     kind: str | None = Query(default=None, max_length=16, description="按作业类型筛选。"),
     date_from: IsoDate | None = None,
@@ -222,7 +222,7 @@ async def list_farm_records_api(
 
 
 @router.post("/farm-records")
-async def create_farm_record_api(
+def create_farm_record_api(
     request: FarmRecordSubmissionRequest,
     http_request: Request,
     user: dict[str, str] = Depends(get_current_user),
@@ -265,7 +265,7 @@ def farm_economics_csv_api(
 
 
 @router.patch("/farm-records/{record_id}")
-async def update_farm_record_api(
+def update_farm_record_api(
     record_id: str,
     request: FarmRecordCreateRequest,
     http_request: Request,
@@ -278,7 +278,7 @@ async def update_farm_record_api(
 
 
 @router.delete("/farm-records/{record_id}")
-async def delete_farm_record_api(
+def delete_farm_record_api(
     record_id: str,
     http_request: Request,
     user: dict[str, str] = Depends(get_current_user),
@@ -289,14 +289,14 @@ async def delete_farm_record_api(
 
 
 @router.get("/farm-records/stats")
-async def farm_records_stats_api(
+def farm_records_stats_api(
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:
     return success_payload(**summarize_user_farm_records(user["id"]))
 
 
 @router.get("/farm-records/economics")
-async def farm_records_economics_api(
+def farm_records_economics_api(
     plot_id: str | None = Query(default=None, max_length=64),
     season_id: str | None = Query(default=None, max_length=64),
     year: int | None = Query(default=None, ge=1, le=9999, description="按作业日期所属年份筛选；不筛选茬次开始年份。"),
@@ -308,7 +308,7 @@ async def farm_records_economics_api(
 
 
 @router.get("/farm-tasks")
-async def list_farm_tasks_api(user: dict[str, str] = Depends(get_current_user)) -> dict[str, object]:
+def list_farm_tasks_api(user: dict[str, str] = Depends(get_current_user)) -> dict[str, object]:
     """一次返回未完成待办与最近完成的若干条。
 
     待办量级很小（未完成通常几十条），所以不做游标分页；已完成的历史
@@ -318,7 +318,7 @@ async def list_farm_tasks_api(user: dict[str, str] = Depends(get_current_user)) 
 
 
 @router.post("/farm-tasks")
-async def create_farm_task_api(
+def create_farm_task_api(
     request: FarmTaskCreateRequest,
     http_request: Request,
     user: dict[str, str] = Depends(get_current_user),
@@ -336,7 +336,7 @@ async def create_farm_task_api(
 
 
 @router.patch("/farm-tasks/{task_id}")
-async def update_farm_task_api(
+def update_farm_task_api(
     task_id: str,
     request: FarmTaskUpdateRequest,
     http_request: Request,
@@ -357,7 +357,7 @@ async def update_farm_task_api(
 
 
 @router.delete("/farm-tasks/{task_id}")
-async def delete_farm_task_api(
+def delete_farm_task_api(
     task_id: str,
     http_request: Request,
     user: dict[str, str] = Depends(get_current_user),
@@ -368,7 +368,7 @@ async def delete_farm_task_api(
 
 
 @router.get("/seasons")
-async def list_seasons_api(
+def list_seasons_api(
     plot_id: str | None = Query(default=None, max_length=64, description="按地块筛选。"),
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:
@@ -376,7 +376,7 @@ async def list_seasons_api(
 
 
 @router.post("/seasons")
-async def create_season_api(
+def create_season_api(
     request: SeasonCreateRequest,
     http_request: Request,
     user: dict[str, str] = Depends(get_current_user),
@@ -394,7 +394,7 @@ async def create_season_api(
 
 
 @router.patch("/seasons/{season_id}")
-async def update_season_api(
+def update_season_api(
     season_id: str,
     request: SeasonUpdateRequest,
     http_request: Request,
@@ -414,7 +414,7 @@ async def update_season_api(
 
 
 @router.delete("/seasons/{season_id}")
-async def delete_season_api(
+def delete_season_api(
     season_id: str,
     http_request: Request,
     user: dict[str, str] = Depends(get_current_user),
