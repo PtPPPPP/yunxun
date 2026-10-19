@@ -35,4 +35,8 @@ npm run test:e2e
 
 ## 限制与文档
 
+台账归茬按作业日期匹配，只有起始日已知且唯一命中的茬次才自动归属；日期重叠、日期未知或季间空档保留为「未归茬」，也可在台账选择历史茬次。API `POST /api/farm-records` 的 `season_id` 省略时自动匹配，传具体 ID 时校验本人地块与日期范围，显式传 `null` 时保留未归茬。已有记录不会自动重新归茬。
+
+采收提醒按同一地块全部茬次和作物的已登记施药记录，取「施药日 + 用户填写间隔天数」最晚的一天；查询日之后的施药记录不参与。换茬不会解除未结束的提醒。间隔期须按具体产品标签手工填写，软件仅核对输入的日期算术，不确认实际用药或采收合规性。
+
 当前是 SQLite 单机版本，不包含 PostgreSQL、Redis、Docker、公网 SaaS、计费或多租户。详见 `docs/V1_SCOPE.md`、`docs/ARCHITECTURE.md`、`docs/SECURITY.md`、`docs/TESTING.md`、`docs/DEPLOYMENT.md` 和 `docs/RELEASE.md`。

@@ -9,6 +9,7 @@ from backend.app.api.routes import auth, farm, system, tools
 from backend.app.core.config import get_settings, validate_startup_settings
 from backend.app.core.database import init_db
 from backend.app.core.exceptions import (
+    error_response,
     http_exception_handler,
     unexpected_exception_handler,
     validation_exception_handler,
@@ -35,6 +36,17 @@ def create_app() -> FastAPI:
         docs_url="/docs" if settings.docs_enabled else None,
         redoc_url="/redoc" if settings.docs_enabled else None,
     )
+
+    @app.middleware("http")
+    async def csrf_guard(request, call_next):
+        try:
+            if request.url.path.startswith("/api/"):
+                validate_csrf_request(request)
+        except HTTPException as exc:
+            return await http_exception_handler(request, exc)
+        return await call_next(request)
+
+    # 请求上下文在最外层，CORS 包住 CSRF 拒绝响应，使浏览器也能读取 403 JSON。
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
@@ -50,16 +62,11 @@ def create_app() -> FastAPI:
         started = time.perf_counter()
         status_code = 500
         try:
-            if request.url.path.startswith("/api/"):
-                validate_csrf_request(request)
             content_length = request.headers.get("content-length", "")
             if content_length.isdigit() and int(content_length) > 10 * 1024 * 1024:
-                from fastapi.responses import JSONResponse
-                response = JSONResponse(status_code=413, content={"success": False, "error": "请求体过大。", "code": "REQUEST_TOO_LARGE"})
-                response.headers["X-Request-ID"] = request_id
-                status_code = 413
-                return response
-            response = await call_next(request)
+                response = error_response("请求体过大。", 413, code="REQUEST_TOO_LARGE")
+            else:
+                response = await call_next(request)
             status_code = response.status_code
             response.headers["X-Request-ID"] = request_id
             response.headers["X-Content-Type-Options"] = "nosniff"

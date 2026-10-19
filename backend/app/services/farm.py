@@ -2,6 +2,8 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from fastapi import HTTPException
+
 from backend.app.core.audit import log_event
 from backend.app.core.errors import conflict, not_found
 from backend.app.core.security import safe_fingerprint
@@ -109,7 +111,13 @@ def update_user_season(
     ended_on: str | None,
     notes: str,
 ) -> dict[str, Any]:
-    require_season_owner(season_id, user_id)
+    existing = require_season_owner(season_id, user_id)
+    if started_on and ended_on and ended_on < started_on:
+        raise HTTPException(status_code=422, detail="结束日期不能早于开始日期。")
+    if ended_on is None:
+        active = get_active_season(existing["plot_id"])
+        if active and active["id"] != season_id:
+            raise conflict("该地块已有进行中的茬次，请先结束它再重开旧茬。")
     season = update_season(
         season_id,
         crop=crop.strip(),
@@ -266,18 +274,34 @@ def create_user_farm_record(
     safe_days: int | None = None,
     yield_kg: float | None = None,
     unit_price: float | None = None,
+    season_id: str | None = None,
+    auto_select_season: bool = True,
 ) -> dict[str, Any]:
     require_plot_owner(plot_id, user_id)
-    active = get_active_season(plot_id)
+    season = None
+    if season_id is not None:
+        season = require_season_owner(season_id, user_id)
+        if season["plot_id"] != plot_id:
+            raise not_found("茬次不属于该地块。")
+        if ((season["started_on"] and happened_on < season["started_on"])
+                or (season["ended_on"] and happened_on > season["ended_on"])):
+            raise HTTPException(status_code=422, detail="作业日期不在所选茬次的起止日期内。")
+    elif auto_select_season:
+        candidates = [
+            item for item in list_seasons(user_id, plot_id=plot_id)
+            if (not item["started_on"] or item["started_on"] <= happened_on)
+            and (not item["ended_on"] or happened_on <= item["ended_on"])
+        ]
+        # 未知开始日、日期重叠、季间空档都不能推断，保留未归茬。
+        if len(candidates) == 1 and candidates[0]["started_on"]:
+            season = candidates[0]
     record = create_farm_record(
         user_id=user_id,
         plot_id=plot_id,
-        # 自动挂到进行中的茬次；没有进行中的茬次就不挂，后面按「未归茬」统计。
-        season_id=active["id"] if active else None,
+        season_id=season["id"] if season else None,
         kind=kind,
         happened_on=happened_on,
-        # 作物默认取当前茬次的作物，允许改写以保留轮作历史。
-        crop=crop.strip() or (active["crop"] if active else ""),
+        crop=crop.strip() or (season["crop"] if season else ""),
         detail=detail.strip(),
         quantity=quantity.strip(),
         cost=cost,

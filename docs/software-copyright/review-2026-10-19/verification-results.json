@@ -1,0 +1,100 @@
+{
+  "review_date": "2026-10-19",
+  "product_code_modified": false,
+  "backend_tests": {
+    "passed": 144,
+    "seconds": 17.815
+  },
+  "frontend_unit_tests": {
+    "passed": 11,
+    "files": 2
+  },
+  "lint_exit_code": 0,
+  "build_exit_code": 0,
+  "e2e": {
+    "passed": 28,
+    "browser": "Chromium",
+    "seconds": 32.3
+  },
+  "release_configuration": {
+    "environment": "test",
+    "schema": 9,
+    "passed": true
+  },
+  "http_load": {
+    "concurrency": 8,
+    "requests": 120,
+    "http_200": 120,
+    "average_ms": 62.64,
+    "p95_ms": 125.85
+  },
+  "npm_audit": {
+    "metadata": {
+      "vulnerabilities": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 3,
+        "critical": 0,
+        "total": 3
+      },
+      "dependencies": {
+        "prod": 34,
+        "dev": 216,
+        "optional": 53,
+        "peer": 0,
+        "peerOptional": 0,
+        "total": 249
+      }
+    },
+    "packages": {
+      "axios": {
+        "severity": "high",
+        "range": "1.0.0 - 1.19.0",
+        "fixAvailable": true,
+        "direct": true
+      },
+      "brace-expansion": {
+        "severity": "high",
+        "range": "4.0.0 - 5.0.11",
+        "fixAvailable": true,
+        "direct": false
+      },
+      "source-map-js": {
+        "severity": "high",
+        "range": "1.0.0 - 1.2.1",
+        "fixAvailable": true,
+        "direct": false
+      }
+    }
+  },
+  "pip_audit": {
+    "installed_packages_audited": 53,
+    "vulnerable_packages": []
+  },
+  "boundary_observations": {
+    "invalid_calendar_date": {
+      "status": 200,
+      "stored_date": "2026-02-31"
+    },
+    "season_end_before_start": {
+      "status": 200
+    },
+    "backdated_record": {
+      "status": 200,
+      "attached_to_october_season": true
+    },
+    "reopen_old_season_while_new_active": {
+      "status": 500
+    },
+    "overlapping_spray_intervals": {
+      "reference_date": "2026-10-19",
+      "reported_earliest_harvest_on": "2026-10-13",
+      "reported_in_safe_window": false,
+      "longer_interval_ends_on": "2026-10-31"
+    },
+    "cookie_write_without_csrf": {
+      "status": 500
+    }
+  }
+}

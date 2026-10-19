@@ -20,6 +20,7 @@ async function openLedger(page: Page) {
 async function createPlot(page: Page, name: string, area: string) {
   await page.getByPlaceholder("例如：东坡三亩地").fill(name);
   await page.getByLabel("面积（亩）").fill(area);
+  await page.getByLabel("播种或定植日期").fill("2026-04-01");
   await page.getByRole("button", { name: "新建地块" }).click();
   await expect(page.locator(".plot-card").filter({ hasText: name })).toBeVisible();
 }
@@ -75,8 +76,9 @@ test("打药记录安全间隔期，采收时给出安全期提醒", async ({ pa
   await openLedger(page);
 
   await page.getByLabel("作业类型").selectOption("打药");
-  await page.getByLabel("常见农药参考").selectOption("吡虫啉");
-  await expect(page.getByLabel("安全间隔期（天）")).toHaveValue("7");
+  await page.getByLabel("农药名称").fill("吡虫啉");
+  await expect(page.getByLabel("安全间隔期（天）")).toHaveValue("");
+  await page.getByLabel("安全间隔期（天）").fill("7");
 
   await page.getByRole("button", { name: "记入台账" }).click();
   const row = page.locator(".stats-records .stats-record");
@@ -215,6 +217,51 @@ test("同一地块有进行中的茬次时不能再开新茬", async ({ page }) 
   await expect(page.locator(".plot-card").getByRole("button", { name: "结束本茬" })).toBeVisible();
 });
 
+test("补录上一季采收按作业日期归茬并使用历史作物", async ({ page }) => {
+  await openPlots(page);
+  await createPlot(page, "历史补录田", "3");
+  await page.locator(".plot-card").getByRole("button", { name: "结束本茬" }).click();
+  await page.getByLabel("结束或收获日期").fill("2026-05-31");
+  await page.getByRole("button", { name: "确认结束本茬" }).click();
+  await page.locator(".plot-card").getByRole("button", { name: "开始新茬" }).click();
+  await page.getByLabel("作物").selectOption("大豆");
+  await page.getByLabel("播种或定植日期").fill("2026-10-01");
+  await page.getByRole("button", { name: "确认开始新茬" }).click();
+  await expect(page.locator(".plot-card")).toContainText("当前：大豆");
+
+  await openLedger(page);
+  await page.getByLabel("作业类型").selectOption("采收");
+  await page.getByLabel("作业日期", { exact: true }).fill("2026-04-30");
+  await expect(page.getByLabel("作物")).toHaveValue("");
+  await page.getByLabel("产量（公斤）").fill("100");
+  await page.getByLabel("单价（元/公斤）").fill("2");
+  await page.getByRole("button", { name: "记入台账" }).click();
+  const record = page.locator(".stats-records .stats-record");
+  await expect(record).toHaveCount(1);
+  await expect(record).toContainText("玉米");
+  await expect(record).not.toContainText("未归茬");
+  await page.getByRole("button", { name: "统计面板" }).click();
+  const rows = page.locator(".economics-table tbody tr");
+  await expect(rows.filter({ hasText: "玉米" })).toContainText("¥200");
+  await expect(rows.filter({ hasText: "大豆" })).not.toContainText("¥200");
+});
+
+test("日期不明时保留未归茬并允许显式选择茬次", async ({ page }) => {
+  await openPlots(page);
+  await page.getByPlaceholder("例如：东坡三亩地").fill("日期不明田");
+  await page.getByRole("button", { name: "新建地块" }).click();
+  await expect(page.locator(".plot-card")).toBeVisible();
+  await openLedger(page);
+  await page.getByRole("button", { name: "记入台账" }).click();
+  await expect(page.locator(".stats-records .stats-record")).toContainText("未归茬");
+  await page.getByLabel("所属茬次").selectOption({ label: "玉米（开始日未填 至 进行中）" });
+  await page.getByRole("button", { name: "记入台账" }).click();
+  const records = page.locator(".stats-records .stats-record");
+  await expect(records).toHaveCount(2);
+  await expect(records.filter({ hasText: "未归茬" })).toHaveCount(1);
+  await expect(records.filter({ hasText: "玉米" })).toHaveCount(1);
+});
+
 test("投入产出按茬次分开算，不混季", async ({ page }) => {
   await openPlots(page);
   await createPlot(page, "东坡三亩地", "3");
@@ -237,6 +284,9 @@ test("投入产出按茬次分开算，不混季", async ({ page }) => {
 
   await openLedger(page);
   await page.getByLabel("作业类型").selectOption("施肥");
+  // 两茬在同一天交接，日期有重叠时由用户明确选择。
+  const seasonLabel = await page.getByLabel("所属茬次").getByRole("option", { name: /^大豆（/ }).innerText();
+  await page.getByLabel("所属茬次").selectOption({ label: seasonLabel });
   await page.getByPlaceholder("可留空", { exact: true }).fill("150");
   await page.getByRole("button", { name: "记入台账" }).click();
   await expect(page.locator(".stats-records .stats-record")).toHaveCount(2);

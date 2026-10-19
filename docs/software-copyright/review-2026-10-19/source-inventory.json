@@ -1,0 +1,254 @@
+{
+  "review_date": "2026-10-19",
+  "source_statistics": {
+    "file_count": 48,
+    "backend_lines": 2929,
+    "frontend_lines": 3627,
+    "style_lines": 930,
+    "total_lines": 6556,
+    "total_pages": 132
+  },
+  "scope": "backend product Python and frontend/src TypeScript TSX CSS; excludes tests dependencies declarations and blank or comment-only lines",
+  "files": [
+    {
+      "path": "backend/main.py",
+      "effective_lines": 32,
+      "sha256": "9c3e3b82b63f9fe5e2e702802796840aaa6dcf7f4ee047aa7e30e1d221a2969a"
+    },
+    {
+      "path": "backend/app/main.py",
+      "effective_lines": 83,
+      "sha256": "cf40fac5221b85ba59a5c5cbbd330d935bf224162b304f1ab9df76811bee5b1f"
+    },
+    {
+      "path": "backend/app/api/deps.py",
+      "effective_lines": 14,
+      "sha256": "444038ba46e3683d9ac9e707525022f2d1d4274f02a1d85960e23fbb72305086"
+    },
+    {
+      "path": "backend/app/api/routes/__init__.py",
+      "effective_lines": 2,
+      "sha256": "8420fd3b396a9f95ec9e1b6b84ba361b72cae4ee607bb3040b0d9641908ce983"
+    },
+    {
+      "path": "backend/app/api/routes/auth.py",
+      "effective_lines": 71,
+      "sha256": "437348950a4cf5b03db184fcbd8fee83e851ac981143a3d894b614ac7922755e"
+    },
+    {
+      "path": "backend/app/api/routes/farm.py",
+      "effective_lines": 256,
+      "sha256": "7a3372c78f57e986b02319182e5bb01befc8bd55fc2ae6e959f3203fd7856591"
+    },
+    {
+      "path": "backend/app/api/routes/system.py",
+      "effective_lines": 33,
+      "sha256": "f370d0f77ba975796542cd3c13de8dff470717f0226bd080e51442df2cd3f380"
+    },
+    {
+      "path": "backend/app/api/routes/tools.py",
+      "effective_lines": 66,
+      "sha256": "acf5f717998c1804530ad73f65f4d27b09740e56c74ed0b113cfe7c636ec2580"
+    },
+    {
+      "path": "backend/app/services/auth.py",
+      "effective_lines": 85,
+      "sha256": "e34066350d10a1adbfaa77b21f6d24ef3aabec81ca6370e5926dbf473b3b17a4"
+    },
+    {
+      "path": "backend/app/services/decision.py",
+      "effective_lines": 32,
+      "sha256": "727ebcfd4e37e8dbf242b4626d15bfc392da1135e206f448c4d8f9c87ead1d98"
+    },
+    {
+      "path": "backend/app/services/farm.py",
+      "effective_lines": 358,
+      "sha256": "1eb8e4739691cac870288d752050f576fb613312ba690cb124b7f5b1bc7eb646"
+    },
+    {
+      "path": "backend/app/services/system.py",
+      "effective_lines": 52,
+      "sha256": "d28d585df8e0456eb3dbba126e357fbcdd61c40da3a5fe00f569ddc7046e93b2"
+    },
+    {
+      "path": "backend/app/services/tools.py",
+      "effective_lines": 58,
+      "sha256": "6a6ee53796e7497c9489f1648ef1047fb3c3a272fcc97252988e8b31584341b5"
+    },
+    {
+      "path": "backend/app/schemas.py",
+      "effective_lines": 61,
+      "sha256": "50f71cb00586592c50387a45226710fe05cad9950c5d32d1d3658a4587601b4a"
+    },
+    {
+      "path": "backend/app/repositories.py",
+      "effective_lines": 714,
+      "sha256": "c03205bbd38fb9eeffaa9b97b837d4f12d9ee238724ac879ef66ddb3870c91cc"
+    },
+    {
+      "path": "backend/app/core/audit.py",
+      "effective_lines": 32,
+      "sha256": "2495eb1835fdb16d8c79b3dab9d04b69e971c18e071c7973e8c93c865ec2fb48"
+    },
+    {
+      "path": "backend/app/core/backup.py",
+      "effective_lines": 53,
+      "sha256": "85e0d24bb4a8390ac176dd88af8e9fe999c930f8a71a3cb9163e2968dcdb49cc"
+    },
+    {
+      "path": "backend/app/core/config.py",
+      "effective_lines": 208,
+      "sha256": "8340b5a0c9c3ec30d73f9b1662f1de699f85e8c500bff65d4d1418fd9dd319bb"
+    },
+    {
+      "path": "backend/app/core/csrf.py",
+      "effective_lines": 16,
+      "sha256": "9426e803355439e795295f2097f514ea5d005b4b62f7d425abbb8c78bf44b7e5"
+    },
+    {
+      "path": "backend/app/core/database.py",
+      "effective_lines": 442,
+      "sha256": "ce1c0035bcf948d7872c593016c387cb2842af7e7e65ab4a5e1839900b9ffac4"
+    },
+    {
+      "path": "backend/app/core/errors.py",
+      "effective_lines": 45,
+      "sha256": "76b98af291aedd4ae917698e41103af774a92c3db39b44a697cf78495d5b1c77"
+    },
+    {
+      "path": "backend/app/core/exceptions.py",
+      "effective_lines": 30,
+      "sha256": "84b0fb5153ab88644ff5ad5d9ed40e36f307e4288c50a3b8161640c687b67dd0"
+    },
+    {
+      "path": "backend/app/core/pagination.py",
+      "effective_lines": 21,
+      "sha256": "b767c8b0d5da45b05753a91ae6fdfab1ac56b0616ccdb5cb1de9774365a9eb97"
+    },
+    {
+      "path": "backend/app/core/rate_limit.py",
+      "effective_lines": 87,
+      "sha256": "9eee20661ff9af9773aa6d49496ecff2706c69dbf606f0463c49b3bedb6c6c61"
+    },
+    {
+      "path": "backend/app/core/request_context.py",
+      "effective_lines": 15,
+      "sha256": "e2cadcf32e6ce12dd8a863f8d17c5f95ed5d7cd187072648135a1cdd8ed9e4f5"
+    },
+    {
+      "path": "backend/app/core/runtime_status.py",
+      "effective_lines": 43,
+      "sha256": "52e6db2d6c8f366c551adc2024c9f151f4f12a8c5f65c51a6590428ffaefb13c"
+    },
+    {
+      "path": "backend/app/core/security.py",
+      "effective_lines": 19,
+      "sha256": "1fbf13a9756336a05177a9373fa57d0a33bd29ff8a7a74bf697b24be14554e6c"
+    },
+    {
+      "path": "backend/app/__init__.py",
+      "effective_lines": 1,
+      "sha256": "fe6c47976573e99d2ca655ddbb7248eac8cb2ef05c09abd4521f47d96d48a61a"
+    },
+    {
+      "path": "frontend/src/main.tsx",
+      "effective_lines": 9,
+      "sha256": "a0d8cf21a990ece4cf836c1a252e0e63e1ffc326ee7f87efce1725b63ef7c8e7"
+    },
+    {
+      "path": "frontend/src/App.tsx",
+      "effective_lines": 313,
+      "sha256": "fd296495248f35f5d15cc248e7ddb82de2464e3c8433a80faec7db8b029c4794"
+    },
+    {
+      "path": "frontend/src/components/AuthScreen.tsx",
+      "effective_lines": 124,
+      "sha256": "8f6d0960c47a26a85055b56f91230d7a564a37b8f3d27d87e5936268adabdc98"
+    },
+    {
+      "path": "frontend/src/components/ConfirmDialog.tsx",
+      "effective_lines": 34,
+      "sha256": "0c87379c09b3df5b48f76f4f185148d415db889fbd1d0875c783002bfcb2f300"
+    },
+    {
+      "path": "frontend/src/components/DecisionWorkspace.tsx",
+      "effective_lines": 136,
+      "sha256": "b913c0d7d010701cfd57a33fb8d07dc70b2c6d6046abcf639f0c7012dbbeb8fe"
+    },
+    {
+      "path": "frontend/src/components/LedgerWorkspace.tsx",
+      "effective_lines": 481,
+      "sha256": "6a321ffa5ef98f81e03d6c49fdb48d214dba0be4fe275f2f8ec2a65b8fdc4400"
+    },
+    {
+      "path": "frontend/src/components/PlotsWorkspace.tsx",
+      "effective_lines": 390,
+      "sha256": "b09d3d6bc244303a03aa606159068196d3bd6894aad686097e6880d3bbe01c88"
+    },
+    {
+      "path": "frontend/src/components/Sidebar.tsx",
+      "effective_lines": 43,
+      "sha256": "c1a01abc1462d3fe7a2992622146cdcc811909f59d9b7eb103b24349771ed9e6"
+    },
+    {
+      "path": "frontend/src/components/StatsWorkspace.tsx",
+      "effective_lines": 252,
+      "sha256": "a3d772f52d23ed92541924a6cef88408360cf8b772eec1a0563691b7f94c87a9"
+    },
+    {
+      "path": "frontend/src/components/TasksWorkspace.tsx",
+      "effective_lines": 225,
+      "sha256": "e327138717c4bfefc735711a53b9562c00792d863cb0cc706da51acf1bb8e530"
+    },
+    {
+      "path": "frontend/src/components/TopBar.tsx",
+      "effective_lines": 76,
+      "sha256": "9c4638d45543d4c61e8b86f813ca38298ae9bcee85919af38715b67d2e72ac1a"
+    },
+    {
+      "path": "frontend/src/hooks/useAsyncGuard.ts",
+      "effective_lines": 20,
+      "sha256": "fe8d8ce41329c36e90ea02654c396478f365bfb439b871b7daddb5e78a88ad73"
+    },
+    {
+      "path": "frontend/src/hooks/usePlots.ts",
+      "effective_lines": 110,
+      "sha256": "7c94d1dcbf7fd15f632bdb30a04e7e54a51efffb6219d30db7cf3a013f774137"
+    },
+    {
+      "path": "frontend/src/hooks/useSeasons.ts",
+      "effective_lines": 118,
+      "sha256": "6de18fc1763f9ca44b37410e50c67cde166df538efa450dcf803cd73c2af8b3b"
+    },
+    {
+      "path": "frontend/src/hooks/useTasks.ts",
+      "effective_lines": 129,
+      "sha256": "1a9360c6f4ce746ebc86ef3f7c31eaeb55e98adf231d84fc6556b6aa5eda37db"
+    },
+    {
+      "path": "frontend/src/lib/api.ts",
+      "effective_lines": 93,
+      "sha256": "4342396dcac05b3afe90688bcf008e8c31bf5a723f2763888c5af6130d8c7a6b"
+    },
+    {
+      "path": "frontend/src/lib/appVersion.ts",
+      "effective_lines": 5,
+      "sha256": "cfacf5a977c83a5cfc4df6b23a3ede335df7eb0449b03d6bd01d85ce20d8218d"
+    },
+    {
+      "path": "frontend/src/lib/date.ts",
+      "effective_lines": 18,
+      "sha256": "8da58bc794af5441db533b386a83f223899e1a70f49a874cef7cc3d867ad896c"
+    },
+    {
+      "path": "frontend/src/types.ts",
+      "effective_lines": 121,
+      "sha256": "2aa132d4f7cc44c1b0e897b94988a7e9147718a1b51881b45ac1ffd4380c7dcd"
+    },
+    {
+      "path": "frontend/src/styles.css",
+      "effective_lines": 930,
+      "sha256": "9ed1eb74f5b5aee1789c5a4e8b6ae6a02de049919d1f5922efaf44186ce373d3"
+    }
+  ]
+}

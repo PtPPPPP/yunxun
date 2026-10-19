@@ -14,6 +14,7 @@ from backend.app.core.exceptions import http_exception_handler
 from backend.app.repositories import (
     create_plot,
     create_user,
+    get_active_season,
     list_harvest_safety,
     list_plots,
     summarize_farm_economics,
@@ -23,6 +24,8 @@ from backend.app.services.farm import (
     delete_user_farm_record,
     list_user_farm_records,
     summarize_user_farm_records,
+    create_user_season,
+    update_user_season,
 )
 from backend.tests.helpers import make_plot, make_settings
 
@@ -211,7 +214,7 @@ class FarmRecordServiceTestCase(unittest.TestCase):
     def test_spray_without_interval_has_no_earliest_date(self) -> None:
         self.assertIsNone(self.spray("2026-09-10", "代森锰锌", None)["earliest_harvest_on"])
 
-    def test_harvest_safety_uses_only_the_latest_spray(self) -> None:
+    def test_harvest_safety_uses_the_latest_constraint(self) -> None:
         self.spray("2026-08-01", "多菌灵", 15)
         self.spray("2026-09-10", "吡虫啉", 7)
 
@@ -222,6 +225,52 @@ class FarmRecordServiceTestCase(unittest.TestCase):
         self.assertEqual(item["earliest_harvest_on"], "2026-09-17")
         self.assertEqual(item["days_remaining"], 1)
         self.assertTrue(item["in_safe_window"])
+
+    def test_later_short_interval_does_not_override_earlier_long_interval(self) -> None:
+        self.spray("2026-10-01", "先前长间隔产品", 30)
+        self.spray("2026-10-10", "后来短间隔产品", 3)
+        self.spray("2026-10-12", "未填间隔的产品", None)
+        item = list_harvest_safety(self.user_id, reference_date="2026-10-19")[0]
+        self.assertEqual(item["material"], "先前长间隔产品")
+        self.assertEqual(item["happened_on"], "2026-10-01")
+        self.assertEqual(item["safe_days"], 30)
+        self.assertEqual(item["earliest_harvest_on"], "2026-10-31")
+        self.assertEqual(item["days_remaining"], 12)
+        self.assertTrue(item["in_safe_window"])
+        self.assertEqual(list_plots(self.user_id, reference_date="2026-10-19")[0]["harvest_safety"], item)
+        self.assertFalse(list_harvest_safety(self.user_id, reference_date="2026-10-31")[0]["in_safe_window"])
+
+    def test_constraint_order_uses_dates_not_insertion_order(self) -> None:
+        self.spray("2026-10-10", "短间隔", 3)
+        self.spray("2026-10-01", "长间隔", 30)
+        self.spray("2026-10-01", "同日短间隔", 2)
+        item = list_harvest_safety(self.user_id, reference_date="2026-10-19")[0]
+        self.assertEqual(item["earliest_harvest_on"], "2026-10-31")
+
+    def test_future_sprays_do_not_change_past_state(self) -> None:
+        self.spray("2026-10-20", "未来记录", 30)
+        self.assertEqual(list_harvest_safety(self.user_id, reference_date="2026-10-19"), [])
+
+    def test_plot_constraint_survives_season_and_crop_change(self) -> None:
+        self.spray("2026-10-01", "上一茬产品", 30)
+        first = get_active_season(self.plot["id"])
+        update_user_season(first["id"], self.user_id, "local", crop="玉米",
+                           started_on="2026-05-12", ended_on="2026-10-05", notes="")
+        create_user_season(self.user_id, "local", self.plot["id"], "大豆", "2026-10-06", "")
+        self.spray("2026-10-10", "这一茬产品", 3)
+        item = list_harvest_safety(self.user_id, reference_date="2026-10-19")[0]
+        self.assertEqual(item["earliest_harvest_on"], "2026-10-31")
+        self.assertEqual(item["material"], "上一茬产品")
+
+    def test_unassigned_sprays_are_included_and_plots_and_users_are_isolated(self) -> None:
+        bare = create_plot(self.user_id, "未归茬地块", 1, "壤土", "井灌", "")
+        create_user_farm_record(self.user_id, "local", bare["id"], "打药", "2026-10-01",
+                                "大豆", "", "", None, material="未归茬产品", safe_days=30)
+        self.spray("2026-10-10", "本地块产品", 3)
+        by_id = {item["plot_id"]: item for item in list_harvest_safety(self.user_id, reference_date="2026-10-19")}
+        self.assertEqual(by_id[bare["id"]]["earliest_harvest_on"], "2026-10-31")
+        self.assertEqual(by_id[self.plot["id"]]["earliest_harvest_on"], "2026-10-13")
+        self.assertEqual(list_harvest_safety("other-user", reference_date="2026-10-19"), [])
 
     def test_harvest_safety_window_closes_and_can_go_negative(self) -> None:
         self.spray("2026-09-10", "吡虫啉", 7)

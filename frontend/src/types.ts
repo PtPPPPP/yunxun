@@ -46,7 +46,7 @@ export interface FarmRecord {
   kind: FarmRecordKind;
   happened_on: string;
   crop: string;
-  /** 为空表示未归茬：建茬之前记的，或当时地块没有进行中的茬次。 */
+  /** 为空表示未归茬：无法按日期唯一确定茬次，或明确选择未归茬。 */
   season_id: string | null;
   season_crop: string;
   material: string;

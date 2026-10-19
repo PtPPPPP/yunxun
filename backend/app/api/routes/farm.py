@@ -151,6 +151,8 @@ async def create_farm_record_api(
         safe_days=request.safe_days,
         yield_kg=request.yield_kg,
         unit_price=request.unit_price,
+        season_id=request.season_id,
+        auto_select_season="season_id" not in request.model_fields_set,
     )
     return success_payload(record=record)
 

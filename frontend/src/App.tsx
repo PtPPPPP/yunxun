@@ -290,6 +290,7 @@ export default function App() {
           <Suspense fallback={<div className="panel panel--loading">正在加载农事台账...</div>}>
             <LedgerWorkspace
               plots={plots.items}
+              seasons={seasons.items}
               onError={handleError}
               onRecordsChanged={() => void plots.refresh()}
               onQuickTask={tasks.create}

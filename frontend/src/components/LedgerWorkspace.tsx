@@ -6,13 +6,11 @@ import { TaskInput } from "../hooks/useTasks";
 import { useAsyncGuard } from "../hooks/useAsyncGuard";
 import { api, getErrorMessage } from "../lib/api";
 import { addDays, formatDate, todayIso } from "../lib/date";
-import { FarmRecord, FarmRecordKind, Plot } from "../types";
+import { FarmRecord, FarmRecordKind, Plot, PlotSeason } from "../types";
 
 const PAGE_SIZE = 20;
 const recordKinds: FarmRecordKind[] = ["播种", "施肥", "打药", "灌溉", "除草", "采收", "其他"];
 
-// 安全间隔期的权威来源是产品标签：这里只提供常见参考值做预填，
-// 填进去之后仍可改写，应用不做任何"标准答案"背书。
 // 记完一次农活后按作业类型给一条续办建议。只做提示，点一下才真的建待办，
 // 不自动创建，免得清单被塞满。
 const followUps: Partial<Record<FarmRecordKind, { days: number; label: string }>> = {
@@ -22,18 +20,6 @@ const followUps: Partial<Record<FarmRecordKind, { days: number; label: string }>
   灌溉: { days: 2, label: "查看墒情与积水" },
   除草: { days: 10, label: "复查杂草复发" },
 };
-
-const pesticideReference = [
-  { material: "苏云金杆菌", safe_days: 3 },
-  { material: "吡虫啉", safe_days: 7 },
-  { material: "啶虫脒", safe_days: 7 },
-  { material: "高效氯氟氰菊酯", safe_days: 7 },
-  { material: "阿维菌素", safe_days: 14 },
-  { material: "多菌灵", safe_days: 15 },
-  { material: "代森锰锌", safe_days: 15 },
-  { material: "苯醚甲环唑", safe_days: 21 },
-  { material: "戊唑醇", safe_days: 21 },
-];
 
 interface RecordsResponse {
   success: true;
@@ -48,6 +34,7 @@ interface RecordResponse {
 
 interface LedgerWorkspaceProps {
   plots: Plot[];
+  seasons: PlotSeason[];
   onError: (message: string) => void;
   /** 增删记录后通知外层刷新地块列表，让「本季 N 次作业」保持同步。 */
   onRecordsChanged: () => void;
@@ -64,7 +51,7 @@ function round2(value: number): number {
 }
 
 export function LedgerWorkspace(props: LedgerWorkspaceProps) {
-  const { plots, onError, onRecordsChanged, onQuickTask } = props;
+  const { plots, seasons, onError, onRecordsChanged, onQuickTask } = props;
   const [form, setForm] = useState({
     plot_id: "",
     kind: "施肥" as FarmRecordKind,
@@ -79,6 +66,7 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
     detail: "",
   });
   const [plotFilter, setPlotFilter] = useState("");
+  const [selectedSeason, setSelectedSeason] = useState("");
   const [records, setRecords] = useState<FarmRecord[]>([]);
   const [pagination, setPagination] = useState<{ has_more: boolean; next_cursor: string | null }>({
     has_more: false,
@@ -95,7 +83,7 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
   const safety = plots.find((item) => item.id === form.plot_id)?.harvest_safety ?? null;
   const harvestWarning =
     form.kind === "采收" && safety?.in_safe_window
-      ? `该地块 ${safety.happened_on} 施过 ${safety.material}，安全间隔期 ${safety.safe_days} 天，最早 ${safety.earliest_harvest_on} 才能采收（还有 ${safety.days_remaining} 天）。请以产品标签为准。`
+      ? `该地块 ${safety.happened_on} 施过 ${safety.material}，登记的安全间隔期 ${safety.safe_days} 天，按输入计算最早采收日为 ${safety.earliest_harvest_on}（还有 ${safety.days_remaining} 天）。提醒覆盖该地块全部茬次与作物，请以产品标签为准。`
       : "";
 
   const loadRecords = useCallback(
@@ -132,12 +120,12 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
   // 地块列表就绪后默认选中第一块，避免每次都要手动挑选。
   useEffect(() => {
     if (form.plot_id || plots.length === 0) return;
-    setForm((current) => ({ ...current, plot_id: plots[0].id, crop: plots[0].crop }));
+    setForm((current) => ({ ...current, plot_id: plots[0].id }));
   }, [form.plot_id, plots]);
 
   function handlePlotChange(plotId: string) {
-    const plot = plots.find((item) => item.id === plotId);
-    setForm((current) => ({ ...current, plot_id: plotId, crop: plot?.crop ?? "" }));
+    setSelectedSeason("");
+    setForm((current) => ({ ...current, plot_id: plotId, crop: "" }));
   }
 
   async function handleSubmit() {
@@ -149,6 +137,7 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
       try {
         await api.post<RecordResponse>("/api/farm-records", {
           plot_id: form.plot_id,
+          ...(selectedSeason ? { season_id: selectedSeason === "unassigned" ? null : selectedSeason } : {}),
           kind: form.kind,
           happened_on: form.happened_on,
           crop: form.crop,
@@ -257,6 +246,21 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
           </label>
 
           <label className="field">
+            <span>所属茬次</span>
+            <div className="field-control field-control--select">
+              <select value={selectedSeason} onChange={(event) => setSelectedSeason(event.target.value)}>
+                <option value="">按作业日期自动匹配（不明确则未归茬）</option>
+                <option value="unassigned">未归茬</option>
+                {seasons.filter((season) => season.plot_id === form.plot_id).map((season) => (
+                  <option key={season.id} value={season.id}>
+                    {season.crop}（{season.started_on ?? "开始日未填"} 至 {season.ended_on ?? "进行中"}）
+                  </option>
+                ))}
+              </select>
+            </div>
+          </label>
+
+          <label className="field">
             <span>作业类型</span>
             <div className="field-control field-control--select">
               <select
@@ -289,7 +293,7 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
               <input
                 value={form.crop}
                 maxLength={20}
-                placeholder="留空则记为地块当前作物"
+                placeholder="留空则使用匹配茬次的作物"
                 onChange={(event) => setForm((current) => ({ ...current, crop: event.target.value }))}
               />
             </div>
@@ -323,30 +327,6 @@ export function LedgerWorkspace(props: LedgerWorkspaceProps) {
 
           {form.kind === "打药" && (
             <>
-              <label className="field">
-                <span>常见农药参考</span>
-                <div className="field-control field-control--select">
-                  <select
-                    value={pesticideReference.some((item) => item.material === form.material) ? form.material : ""}
-                    onChange={(event) => {
-                      const picked = pesticideReference.find((item) => item.material === event.target.value);
-                      setForm((current) => ({
-                        ...current,
-                        material: event.target.value,
-                        safe_days: picked ? String(picked.safe_days) : current.safe_days,
-                      }));
-                    }}
-                  >
-                    <option value="">从常见农药选择（参考）</option>
-                    {pesticideReference.map((item) => (
-                      <option key={item.material} value={item.material}>
-                        {item.material}（常见 {item.safe_days} 天）
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </label>
-
               <label className="field">
                 <span>农药名称</span>
                 <div className="field-control">

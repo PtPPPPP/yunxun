@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from backend.app.core.database import get_connection
+from backend.app.core.errors import conflict
 
 
 def now_utc() -> datetime:
@@ -512,14 +513,19 @@ def create_season(
     season_id = uuid.uuid4().hex
     timestamp = now_iso()
     with get_connection() as conn:
-        conn.execute(
-            """
-            INSERT INTO plot_seasons
-                (id, user_id, plot_id, crop, started_on, ended_on, notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)
-            """,
-            (season_id, user_id, plot_id, crop, started_on, notes, timestamp, timestamp),
-        )
+        try:
+            conn.execute(
+                """
+                INSERT INTO plot_seasons
+                    (id, user_id, plot_id, crop, started_on, ended_on, notes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)
+                """,
+                (season_id, user_id, plot_id, crop, started_on, notes, timestamp, timestamp),
+            )
+        except sqlite3.IntegrityError as exc:
+            if exc.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE and "plot_seasons.plot_id" in str(exc):
+                raise conflict("该地块已有进行中的茬次，请刷新后重试。") from exc
+            raise
         row = conn.execute("SELECT * FROM plot_seasons WHERE id = ?", (season_id,)).fetchone()
     return public_season(dict(row))
 
@@ -560,14 +566,19 @@ def update_season(
 ) -> dict[str, Any]:
     updated_at = now_iso()
     with get_connection() as conn:
-        conn.execute(
-            """
-            UPDATE plot_seasons
-            SET crop = ?, started_on = ?, ended_on = ?, notes = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (crop, started_on, ended_on, notes, updated_at, season_id),
-        )
+        try:
+            conn.execute(
+                """
+                UPDATE plot_seasons
+                SET crop = ?, started_on = ?, ended_on = ?, notes = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (crop, started_on, ended_on, notes, updated_at, season_id),
+            )
+        except sqlite3.IntegrityError as exc:
+            if exc.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE and "plot_seasons.plot_id" in str(exc):
+                raise conflict("该地块已有进行中的茬次，请刷新后重试。") from exc
+            raise
         row = conn.execute("SELECT * FROM plot_seasons WHERE id = ?", (season_id,)).fetchone()
     return public_season(dict(row))
 
@@ -692,9 +703,10 @@ def count_farm_records(user_id: str) -> int:
 
 
 def list_harvest_safety(user_id: str, *, reference_date: str) -> list[dict[str, Any]]:
-    """每块地最近一次带安全间隔期的打药，以及距最早安全采收日的天数。
+    """按地块汇总截至查询日已登记的间隔期，取约束最晚的一条。
 
-    「最近一次」用窗口函数取，避免每块地各发一条查询。
+    提醒保守覆盖同一地块的全部茬次和作物，换茬或改作物不会解除尚未到期的
+    提醒；未归茬记录也参与。这里只计算用户填入的天数，不判断标签合规性。
     """
     with get_connection() as conn:
         rows = conn.execute(
@@ -707,16 +719,19 @@ def list_harvest_safety(user_id: str, *, reference_date: str) -> list[dict[str, 
                     r.happened_on AS happened_on,
                     r.safe_days AS safe_days,
                     ROW_NUMBER() OVER (
-                        PARTITION BY r.plot_id ORDER BY r.happened_on DESC, r.id DESC
+                        PARTITION BY r.plot_id
+                        ORDER BY date(r.happened_on, '+' || r.safe_days || ' days') DESC,
+                                 r.happened_on DESC, r.id DESC
                     ) AS row_number
                 FROM farm_records r
                 JOIN plots p ON p.id = r.plot_id
                 WHERE r.user_id = ? AND r.kind = '打药' AND r.safe_days IS NOT NULL
+                    AND r.happened_on <= ?
             )
             WHERE row_number = 1
             ORDER BY happened_on DESC
             """,
-            (user_id,),
+            (user_id, reference_date),
         ).fetchall()
 
     try:
@@ -740,7 +755,7 @@ def list_harvest_safety(user_id: str, *, reference_date: str) -> list[dict[str, 
                 "safe_days": safe_days,
                 "earliest_harvest_on": earliest,
                 "days_remaining": days_remaining,
-                # 剩余天数 > 0 表示还在安全期内，此时采收不合规。
+                # 剩余天数 > 0 表示用户登记的间隔期尚未结束。
                 "in_safe_window": days_remaining is not None and days_remaining > 0,
             }
         )
