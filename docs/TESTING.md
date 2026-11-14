@@ -65,6 +65,8 @@ F1/F2 会话回归：`backend/tests/test_logout_sessions.py` 覆盖幂等撤销�
 
 2026-10-19 依赖修复：直接依赖 axios 的最低版本提高到 1.20.0，传递依赖 brace-expansion 和 source-map-js 在原有兼容范围内分别锁定到 5.0.12、1.2.2，无需新增依赖或 overrides。修复依据见 [Axios 官方公告](https://github.com/axios/axios/security/advisories/GHSA-c29m-xwm3-cm6r)、[brace-expansion 官方公告](https://github.com/juliangruber/brace-expansion/security/advisories/GHSA-q2hr-2g5m-vwhr)及 [source-map-js 发行说明](https://github.com/7rulnik/source-map-js/releases/tag/v1.2.2)。更新后执行依赖重装与 `npm audit --audit-level=moderate`，结果为 0 告警。此结果仅对应当次锁文件与审计数据库。
 
+2026-11-14 依赖与用例修复：`e2e/onboarding.spec.ts` 原先写死 `2026-10-19` 作为“今天”，首页按当天与逾期分档的断言会随日期漂移，现改为读取运行当天的本地日期。前端直接依赖升到 vite 7.3.8、vitest 5.1.0、eslint 10.15.0、typescript-eslint 8.72.2，消除 vite、vitest、eslint、follow-redirects 的告警；typescript-eslint 8.72.2 仍把 minimatch 固定为 10.x（GHSA-g3hv-75wg-m249），因此在 `package.json` 用 `overrides` 统一到 `^11.0.1`，上游放宽依赖后可删除该 override。后端 constraints 将 opentelemetry-api 升到 1.45.2（CVE-2026-126360）。验证环境为 Node 24.22.3 / Python 3.14.8：`npm run lint`、17 个单元测试、`npm run build` 通过，Playwright 125 条全过，`npm audit --audit-level=moderate` 为 0；`python -m unittest` 309 条通过，`pip_audit -r backend/requirements.txt`、`-r backend/requirements-test.txt` 和新环境已安装集合扫描均为 0 告警。审计结论只对应当次锁文件、constraints 与漏洞库版本。
+
 `http_load_test.py` 目前对 `/health/live`、`/api/tool-records`、`/api/decision` 和 `/api/tool-records/stats` 并发压测，任何非 2xx 响应都会让脚本以非零码退出。
 
 `backend/tests/test_password_management.py` 使用临时数据库覆盖正式用户改密、错误原密码、输入和越权拒绝、恢复码摘要/换码/单次消费、并发消费、账号与 IP 限流及过期、CSRF、Cookie/Bearer 全会话撤销、旧密码登录与改密竞争、事务故障回滚、日志不含凭据、Schema 10→11 数据保留，以及本机命令的交互限制、取消与失败回滚。`e2e/password.spec.ts` 覆盖改密及另一设备失效、恢复码单次展示/换码/恢复、取消与输入校验、重复点击、响应中断核对、移动端导航和帮助。实际运行结果以本次执行报告为准。

@@ -1,5 +1,14 @@
 # 更新日志
 
+## 未发布工作区 · 2026-11-14 维护
+
+机器版本仍为 1.0.0，页面为 V1.0.0，Schema 12。
+
+- 修复 `e2e/onboarding.spec.ts` 的时间炸弹：待办到期日与台账日期改用运行当天，首页“今日/逾期”分档断言不再随日期漂移。
+- 前端直接依赖升到 vite 7.3.8、vitest 5.1.0、eslint 10.15.0、typescript-eslint 8.72.2；typescript-eslint 仍固定 minimatch 10.x（GHSA-g3hv-75wg-m249），用 `overrides` 统一到 `^11.0.1`，上游放宽后可删除。
+- 后端 constraints 将 opentelemetry-api 升到 1.45.2（CVE-2026-126360）。
+- 本机验证（Node 24.22.3 / Python 3.14.8）：lint、17 个前端单元测试、构建通过，Playwright 125 条全过；后端 309 条通过；`npm audit --audit-level=moderate` 与 `pip-audit` 三处扫描均为 0 告警。详见 [测试说明](docs/TESTING.md)。
+
 ## 未发布工作区 · 2026-10-19 核对
 
 机器版本仍为 1.0.0，页面为 V1.0.0，Schema 12。以下为当前实现，不代表已部署/发布或确定新的申报版本。历史 AI 交付包保留，不能与当前工作区混用。

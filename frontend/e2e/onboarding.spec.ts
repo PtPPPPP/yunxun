@@ -25,6 +25,13 @@ async function login(page: Page, registered = false) {
 async function realPlot(page: Page) {
   return (await write(page, "/plots", { name: "自己的东田", area_mu: 2, soil_type: "壤土", irrigation: "井灌", crop: "玉米", planted_on: "2026-01-01" })).plot;
 }
+/** 首页按“今天”分档统计，待办日期只能取运行当天，不能写死。 */
+async function todayIso(page: Page) {
+  return page.evaluate(() => {
+    const date = new Date();
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  });
+}
 async function load(page: Page) {
   await guide(page).getByRole("button", { name: "加载演示数据", exact: true }).click();
   await expect(guide(page).getByRole("button", { name: "只清空演示数据" })).toBeVisible();
@@ -143,8 +150,9 @@ test("只清空演示数据，独立真实地块、台账和杂事仍保留", as
   await login(page);
   await load(page);
   const plot = await realPlot(page);
-  const { record } = await write(page, "/farm-records", { plot_id: plot.id, kind: "施肥", happened_on: "2026-10-19", cost: 35 });
-  const { task } = await write(page, "/farm-tasks", { title: "我的杂事", due_on: "2026-10-19" });
+  const today = await todayIso(page);
+  const { record } = await write(page, "/farm-records", { plot_id: plot.id, kind: "施肥", happened_on: today, cost: 35 });
+  const { task } = await write(page, "/farm-tasks", { title: "我的杂事", due_on: today });
   await page.reload();
   await guide(page).getByRole("button", { name: "只清空演示数据" }).click();
   await expect(guide(page)).toContainText("演示数据已清空");
@@ -162,7 +170,7 @@ test("演示地块下新增自己的记录，清空后保留关联并可再次�
   await load(page);
   const plot = (await get(page, "/plots")).plots[0];
   const { record } = await write(page, "/farm-records", { plot_id: plot.id, season_id: plot.active_season.id, kind: "其他", happened_on: plot.active_season.started_on, cost: 45 });
-  const { task } = await write(page, "/farm-tasks", { plot_id: plot.id, title: "自己的安排", due_on: "2026-10-19" });
+  const { task } = await write(page, "/farm-tasks", { plot_id: plot.id, title: "自己的安排", due_on: await todayIso(page) });
   await page.reload();
   await guide(page).getByRole("button", { name: "只清空演示数据" }).click();
   await expect(guide(page)).toContainText("1 个地块、1 个茬次已转为普通资料");
