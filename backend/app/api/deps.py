@@ -1,7 +1,7 @@
-from fastapi import Header, Request
+from fastapi import Header, HTTPException, Request
 
-from backend.app.services.auth import get_current_user_from_header
 from backend.app.core.security import session_reference
+from backend.app.services.auth import get_current_user_from_header
 
 
 def get_session_reference(request: Request, authorization: str | None = Header(default=None)) -> str:
@@ -17,7 +17,6 @@ def get_current_user(request: Request, authorization: str | None = Header(defaul
         cookie_user = get_current_user_from_header(f"Bearer {cookie_token}")
         bearer_user = get_current_user_from_header(authorization)
         if cookie_user["id"] != bearer_user["id"]:
-            from fastapi import HTTPException
             raise HTTPException(status_code=401, detail="认证身份冲突。")
         return cookie_user
     if cookie_token:

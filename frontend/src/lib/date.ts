@@ -1,14 +1,19 @@
 /** 本地日期工具：农事日期都按本机时区的 YYYY-MM-DD 处理，不走 UTC。 */
 
+export function toIsoDate(value: Date): string {
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const date = String(value.getDate()).padStart(2, "0");
+  return `${value.getFullYear()}-${month}-${date}`;
+}
+
 export function todayIso(): string {
-  const now = new Date();
-  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  return toIsoDate(new Date());
 }
 
 export function addDays(isoDate: string, days: number): string {
   const base = new Date(`${isoDate}T00:00:00`);
   base.setDate(base.getDate() + days);
-  return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
+  return toIsoDate(base);
 }
 
 export function diffDays(fromIso: string, toIso: string): number {

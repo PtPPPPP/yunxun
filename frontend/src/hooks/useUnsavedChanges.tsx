@@ -8,7 +8,7 @@ const UnsavedContext = createContext<{
   requestLeave: (action: LeaveAction) => void;
 } | null>(null);
 
-/** Only live form state is tracked. Business drafts never enter browser storage. */
+/** 只跟踪仍然挂在页面上的表单；业务草稿不写入浏览器存储。 */
 export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   const forms = useRef(new Map<symbol, FormState>());
   const [pending, setPending] = useState<{ action: LeaveAction } | null>(null);

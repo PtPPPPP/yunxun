@@ -90,10 +90,7 @@ def issue_auth_token(user_id: str, *, expected_password_hash: str | None = None)
     token = create_token()
     expires_at = (now_utc() + timedelta(hours=settings.token_hours)).isoformat(timespec="seconds")
     cleanup_expired_tokens()
-    if expected_password_hash is None:
-        create_auth_token(user_id, hash_auth_token(token), expires_at)
-    else:
-        create_auth_token(user_id, hash_auth_token(token), expires_at, expected_password_hash=expected_password_hash)
+    create_auth_token(user_id, hash_auth_token(token), expires_at, expected_password_hash=expected_password_hash)
     return token
 
 

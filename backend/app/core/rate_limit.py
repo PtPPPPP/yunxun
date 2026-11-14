@@ -10,26 +10,14 @@ from backend.app.core.errors import rate_limited
 TimeProvider = Callable[[], float]
 
 
-@dataclass(frozen=True)
-class RateLimitResult:
-    key: str
-    allowed: bool
-    limit: int
-    remaining: int
-    reset_after_seconds: float
-
-
 @dataclass
 class RateLimitBucket:
     attempts: Deque[float]
     window_seconds: float
 
-    def prune(self, now: float) -> int:
-        removed = 0
+    def prune(self, now: float) -> None:
         while self.attempts and now - self.attempts[0] >= self.window_seconds:
             self.attempts.popleft()
-            removed += 1
-        return removed
 
     def reset_after(self, now: float) -> float:
         if not self.attempts:
@@ -43,7 +31,7 @@ class InMemoryRateLimiter:
         self._buckets: dict[str, RateLimitBucket] = {}
         self._lock = RLock()
 
-    def check(self, key: str, limit: int, window_seconds: float = 60.0) -> RateLimitResult:
+    def check(self, key: str, limit: int, window_seconds: float = 60.0) -> int:
         self._validate_request(key, limit, window_seconds)
 
         with self._lock:
@@ -61,23 +49,14 @@ class InMemoryRateLimiter:
                 raise rate_limited(max(1, int(reset_after)))
 
             bucket.attempts.append(now)
-            remaining = max(0, limit - len(bucket.attempts))
-            return RateLimitResult(
-                key=key,
-                allowed=True,
-                limit=limit,
-                remaining=remaining,
-                reset_after_seconds=bucket.reset_after(now),
-            )
+            return max(0, limit - len(bucket.attempts))
 
-    def cleanup(self, window_seconds: float | None = None) -> int:
+    def cleanup(self) -> int:
         with self._lock:
             now = self._time_provider()
             removed_keys: list[str] = []
 
             for key, bucket in self._buckets.items():
-                if window_seconds is not None and not bucket.attempts:
-                    bucket.window_seconds = window_seconds
                 bucket.prune(now)
                 if not bucket.attempts:
                     removed_keys.append(key)

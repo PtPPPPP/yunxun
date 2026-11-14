@@ -1,1 +1,1 @@
-"""Yunxun backend application package."""
+"""云寻后端应用包。"""

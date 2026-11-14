@@ -1,6 +1,5 @@
 import logging
 import uuid
-from datetime import datetime
 from typing import Any
 
 from fastapi import HTTPException
@@ -11,30 +10,29 @@ from backend.app.core.security import safe_fingerprint
 from backend.app.repositories import (
     ECONOMICS_SCOPES,
     count_farm_records,
-    create_season,
     count_plots,
     create_farm_record,
     create_farm_task,
     create_plot_with_first_season,
+    create_season,
     delete_farm_record,
     delete_farm_task,
     delete_plot_with_records,
     delete_season,
-    get_farm_record,
     get_active_season,
+    get_farm_record,
     get_farm_task,
     get_plot,
     get_season,
     list_farm_records_page,
     list_farm_record_years,
-    list_harvest_safety,
     list_open_farm_tasks,
     list_plots,
     list_recent_done_farm_tasks,
     list_seasons,
     summarize_farm_economics,
-    update_farm_task,
     update_farm_record,
+    update_farm_task,
     update_plot_with_active_season,
     update_season,
 )
@@ -116,8 +114,7 @@ def update_user_season(
     notes: str,
 ) -> dict[str, Any]:
     existing = require_season_owner(season_id, user_id)
-    if started_on and ended_on and ended_on < started_on:
-        raise HTTPException(status_code=422, detail="结束日期不能早于开始日期。")
+    # 日期先后与台账范围由 update_season 在写锁内统一校验，这里只处理业务冲突。
     if ended_on is None:
         active = get_active_season(existing["plot_id"])
         if active and active["id"] != season_id:

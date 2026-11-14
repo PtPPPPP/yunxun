@@ -1,5 +1,5 @@
 import { FarmRecordKind, FarmTask, PlotSeason } from "../types";
-import { todayIso } from "./date";
+import { todayIso, toIsoDate } from "./date";
 
 export interface LedgerDraft {
   plot_id: string;
@@ -11,9 +11,7 @@ export interface LedgerDraft {
 
 export function taskLedgerDraft(task: FarmTask, seasons: PlotSeason[]): LedgerDraft {
   const completed = task.done_at ? new Date(task.done_at) : null;
-  const happened_on = completed && Number.isFinite(completed.getTime())
-    ? `${completed.getFullYear()}-${String(completed.getMonth() + 1).padStart(2, "0")}-${String(completed.getDate()).padStart(2, "0")}`
-    : todayIso();
+  const happened_on = completed && Number.isFinite(completed.getTime()) ? toIsoDate(completed) : todayIso();
   const candidates = seasons.filter((season) => season.plot_id === task.plot_id
     && (!season.started_on || season.started_on <= happened_on)
     && (!season.ended_on || happened_on <= season.ended_on));

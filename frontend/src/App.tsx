@@ -46,7 +46,6 @@ const StatsWorkspace = lazy(() =>
 const defaultDecisionForm = { crop: "玉米", stage: "快速生长期", rainProb: 55, soilMoisture: 42, temperature: 24.5 };
 
 type DecisionAdvice = {
-  version: number;
   input: typeof defaultDecisionForm;
   plotId: string;
   plotName: string;
@@ -255,7 +254,7 @@ function AppContent() {
         temperature: input.temperature,
       });
       if (!current()) return;
-      updateDecisionResult({ version, input, plotId, plotName, reply: response.data.reply, saved: false });
+      updateDecisionResult({ input, plotId, plotName, reply: response.data.reply, saved: false });
       setError("");
     } catch (requestError) {
       if (current()) setError(getErrorMessage(requestError));

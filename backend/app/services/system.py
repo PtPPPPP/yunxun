@@ -1,5 +1,5 @@
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
 from backend.app.core.config import get_settings
 from backend.app.core.database import SCHEMA_VERSION, get_connection

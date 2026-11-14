@@ -1,20 +1,29 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
+from backend.app import repositories_trash as trash
 from backend.app.api.deps import get_current_user
+from backend.app.core.audit import log_event
 from backend.app.core.exceptions import success_payload
 from backend.app.core.pagination import decode_cursor, encode_cursor
+from backend.app.repositories_onboarding import (
+    clear_demo_data,
+    load_demo_data,
+    onboarding_status,
+    set_onboarding_skipped,
+)
 from backend.app.schemas import (
     FarmRecordCreateRequest,
     FarmRecordSubmissionRequest,
-    OnboardingUpdateRequest,
-    IsoDate,
     FarmTaskCreateRequest,
     FarmTaskUpdateRequest,
+    IsoDate,
+    OnboardingUpdateRequest,
     PlotCreateRequest,
     PlotUpdateRequest,
     SeasonCreateRequest,
     SeasonUpdateRequest,
 )
+from backend.app.services.exports import export_user_economics, export_user_records
 from backend.app.services.farm import (
     create_user_farm_record,
     create_user_farm_task,
@@ -35,12 +44,6 @@ from backend.app.services.farm import (
     update_user_plot,
     update_user_season,
 )
-from backend.app.repositories_onboarding import (
-    onboarding_status, set_onboarding_skipped, load_demo_data, clear_demo_data,
-)
-from backend.app.services.exports import export_user_economics, export_user_records
-from backend.app import repositories_trash as trash
-from backend.app.core.audit import log_event
 from backend.app.services.farm import logger as farm_logger
 
 
@@ -304,7 +307,6 @@ def farm_records_economics_api(
     user: dict[str, str] = Depends(get_current_user),
 ) -> dict[str, object]:
     return success_payload(**summarize_user_farm_economics(user["id"], plot_id=plot_id, season_id=season_id, year=year, data_scope=data_scope))
-
 
 
 @router.get("/farm-tasks")

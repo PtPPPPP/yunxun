@@ -25,10 +25,8 @@ class RateLimitTestCase(unittest.TestCase):
         first = limiter.check("user:1", limit=2, window_seconds=10)
         second = limiter.check("user:1", limit=2, window_seconds=10)
 
-        self.assertTrue(first.allowed)
-        self.assertEqual(first.remaining, 1)
-        self.assertTrue(second.allowed)
-        self.assertEqual(second.remaining, 0)
+        self.assertEqual(first, 1)
+        self.assertEqual(second, 0)
 
         with self.assertRaises(HTTPException) as blocked:
             limiter.check("user:1", limit=2, window_seconds=10)
@@ -36,8 +34,7 @@ class RateLimitTestCase(unittest.TestCase):
 
         clock.advance(11)
         recovered = limiter.check("user:1", limit=2, window_seconds=10)
-        self.assertTrue(recovered.allowed)
-        self.assertEqual(recovered.remaining, 1)
+        self.assertEqual(recovered, 1)
 
     def test_cleanup_removes_expired_and_empty_buckets(self) -> None:
         clock = ManualClock()
@@ -46,7 +43,7 @@ class RateLimitTestCase(unittest.TestCase):
         limiter.check("fresh", limit=3, window_seconds=20)
 
         clock.advance(6)
-        removed = limiter.cleanup(window_seconds=5)
+        removed = limiter.cleanup()
 
         self.assertEqual(removed, 1)
         self.assertNotIn("old", limiter.snapshot())

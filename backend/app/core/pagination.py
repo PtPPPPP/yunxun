@@ -24,5 +24,5 @@ def decode_cursor(value: str) -> tuple[str, str]:
         if not isinstance(created_at, str) or not isinstance(item_id, str) or not created_at or not item_id:
             raise ValueError
         return created_at, item_id
-    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+    except (ValueError, TypeError) as exc:
         raise ValueError("cursor 无效。") from exc

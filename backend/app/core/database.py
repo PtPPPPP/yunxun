@@ -1,14 +1,14 @@
 import logging
 import sqlite3
 import uuid
-from datetime import datetime, timezone
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 from fastapi import HTTPException
 
 from backend.app.core.config import get_settings
+from backend.app.core.time import now_iso
 
 
 logger = logging.getLogger("yunxun.backend.database")
@@ -141,7 +141,7 @@ def _apply_schema_v2(conn: sqlite3.Connection) -> None:
 
 
 def _apply_schema_v3(conn: sqlite3.Connection) -> None:
-    """Remove the user-managed model credential surface while preserving all user data."""
+    """移除用户自管模型凭据，保留全部用户数据。"""
     if "user_model_credentials" in _table_names(conn):
         count = conn.execute("SELECT COUNT(*) FROM user_model_credentials").fetchone()[0]
         logger.info("Removing legacy user model credentials rows=%s", count)
@@ -169,7 +169,7 @@ def _apply_schema_v4(conn: sqlite3.Connection) -> None:
 
 
 def _apply_schema_v5(conn: sqlite3.Connection) -> None:
-    """Persist image diagnosis and farm decision records for the user stats panel."""
+    """保存图片诊断与农活建议记录，供统计面板展示。"""
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS tool_records (
@@ -289,7 +289,7 @@ def _apply_schema_v9(conn: sqlite3.Connection) -> None:
 
     plot_columns = _table_columns(conn, "plots")
     if "crop" in plot_columns:
-        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        timestamp = now_iso()
         # 用下标取值，迁移可能在没设置 row_factory 的连接上执行。
         rows = conn.execute("SELECT id, user_id, crop, planted_on FROM plots").fetchall()
         migrated = 0
@@ -379,6 +379,35 @@ def _apply_schema_v10(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _apply_schema_v11(conn: sqlite3.Connection) -> None:
+    if "recovery_code_hash" not in _table_columns(conn, "users"):
+        conn.execute("ALTER TABLE users ADD COLUMN recovery_code_hash TEXT")
+
+
+def _apply_schema_v12(conn: sqlite3.Connection) -> None:
+    for table in ("plots", "farm_records"):
+        if "deleted_at" not in _table_columns(conn, table):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN deleted_at TEXT")
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_user_deleted ON {table}(user_id, deleted_at)")
+
+
+# 名称会写进启动日志和测试断言，重命名等于改变可观察行为。
+MIGRATION_STEPS: tuple[tuple[int, str, Callable[[sqlite3.Connection], None]], ...] = (
+    (1, "1_initial_secure_schema", _apply_schema_v1),
+    (2, "2_user_model_credentials", _apply_schema_v2),
+    (3, "3_remove_user_model_credentials", _apply_schema_v3),
+    (4, "4_session_pinning", _apply_schema_v4),
+    (5, "5_tool_records", _apply_schema_v5),
+    (6, "6_remove_ai_surface", _apply_schema_v6),
+    (7, "7_farm_plots_and_records", _apply_schema_v7),
+    (8, "8_harvest_yield_and_tasks", _apply_schema_v8),
+    (9, "9_plot_seasons", _apply_schema_v9),
+    (10, "10_onboarding_and_demo_origin", _apply_schema_v10),
+    (11, "11_account_recovery", _apply_schema_v11),
+    (12, "12_recoverable_deletion", _apply_schema_v12),
+)
+
+
 def migrate_schema(conn: sqlite3.Connection) -> tuple[int, list[str]]:
     current = int(conn.execute("PRAGMA user_version").fetchone()[0])
     starting_version = current
@@ -387,159 +416,28 @@ def migrate_schema(conn: sqlite3.Connection) -> tuple[int, list[str]]:
             f"数据库 Schema 版本 {current} 高于当前代码支持的 {SCHEMA_VERSION}。"
         )
     applied: list[str] = []
-    if current < 1:
+    for version, name, apply_step in MIGRATION_STEPS:
+        if version <= current:
+            continue
+        # 每一步单独提交：中途失败只回滚当前这一步，重试时从断点继续。
         conn.execute("BEGIN IMMEDIATE")
         try:
-            _apply_schema_v1(conn)
-            conn.execute("PRAGMA user_version = 1")
+            apply_step(conn)
+            conn.execute(f"PRAGMA user_version = {version}")
             conn.commit()
         except Exception:
             conn.rollback()
             raise
-        applied.append("1_initial_secure_schema")
-        current = 1
-    if current < 2:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            _apply_schema_v2(conn)
-            conn.execute("PRAGMA user_version = 2")
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        applied.append("2_user_model_credentials")
-        current = 2
-    if current < 3:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            _apply_schema_v3(conn)
-            conn.execute("PRAGMA user_version = 3")
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        applied.append("3_remove_user_model_credentials")
-        current = 3
-    if current < 4:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            _apply_schema_v4(conn)
-            conn.execute("PRAGMA user_version = 4")
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        applied.append("4_session_pinning")
-        current = 4
-    if current < 5:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            _apply_schema_v5(conn)
-            conn.execute("PRAGMA user_version = 5")
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        applied.append("5_tool_records")
-        current = 5
-    if current < 6:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            _apply_schema_v6(conn)
-            conn.execute("PRAGMA user_version = 6")
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        applied.append("6_remove_ai_surface")
-        current = 6
-    if current < 7:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            _apply_schema_v7(conn)
-            conn.execute("PRAGMA user_version = 7")
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        applied.append("7_farm_plots_and_records")
-        current = 7
-    if current < 8:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            _apply_schema_v8(conn)
-            conn.execute("PRAGMA user_version = 8")
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        applied.append("8_harvest_yield_and_tasks")
-        current = 8
-    if current < 9:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            _apply_schema_v9(conn)
-            conn.execute("PRAGMA user_version = 9")
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        applied.append("9_plot_seasons")
-        current = 9
-    if current < 10:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            _apply_schema_v10(conn)
-            conn.execute("PRAGMA user_version = 10")
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        applied.append("10_onboarding_and_demo_origin")
-        current = 10
-    if current < 11:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
-            if "recovery_code_hash" not in columns:
-                conn.execute("ALTER TABLE users ADD COLUMN recovery_code_hash TEXT")
-            conn.execute("PRAGMA user_version = 11")
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        applied.append("11_account_recovery")
-        current = 11
-    if current < 12:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            for table in ("plots", "farm_records"):
-                if "deleted_at" not in _table_columns(conn, table):
-                    conn.execute(f"ALTER TABLE {table} ADD COLUMN deleted_at TEXT")
-                conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_user_deleted ON {table}(user_id, deleted_at)")
-            conn.execute("PRAGMA user_version = 12")
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        applied.append("12_recoverable_deletion")
+        applied.append(name)
     return starting_version, applied
 
 
 def init_db() -> None:
     db_path = get_db_path()
     try:
-        ensure_parent_dir()
-        conn = sqlite3.connect(db_path, timeout=10)
-        try:
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA foreign_keys = ON")
-            conn.execute("PRAGMA busy_timeout = 10000")
+        with get_connection() as conn:
             current, applied = migrate_schema(conn)
             conn.execute("PRAGMA journal_mode = WAL")
-            conn.commit()
-        finally:
-            conn.close()
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"数据库路径不可写：{db_path}") from exc
     except sqlite3.Error as exc:

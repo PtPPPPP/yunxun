@@ -2,9 +2,9 @@
 import uuid
 from datetime import date, timedelta
 
-from backend.app.core.database import get_connection
 from fastapi import HTTPException
 
+from backend.app.core.database import get_connection
 from backend.app.core.errors import conflict, not_found
 from backend.app.core.time import now_iso
 
@@ -50,7 +50,10 @@ def load_demo_data(user_id: str) -> bool:
             return True
         timestamp = now_iso()
         today = date.today()
-        day = lambda offset: (today + timedelta(days=offset)).isoformat()
+
+        def day(offset: int) -> str:
+            return (today + timedelta(days=offset)).isoformat()
+
         plot_id, season_id = uuid.uuid4().hex, uuid.uuid4().hex
         note = "演示数据，仅用于了解功能，不代表实际经营成果。"
         conn.execute("""INSERT INTO plots

@@ -41,7 +41,9 @@ graphify-out/.graphify_uncached.txt
 graphify-out/.graphify_chunk_*.json
 graphify-out/cache/
 
-# Editor, operating system and QA output
+# Local agent tooling, document backups and editor state
+.dsh/
+*.bak
 .vscode/
 .DS_Store
 Thumbs.db

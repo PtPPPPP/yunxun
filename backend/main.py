@@ -27,8 +27,7 @@ def main() -> None:
     settings = get_settings()
     if not _is_port_available(settings.host, settings.port):
         raise SystemExit(
-            f"Port {settings.port} is already in use. "
-            f"Change YUNXUN_PORT or PORT in the environment, then start the backend again."
+            f"端口 {settings.port} 已被占用。请修改环境变量 YUNXUN_PORT 或 PORT 后重新启动后端。"
         )
 
     uvicorn.run(

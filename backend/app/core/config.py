@@ -110,7 +110,6 @@ class Settings:
     cors_headers_raw: str
     requests_per_minute: int
     token_hours: int
-    auth_window_seconds: int = 60
     log_level: str = "INFO"
     cookie_secure: bool = False
     cookie_same_site: str = "lax"
@@ -173,10 +172,9 @@ class Settings:
 
 
 def validate_startup_settings(settings: Settings) -> None:
-    environment = settings.environment.strip().lower()
     if not settings.jwt_secret.strip():
         raise ValueError("YUNXUN_JWT_SECRET 不能为空。")
-    if environment == "production":
+    if settings.is_production:
         if settings.jwt_secret == "change-me-in-production" or len(settings.jwt_secret) < 32:
             raise ValueError("生产环境的 YUNXUN_JWT_SECRET 必须是至少 32 字符的随机值。")
         if settings.debug:
@@ -193,7 +191,7 @@ def get_settings() -> Settings:
     default_database_path = PROJECT_ROOT / "backend" / "yunxun.db"
     port = _parse_int("YUNXUN_PORT", _getenv("YUNXUN_PORT", _getenv("PORT", "8001")), default=8001, minimum=1, maximum=65535)
     token_hours = _parse_int("YUNXUN_TOKEN_EXPIRE_HOURS", _getenv("YUNXUN_TOKEN_EXPIRE_HOURS"), default=168, minimum=1, maximum=24 * 365)
-    database_url = _getenv("YUNXUN_DATABASE_URL", f"sqlite:///{default_database_path}") or f"sqlite:///{default_database_path}"
+    database_url = _getenv("YUNXUN_DATABASE_URL") or f"sqlite:///{default_database_path}"
 
     return Settings(
         app_name=_parse_optional_str("YUNXUN_APP_NAME", _getenv("YUNXUN_APP_NAME"), default="云寻智慧农业工作台软件"),
@@ -205,14 +203,13 @@ def get_settings() -> Settings:
         backend_url=_parse_optional_str("YUNXUN_BACKEND_URL", _getenv("YUNXUN_BACKEND_URL"), default=f"http://127.0.0.1:{port}"),
         jwt_secret=_parse_optional_str("YUNXUN_JWT_SECRET", _getenv("YUNXUN_JWT_SECRET"), default="change-me-in-production"),
         database_url=database_url,
-        db_path=_resolve_database_path(_getenv("YUNXUN_DB_PATH", database_url) or database_url),
-        allowed_origins_raw=_getenv("YUNXUN_ALLOWED_ORIGINS", "") or "",
-        cors_methods_raw=_getenv("YUNXUN_CORS_METHODS", "GET,POST,PATCH,DELETE,OPTIONS") or "GET,POST,PATCH,DELETE,OPTIONS",
+        db_path=_resolve_database_path(_getenv("YUNXUN_DB_PATH") or database_url),
+        allowed_origins_raw=_getenv("YUNXUN_ALLOWED_ORIGINS", ""),
+        cors_methods_raw=_getenv("YUNXUN_CORS_METHODS", "GET,POST,PATCH,DELETE,OPTIONS"),
         cors_headers_raw=_getenv(
             "YUNXUN_CORS_HEADERS",
             "Authorization,Content-Type,X-CSRF-Token",
-        )
-        or "Authorization,Content-Type,X-CSRF-Token",
+        ),
         requests_per_minute=_parse_int("YUNXUN_REQUESTS_PER_MINUTE", _getenv("YUNXUN_REQUESTS_PER_MINUTE"), default=20, minimum=1, maximum=600),
         # 认证单独限流：比通用接口更严，防止口令爆破，但必须可配置，
         # 否则端到端测试里连续多次访客登录会被自己的限流挡住。

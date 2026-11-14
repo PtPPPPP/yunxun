@@ -16,7 +16,7 @@ const featureTitles: Record<FeatureKey, { title: string; subtitle: string }> = {
   trash: { title: "回收站", subtitle: "恢复地块和台账，最终删除前保留关联资料。" },
 };
 
-export interface TaskSummary {
+interface TaskSummary {
   open: number;
   dueToday: number;
   overdue: number;

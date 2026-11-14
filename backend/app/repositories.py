@@ -116,7 +116,6 @@ def create_auth_token(user_id: str, token_hash: str, expires_at: str, *, expecte
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT password_hash FROM users WHERE id=?", (user_id,)).fetchone()
             if not row or row["password_hash"] != expected_password_hash:
-                from fastapi import HTTPException
                 raise HTTPException(401, "登录状态已变化，请使用最新密码重新登录。")
         conn.execute(
             """
@@ -419,13 +418,6 @@ def _update_plot_row(
     return public_plot(dict(row))
 
 
-def update_plot(
-    plot_id: str, name: str, area_mu: float, soil_type: str, irrigation: str, notes: str,
-) -> dict[str, Any]:
-    with get_connection() as conn:
-        return _update_plot_row(conn, plot_id, name, area_mu, soil_type, irrigation, notes)
-
-
 def update_plot_with_active_season(
     plot_id: str, user_id: str, name: str, area_mu: float, soil_type: str,
     irrigation: str, notes: str, crop: str | None, started_on: str | None,
@@ -558,6 +550,9 @@ def delete_farm_task(task_id: str) -> None:
         conn.execute("DELETE FROM farm_tasks WHERE id = ?", (task_id,))
 
 
+SEASON_VISIBLE = "EXISTS (SELECT 1 FROM plots p WHERE p.id=plot_seasons.plot_id AND p.user_id=plot_seasons.user_id AND p.deleted_at IS NULL)"
+
+
 def public_season(record: dict[str, Any]) -> dict[str, Any]:
     return {
         "is_demo": bool(record.get("is_demo", False)),
@@ -603,19 +598,19 @@ def create_season(
 
 
 def get_season(season_id: str) -> dict[str, Any] | None:
-    return _fetchone("SELECT * FROM plot_seasons WHERE id = ? AND EXISTS (SELECT 1 FROM plots p WHERE p.id=plot_seasons.plot_id AND p.user_id=plot_seasons.user_id AND p.deleted_at IS NULL)", (season_id,))
+    return _fetchone("SELECT * FROM plot_seasons WHERE id = ? AND " + SEASON_VISIBLE, (season_id,))
 
 
 def get_active_season(plot_id: str) -> dict[str, Any] | None:
     """地块进行中的那一茬；部分唯一索引保证最多只有一条。"""
     return _fetchone(
-        "SELECT * FROM plot_seasons WHERE plot_id = ? AND ended_on IS NULL AND EXISTS (SELECT 1 FROM plots p WHERE p.id=plot_seasons.plot_id AND p.user_id=plot_seasons.user_id AND p.deleted_at IS NULL)",
+        "SELECT * FROM plot_seasons WHERE plot_id = ? AND ended_on IS NULL AND " + SEASON_VISIBLE,
         (plot_id,),
     )
 
 
 def list_seasons(user_id: str, *, plot_id: str | None = None) -> list[dict[str, Any]]:
-    conditions = ["user_id = ?", "EXISTS (SELECT 1 FROM plots p WHERE p.id=plot_seasons.plot_id AND p.user_id=plot_seasons.user_id AND p.deleted_at IS NULL)"]
+    conditions = ["user_id = ?", SEASON_VISIBLE]
     params: list[Any] = [user_id]
     if plot_id:
         conditions.append("plot_id = ?")
