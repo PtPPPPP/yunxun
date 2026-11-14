@@ -48,3 +48,9 @@ graphify-out/cache/
 .DS_Store
 Thumbs.db
 qa-*.png
+
+# 大创中期报告等申报过程材料只留本机，软著交付材料放 docs/software-copyright
+/附件2 *
+/中期报告*
+/*.doc
+/*.docx
