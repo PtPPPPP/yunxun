@@ -1,0 +1,830 @@
+{
+  "software_name": "云寻智慧农业工作台软件",
+  "version": "1.0.0",
+  "date": "2026-10-19",
+  "timezone": "Asia/Shanghai",
+  "git_head": "931206089ed38432e6b792e73c013830a183ae3d",
+  "source_inventory_sha256": "3cc38790925177218002a9be13b075efa315f38b8ad1e1a753288cf8b27ee5d0",
+  "viewport": {
+    "width": 1600,
+    "height": 1100,
+    "deviceScaleFactor": 1.5
+  },
+  "capture_method": "Chromium 实际运行页面截图，原始 PNG，未修图或伪造界面。",
+  "data_source": "独立临时 SQLite；全部为人工构造合成样例，普通写入接口登记，产品内归类为真实记录仅表示非内置演示种子，不代表真实经营成果。",
+  "browser_errors": [],
+  "screenshots": [
+    {
+      "number": 1,
+      "title": "用户登录",
+      "filename": "01-用户登录.png",
+      "description": "登录入口、访客体验和恢复码重置入口；凭据字段为空。",
+      "captured_at": "2026-10-19T12:47:19.253Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "c72bb8840f20615d8f99443746edf3a0d22be73c59732a7b4877af5aecfbc8cb",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 2,
+      "title": "用户注册",
+      "filename": "02-用户注册.png",
+      "description": "显示名称、用户名及密码字段，展示正式账号注册入口；字段为空。",
+      "captured_at": "2026-10-19T12:47:19.570Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "8d6848f65dad59fbf835e8d8503692e2760f0fce3326b0b43eae8e8f525bfebf",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 3,
+      "title": "首页与首次使用引导",
+      "filename": "03-首页与首次使用引导.png",
+      "description": "空账号首页、三步引导与快速记账入口。",
+      "captured_at": "2026-10-19T12:47:20.012Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "d05eb2ca032dd5bea6d3dc898e6ec0cedb06ba6d93a89727c76907e66c205b57",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 4,
+      "title": "工作台首页与今日待办",
+      "filename": "04-工作台首页与今日待办.png",
+      "description": "样例业务数据下的首页计数、今日与逾期待办、地块快速记账。",
+      "captured_at": "2026-10-19T12:47:23.250Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "5adab77550dca52a919495b634e3bb381a1e664376a0d91ba80d213df23c19ab",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 5,
+      "title": "登记地块与第一茬",
+      "filename": "05-登记地块与第一茬.png",
+      "description": "填写地块面积、土壤、灌溉及第一茬作物与日期；尚未提交。",
+      "captured_at": "2026-10-19T12:47:20.357Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "ada234c11d6e92724e2b4d2b01e8ba23dc3ee8ae598969729cd33d7f8cf5f340",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 6,
+      "title": "地块档案与当前茬次",
+      "filename": "06-地块档案与当前茬次.png",
+      "description": "三个合成样例地块、登记面积、当前作物、茬次数与登记间隔期提醒。",
+      "captured_at": "2026-10-19T12:47:23.025Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "4e8507eb1cf215ebc02a296feba76de1301b61c7f291b8bfdb6b28573fd9e28f",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 7,
+      "title": "开始新茬",
+      "filename": "07-开始新茬.png",
+      "description": "已结束番茄茬，为同一地块登记新的黄瓜茬，展示茬次生命周期。",
+      "captured_at": "2026-10-19T12:47:21.535Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "d4dcd8501c0e4eb3b6686e469d4be9d2f9fbf8d634caefed02888cd73478802f",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 8,
+      "title": "农事待办清单",
+      "filename": "08-农事待办清单.png",
+      "description": "逾期、今日与本周任务分组，以及地块关联和完成入口。",
+      "captured_at": "2026-10-19T12:47:23.456Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "e0aa18f2107b58b45b9f6efd98031a7dc7ab7533779263443868274923ab66a9",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 9,
+      "title": "完成待办后记入台账",
+      "filename": "09-完成待办后记入台账.png",
+      "description": "完成待办后的独立记账弹窗，核对地块、茬次及实际日期后保存。",
+      "captured_at": "2026-10-19T12:47:23.957Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "ebd003a47a63f2a3b010e14602d95c2a5fbd2380fd09699b012d2fc7c8674713",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 10,
+      "title": "采收产量与单价登记",
+      "filename": "10-采收产量与单价登记.png",
+      "description": "快速记账中的采收类型，填写产量、单价和零费用。",
+      "captured_at": "2026-10-19T12:47:24.656Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "20fa40a0928da50a7fcfe4ad8f2d0161fa952f87d92297d6301b58179eff5d4e",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 11,
+      "title": "农事台账与筛选",
+      "filename": "11-农事台账与筛选.png",
+      "description": "按地块与历史番茄茬筛选后的三笔台账、费用与产量信息，以及 CSV 导出入口。",
+      "captured_at": "2026-10-19T12:47:25.673Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "2cbd2d884ffcc971efc3a9bca4a54e7fbba5668f98c823bf6f1f054fd74c57ca",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 12,
+      "title": "采收登记间隔期提醒",
+      "filename": "12-采收登记间隔期提醒.png",
+      "description": "按样例施药日和用户填写天数计算的采收提醒，不作为产品标签或合规结论。",
+      "captured_at": "2026-10-19T12:47:25.178Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "a3609d676b4681bdf36f0c0f82b73c60df3f4f66b87828d80ea60a18e11dadb7",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 13,
+      "title": "每茬收支核算",
+      "filename": "13-每茬收支核算.png",
+      "description": "历史番茄茬：已记录支出 480 元、收入 1920 元、差额 1440 元；均为合成样例。",
+      "captured_at": "2026-10-19T12:47:26.015Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "fa178d4481ef990c3936db1abec5b83f317b0d917d91097d7d06df5e9d166653",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 14,
+      "title": "收支金额追溯与导出",
+      "filename": "14-收支金额追溯与导出.png",
+      "description": "从 1920 元收入追溯到一笔完整采收记录，保留历史茬次筛选，显示 CSV 已生成并开始下载的真实成功状态。",
+      "captured_at": "2026-10-19T12:47:26.609Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "885a549291122ced906bf172cc1075dcfd92c7ddc650f9fd4c0205280fcb096f",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 15,
+      "title": "今日农活田间条件",
+      "filename": "15-今日农活田间条件.png",
+      "description": "选择样例地块、作物、生长期、温度及用户填写的降雨概率和湿度。",
+      "captured_at": "2026-10-19T12:47:26.875Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "b2a23078d4e7b2c21908232d7b7f95ea967e8dcc07229c8810331b6f346cb1db",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 16,
+      "title": "今日农活规则建议",
+      "filename": "16-今日农活规则建议.png",
+      "description": "本机规则生成的水分条件提示，说明输入边界，并可转存待办。",
+      "captured_at": "2026-10-19T12:47:27.144Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "ab0a87699270d2e15db81b738ff4c715731c3f1d07e082146fb83245a18a4b43",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 17,
+      "title": "删除地块关联确认",
+      "filename": "17-删除地块关联确认.png",
+      "description": "删除前展示关联茬次、台账及全部待办数量，提示移入回收站。",
+      "captured_at": "2026-10-19T12:47:27.605Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "fe6a296f82dacd4348fb4ec767db3a7ede571b150ad505c3686c4ba1e8104766",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 18,
+      "title": "回收站与关联恢复",
+      "filename": "18-回收站与关联恢复.png",
+      "description": "已删除的合成样例地块及关联资料，展示恢复和最终删除入口。",
+      "captured_at": "2026-10-19T12:47:28.035Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "cb1ac83e06986da7ce25528cffc5f10a0bfbd725abafee730ebe1484083ff7cf",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 19,
+      "title": "账号安全设置",
+      "filename": "19-账号安全设置.png",
+      "description": "修改密码与离线恢复码功能说明；密码字段为空，没有生成或显示恢复码。",
+      "captured_at": "2026-10-19T12:47:28.377Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "80e4f4d902b4f714146d2bf23d6cafb745deabaa71aa398bf0b297aeb8217cd7",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    },
+    {
+      "number": 20,
+      "title": "关于软件与版本",
+      "filename": "20-关于软件与版本.png",
+      "description": "当前软件全称、简称、V1.0.0 版本及主要功能。",
+      "captured_at": "2026-10-19T12:47:28.707Z",
+      "width": 2400,
+      "height": 1650,
+      "sha256": "eb25e1334abbdc8307dc8bf672cc752b0d214dbbe0d43a0c89d3d2fe830b81a4",
+      "synthetic_data": true,
+      "sensitive_review": "无凭据、真实个人信息、开发工具或内部地址"
+    }
+  ],
+  "source_files": [
+    {
+      "path": "backend/__init__.py",
+      "sha256": "38c2a4028487464c9167a9f5a71922aca507e0fa81fdb2973dc385f57cacbce5"
+    },
+    {
+      "path": "backend/app/__init__.py",
+      "sha256": "fe6c47976573e99d2ca655ddbb7248eac8cb2ef05c09abd4521f47d96d48a61a"
+    },
+    {
+      "path": "backend/app/api/deps.py",
+      "sha256": "126cd3bbaff34099dec100752ac7b5c36895e8968af8d881aec0f6da1646e2c7"
+    },
+    {
+      "path": "backend/app/api/routes/__init__.py",
+      "sha256": "8420fd3b396a9f95ec9e1b6b84ba361b72cae4ee607bb3040b0d9641908ce983"
+    },
+    {
+      "path": "backend/app/api/routes/auth.py",
+      "sha256": "76564351b3adf8cc414518a545f53a11f8cb781a2cd8c4022964d77dc118daca"
+    },
+    {
+      "path": "backend/app/api/routes/farm.py",
+      "sha256": "6169e38d802f940ad0ad3ebf4d4874d4edd8d8b957f231ea2ca05c971c90ddf4"
+    },
+    {
+      "path": "backend/app/api/routes/system.py",
+      "sha256": "f8b8737d1afeee69f6cd7f60021cff1d339604dc3675d9c65eb0b7934128f527"
+    },
+    {
+      "path": "backend/app/api/routes/tools.py",
+      "sha256": "29e9cdbcac2e3fa923dccd1ce00bba235ab00b25a3df4fb41d36d67668c6f495"
+    },
+    {
+      "path": "backend/app/core/audit.py",
+      "sha256": "2495eb1835fdb16d8c79b3dab9d04b69e971c18e071c7973e8c93c865ec2fb48"
+    },
+    {
+      "path": "backend/app/core/backup.py",
+      "sha256": "85e0d24bb4a8390ac176dd88af8e9fe999c930f8a71a3cb9163e2968dcdb49cc"
+    },
+    {
+      "path": "backend/app/core/config.py",
+      "sha256": "677372ed248d1dd4390e5a0bc19edd4ab46d67b2792899978e9c676c9cd921db"
+    },
+    {
+      "path": "backend/app/core/csrf.py",
+      "sha256": "9426e803355439e795295f2097f514ea5d005b4b62f7d425abbb8c78bf44b7e5"
+    },
+    {
+      "path": "backend/app/core/database.py",
+      "sha256": "9119e77d2cbc7c34018769fd549a5c87c4ce1e5fe41aec2876884526f9a46e5f"
+    },
+    {
+      "path": "backend/app/core/errors.py",
+      "sha256": "6f64177ce25626d53201c1f8ef968306b681c9b99e5d009a49b2f3e9981ac606"
+    },
+    {
+      "path": "backend/app/core/exceptions.py",
+      "sha256": "52e5bfc838fac8b75fda10003aef4a9577bede081e1f9decf862b9199f8a5722"
+    },
+    {
+      "path": "backend/app/core/pagination.py",
+      "sha256": "b767c8b0d5da45b05753a91ae6fdfab1ac56b0616ccdb5cb1de9774365a9eb97"
+    },
+    {
+      "path": "backend/app/core/rate_limit.py",
+      "sha256": "9eee20661ff9af9773aa6d49496ecff2706c69dbf606f0463c49b3bedb6c6c61"
+    },
+    {
+      "path": "backend/app/core/request_context.py",
+      "sha256": "e2cadcf32e6ce12dd8a863f8d17c5f95ed5d7cd187072648135a1cdd8ed9e4f5"
+    },
+    {
+      "path": "backend/app/core/runtime_status.py",
+      "sha256": "2a5817a9de0e5cc8a4fc4995fcf53937659c525913bb7230268644c01b561a40"
+    },
+    {
+      "path": "backend/app/core/security.py",
+      "sha256": "4d0e1a2754e616b97b15863ef1149f3c6cde52e67d2e84b065b0153c4cda3c5a"
+    },
+    {
+      "path": "backend/app/core/time.py",
+      "sha256": "f8127f6efbb027475262e231424bb4705850912a4097423d12ba6fee99920790"
+    },
+    {
+      "path": "backend/app/main.py",
+      "sha256": "0cdb46dce8f9f81a8dca260f9a47761945151aa3a185c14c46c633c9b62447c4"
+    },
+    {
+      "path": "backend/app/repositories.py",
+      "sha256": "f92ed8bc6329d9ce795cc6ad8e14e552aa0345d4ed5d0f5bf41271536a333941"
+    },
+    {
+      "path": "backend/app/repositories_account.py",
+      "sha256": "bd37ed8df4e7cca892868286e41f8c307656c3542bc3f8f484704f511d2bedec"
+    },
+    {
+      "path": "backend/app/repositories_onboarding.py",
+      "sha256": "fee5f72b6e499c5837bb3553a3d84082b8464abf7946fc11ca4f90d342f98b66"
+    },
+    {
+      "path": "backend/app/repositories_trash.py",
+      "sha256": "c05de1223f7c8b661b86717c6feba632841285032632b5352a300a2bb02d2325"
+    },
+    {
+      "path": "backend/app/schemas.py",
+      "sha256": "b3c6e523897cf7e1cf7e5e77fea434dfc17fbf4a617e05352d1b1648a4a73082"
+    },
+    {
+      "path": "backend/app/services/auth.py",
+      "sha256": "12fc9eb099bb7b9e1765af11031745a77a5fdaad787d2696b71e5ba161293f22"
+    },
+    {
+      "path": "backend/app/services/decision.py",
+      "sha256": "3694b9d0c84b84c00fe4e30e544c220f178bd190053a69911307b4c5433ff155"
+    },
+    {
+      "path": "backend/app/services/exports.py",
+      "sha256": "0d369c86fd1b5dc42f566121deee2f2880b9708399e1845778dacc755ced1a42"
+    },
+    {
+      "path": "backend/app/services/farm.py",
+      "sha256": "690f6d399691d597a76c61a4f7a1a3a476a92332e70e0d7308700b67488064af"
+    },
+    {
+      "path": "backend/app/services/system.py",
+      "sha256": "d28d585df8e0456eb3dbba126e357fbcdd61c40da3a5fe00f569ddc7046e93b2"
+    },
+    {
+      "path": "backend/app/services/tools.py",
+      "sha256": "6a6ee53796e7497c9489f1648ef1047fb3c3a272fcc97252988e8b31584341b5"
+    },
+    {
+      "path": "backend/constraints.txt",
+      "sha256": "bb2e266262d9d41614d52d0c1abaeb848a064992610cdee5a163cfd07925eb3a"
+    },
+    {
+      "path": "backend/main.py",
+      "sha256": "9c3e3b82b63f9fe5e2e702802796840aaa6dcf7f4ee047aa7e30e1d221a2969a"
+    },
+    {
+      "path": "backend/requirements-test.txt",
+      "sha256": "496a3e53fc7790989b15e2154e0b61aa74ca49905d10f9b91f28e48841d6e43e"
+    },
+    {
+      "path": "backend/requirements.txt",
+      "sha256": "73fa7d1719c61905cf9e5bd8b00ce88ce42e991cbb89eb8860e3cd5559b08ce8"
+    },
+    {
+      "path": "backend/tests/__init__.py",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "backend/tests/helpers.py",
+      "sha256": "8c6e97caf814d44967fc3de446a09f4160b9b57418a4fee9faca4a266be4c7a5"
+    },
+    {
+      "path": "backend/tests/test_audit.py",
+      "sha256": "0f1ed079525f42dc872136e106ff0196026ccf60f214856598a0a6b5f3f6ebf7"
+    },
+    {
+      "path": "backend/tests/test_auth_tokens.py",
+      "sha256": "e86e54fcb7c02ebf394bf991eeff98639bb72bfa9e37c36ab602399f39205d1c"
+    },
+    {
+      "path": "backend/tests/test_backup.py",
+      "sha256": "e7710d5f78a27d56f565856ab6c47a402222b9d45aea6088294d06180540077a"
+    },
+    {
+      "path": "backend/tests/test_config_parsing.py",
+      "sha256": "b636f6818ac7f6876b91945a88dc3a8fc845a9d9a61b992eb15ea0068a9dbc38"
+    },
+    {
+      "path": "backend/tests/test_config_runtime.py",
+      "sha256": "20afa3edf3a796bb18164e5569ce2ffe191b560f83a3845e9b113778dba4308c"
+    },
+    {
+      "path": "backend/tests/test_copyright_source.py",
+      "sha256": "bf77981dd399a84fd9c91eadce352b3d93a5780557eff8f9d468af2940ff6d9d"
+    },
+    {
+      "path": "backend/tests/test_csv_exports.py",
+      "sha256": "e2cc38fdabb79edf80e5b70f534aa598436d1840b87c0365188b90744b431c58"
+    },
+    {
+      "path": "backend/tests/test_current_acceptance.py",
+      "sha256": "545c74d33ec9013e88a776e5cb980b5edb14270fa53a4a4b6607f7d4bb129821"
+    },
+    {
+      "path": "backend/tests/test_database_migrations.py",
+      "sha256": "5c12e1a3536d6c88e4f8d4655304a3eaa0f9f814f414ba2d28e81c5ca7adf5d3"
+    },
+    {
+      "path": "backend/tests/test_decision_service.py",
+      "sha256": "40203863c43bb4cb96862d6afe1afaf4931c81fab1920fac8da029701b2449f9"
+    },
+    {
+      "path": "backend/tests/test_economics_trace.py",
+      "sha256": "0c866fff9c2c6fbbd7040ef37c8a2f30961b91c4116a3cc7d39ff6fb89164fbb"
+    },
+    {
+      "path": "backend/tests/test_errors.py",
+      "sha256": "48ab0fc46a68aab8b5cdc45740e7c6d48becbc44ef1ee55b5aa452c481945821"
+    },
+    {
+      "path": "backend/tests/test_farm_records.py",
+      "sha256": "576902318421f90371e02be61f56de7d196cb65bfdf8e5257715de91eb163640"
+    },
+    {
+      "path": "backend/tests/test_farm_regressions.py",
+      "sha256": "c2b954885d9fb121801b72949e0addb1533ac24217a213f57632b1215d9456af"
+    },
+    {
+      "path": "backend/tests/test_farm_tasks.py",
+      "sha256": "31a7c28d1fcc8dd82b4f69741991ac6829000f8c7290a600a06e727e5074fac5"
+    },
+    {
+      "path": "backend/tests/test_farm_transactions.py",
+      "sha256": "02d6169b463347a2999ed4aa6dbd7b18dc122b16fb7f0769bd88e3e70aee6455"
+    },
+    {
+      "path": "backend/tests/test_guest_upgrade.py",
+      "sha256": "0ebc1476cf5c68455fdb56c7c9b9a8bdef0386e0e69e6fcd538d45f962a52669"
+    },
+    {
+      "path": "backend/tests/test_ledger_editing.py",
+      "sha256": "902a5f772b00fedadc17fa9169beded3895aa18cdc30bf385bf12afa03a7b170"
+    },
+    {
+      "path": "backend/tests/test_logout_sessions.py",
+      "sha256": "418ac2c5b6dc54d963801ebcb7ed8f1d0256f906f9c24f38266a33e17f7496fb"
+    },
+    {
+      "path": "backend/tests/test_onboarding.py",
+      "sha256": "bfb326644f45774d71d3642027b72d89ba8cc8656b45dc4c5dc0f00b21cca612"
+    },
+    {
+      "path": "backend/tests/test_pagination.py",
+      "sha256": "c92ce811dc9e7c0781b6e1ac0dfb43b260644b2afaf63ab4749eaa3264fbc173"
+    },
+    {
+      "path": "backend/tests/test_password_management.py",
+      "sha256": "ea6660fb6b9dc7011defcd4844ac75e2af31c21826dc8c8bef2030815cc96094"
+    },
+    {
+      "path": "backend/tests/test_plots.py",
+      "sha256": "cfb5da9f07e95a7e88463f38b41a4b5dc20c220e552f320bd9a89ed2025ceb46"
+    },
+    {
+      "path": "backend/tests/test_rate_limit.py",
+      "sha256": "f61401b94fe0ce1260e187f0fb378af5884bd5ba332e5d9c2ccd6f4fdf734c47"
+    },
+    {
+      "path": "backend/tests/test_record_submission.py",
+      "sha256": "756c6abfa393054a6dfd131f96e844dd78238d59d5a2486a0e8e27f5ca2844dc"
+    },
+    {
+      "path": "backend/tests/test_request_context.py",
+      "sha256": "c88fe6a91eb97ce9e5d334c6a598ab7f3ae68092ddbb39d9bbc883f27abc5dc2"
+    },
+    {
+      "path": "backend/tests/test_seasons.py",
+      "sha256": "bca89746043629647a6fbd8718fcec5ad2dc3bee4b268b890b014ec588903220"
+    },
+    {
+      "path": "backend/tests/test_service_concurrency.py",
+      "sha256": "6c14269462cbfb668b58a8fd8b8bb4d9e182df721a1dce86485f2e17ae0ec388"
+    },
+    {
+      "path": "backend/tests/test_sqlite_concurrency.py",
+      "sha256": "eac213faeec4e8e5638da409355e3b17da2fadcf7987c4df8263288e7f32fb12"
+    },
+    {
+      "path": "backend/tests/test_system_routes.py",
+      "sha256": "67f7d6fb025554bd9f29e7bb2981e68224c10a05220fc9ef68309ead6ee42947"
+    },
+    {
+      "path": "backend/tests/test_system_service.py",
+      "sha256": "46e62767bf3f7b923be421d14a571bf034fe311bc36793e5ddaa3d1a7cc4d655"
+    },
+    {
+      "path": "backend/tests/test_tool_records.py",
+      "sha256": "4c17df75572759f4be6c1a0b2dc470671506ee051eabe3f5cb3a2af935aaac3a"
+    },
+    {
+      "path": "backend/tests/test_trash.py",
+      "sha256": "4cd4949c7a21925345b2037ad674c4ba6f1041409869edd0c1d5cd6044cf99b6"
+    },
+    {
+      "path": "frontend/.env.example",
+      "sha256": "b3c1b39b4677ddd0cb0c98001d98193b790443667140ca22c30c3da5a24c5ef4"
+    },
+    {
+      "path": "frontend/e2e/architecture-regression.spec.ts",
+      "sha256": "f737cafe2e3f51833d815101128ef9c7a846f02bab1ee482d2d3c2b98dca5211"
+    },
+    {
+      "path": "frontend/e2e/current-acceptance.spec.ts",
+      "sha256": "952a8e0f87f2a01895a5ec7b8ebbe45d35edc415fdd7bd5ca5e5bdf41176ad75"
+    },
+    {
+      "path": "frontend/e2e/decision-consistency.spec.ts",
+      "sha256": "15155da36332c5a4ddd0e651c9c7c7780b3b3578aaa32cd67afdb35f8acbc9ea"
+    },
+    {
+      "path": "frontend/e2e/decision.spec.ts",
+      "sha256": "fb6f9a5936082d06df53c9e1e4642ab4061612622b94306e13337a5045570321"
+    },
+    {
+      "path": "frontend/e2e/economics.spec.ts",
+      "sha256": "695401ee2b3aada60134c8710773440bb1fa02e322525bcf9e94400edd478129"
+    },
+    {
+      "path": "frontend/e2e/exports.spec.ts",
+      "sha256": "78f9df38a61ffb6959387f310ecf923ada081f5c12b023aaa6d2fcc55429a352"
+    },
+    {
+      "path": "frontend/e2e/farm.spec.ts",
+      "sha256": "71a31a7cd93884f06fc482aa7ceaa98a11f6fcf7fd87eb71c00d24886830721a"
+    },
+    {
+      "path": "frontend/e2e/guest-upgrade.spec.ts",
+      "sha256": "80b3537d72739f03711e9622c7653fb897ca4b47c5454feeafffc49c7074c947"
+    },
+    {
+      "path": "frontend/e2e/home.spec.ts",
+      "sha256": "994c653af768279a658ca5fed5ad56274e2116129620514ab85e3cc34775ff8c"
+    },
+    {
+      "path": "frontend/e2e/mobile-ledger.spec.ts",
+      "sha256": "6c982779061891d4726aa95c8cabd5db8c596dd407300fac476b33c41c2116fd"
+    },
+    {
+      "path": "frontend/e2e/onboarding.spec.ts",
+      "sha256": "d613ec94879a03e65d86612a7c7ca35abbb63971427cc7eb0a32759e1b6ea84b"
+    },
+    {
+      "path": "frontend/e2e/password.spec.ts",
+      "sha256": "a75c549118554d7fe8d6d80378cce330cd6cea65deb9e2bd4f00c0ce94840eec"
+    },
+    {
+      "path": "frontend/e2e/session.spec.ts",
+      "sha256": "796f3979dedd9b6dd7e2dea7b008bde7a4935a5b0cf9dc89efd54aeba9482fc3"
+    },
+    {
+      "path": "frontend/e2e/tasks.spec.ts",
+      "sha256": "4d85e90df7e6ebf3fbddf148e1aa405fc55ced61731217140c773769580d95d5"
+    },
+    {
+      "path": "frontend/e2e/teardown.ts",
+      "sha256": "97d40046774ee41395157982e0404c157535c8dd9abc95a51368b2f2a5d1a8d7"
+    },
+    {
+      "path": "frontend/e2e/trash.spec.ts",
+      "sha256": "36eee9bdb226975ad0b3cf21b29ad9107f8c403e2942b359301390d2645e88e8"
+    },
+    {
+      "path": "frontend/eslint.config.js",
+      "sha256": "bc2c266cd599dd76bac7df235f2adacd781fab0945c52aa8889c40a14598e0d8"
+    },
+    {
+      "path": "frontend/index.html",
+      "sha256": "3d2c90af3a78457a16c6a2be2b0f711a9fb167c911b759fbefadc71daab6d6ca"
+    },
+    {
+      "path": "frontend/package-lock.json",
+      "sha256": "d32b2460b79d7766b656f9796b1782156613506addbe004476f953a432e81bd6"
+    },
+    {
+      "path": "frontend/package.json",
+      "sha256": "16a6ddcd8288ed75ca4345dee1253d9a8adea511444a001e5a78adf4a1c8b655"
+    },
+    {
+      "path": "frontend/playwright.config.ts",
+      "sha256": "692deafb16ae30b463b692aa1d3e76f21977945c7c6201dc1dc3164cccd8d291"
+    },
+    {
+      "path": "frontend/src/App.tsx",
+      "sha256": "e2de009d2f50581abebd45c36ea472e7c0fe9ad202c980573c14be19213f328c"
+    },
+    {
+      "path": "frontend/src/components/AccountSecurity.tsx",
+      "sha256": "47039dd7fd0ba9b1cbc37f3859e8daae9682ece85f9a75acce13638781e58063"
+    },
+    {
+      "path": "frontend/src/components/AuthScreen.tsx",
+      "sha256": "f67255a45336953ece20524b50ad91916448f214d4541ca9b345fb6feea154f4"
+    },
+    {
+      "path": "frontend/src/components/ConfirmDialog.tsx",
+      "sha256": "1d347c964ec761e6b7a63581d03adbf527d9cc358278a23b544ef984d2c4b952"
+    },
+    {
+      "path": "frontend/src/components/CsvExportButton.tsx",
+      "sha256": "c6c98886a02c59f762d2b8f1710f478bdb1c7f5ed7f3dcbf8986f9735e61886d"
+    },
+    {
+      "path": "frontend/src/components/DecisionWorkspace.tsx",
+      "sha256": "d68db528be00b7644c40e8e621cbb54412823992f35255defe7960dd2443c2aa"
+    },
+    {
+      "path": "frontend/src/components/EconomicsPanel.tsx",
+      "sha256": "514116c30c68bd28eaf975047bf1aafbcdce5818331c9f1134ba21485ae4dcbf"
+    },
+    {
+      "path": "frontend/src/components/FarmRecordForm.tsx",
+      "sha256": "b6ee41377ad46923e3cfa338d22ab60d13f1341ec59548a70a1e3e93f168d223"
+    },
+    {
+      "path": "frontend/src/components/GuestAccountPanel.tsx",
+      "sha256": "99afeaf3fb92365b5295b352e1e0be3d100bd57369a3112b0d76d2b86bf95668"
+    },
+    {
+      "path": "frontend/src/components/HomeWorkspace.tsx",
+      "sha256": "3d54cec9ce8ffb39314f8a016085c4021dc9f34976697d05ddd7466c7c3ff910"
+    },
+    {
+      "path": "frontend/src/components/LedgerWorkspace.tsx",
+      "sha256": "70f2f0fa9a846cd3e43a21f3d3a81d301d592e45e4052160f5c8c9a924ee838c"
+    },
+    {
+      "path": "frontend/src/components/OnboardingPanel.tsx",
+      "sha256": "d3e1f3e8cfcb6414669cbc670355c6ac3b966136cb4a3dbb41b7a7d027faf043"
+    },
+    {
+      "path": "frontend/src/components/PlotsWorkspace.tsx",
+      "sha256": "d553f45570fd6c1735e3ff48dd496dd06250dead34c5e9ab2d87b9efb6e0cd23"
+    },
+    {
+      "path": "frontend/src/components/Sidebar.tsx",
+      "sha256": "9cdb57dc1c425715976ca61abf58f39fe1316098a4a91ddfc980c2174f712365"
+    },
+    {
+      "path": "frontend/src/components/StatsWorkspace.tsx",
+      "sha256": "63635d916097a6fc0fbc21f1e9c35bb88f8fd5dae2f6a51835df617212937d64"
+    },
+    {
+      "path": "frontend/src/components/TasksWorkspace.tsx",
+      "sha256": "d1f41c47690bac3c47efaea0bf2d2ab902f8663c595ec7b10c33796e80dde1ad"
+    },
+    {
+      "path": "frontend/src/components/TopBar.tsx",
+      "sha256": "68f266e21eb4a92bbeed3a56f2e134bceca32fdc455bef3987b28a357c7042c8"
+    },
+    {
+      "path": "frontend/src/components/TrashWorkspace.tsx",
+      "sha256": "6cc17ee2cfca4a4e8e8895e72c68db4a2e61c11e467d8b7f595786a3d113a915"
+    },
+    {
+      "path": "frontend/src/hooks/useAccountGuard.ts",
+      "sha256": "2164b2aeb4dc8d9a6f0f6b86c5f327d52ba0b2ab30067a8c12f4ebb50d043378"
+    },
+    {
+      "path": "frontend/src/hooks/useAsyncGuard.ts",
+      "sha256": "fe8d8ce41329c36e90ea02654c396478f365bfb439b871b7daddb5e78a88ad73"
+    },
+    {
+      "path": "frontend/src/hooks/useAuthSession.ts",
+      "sha256": "ae195d323d5b86b46d33eeb2333456044eafe8781931cae53994ca35d145e98a"
+    },
+    {
+      "path": "frontend/src/hooks/useDialogFocus.ts",
+      "sha256": "47ed110475ad07da4c13b76bac77aa7f67c4548580c754f8da10eda6390c4fac"
+    },
+    {
+      "path": "frontend/src/hooks/usePlots.ts",
+      "sha256": "eed23ff1099f7a5a4588955ab7f51a0b25c2e11ba1d557f5eee6536faf999de9"
+    },
+    {
+      "path": "frontend/src/hooks/useSeasons.ts",
+      "sha256": "41aee9f25a99e1e7bcdbf022ba220e5401d04c91e835ac5e4e110ec4e85cf245"
+    },
+    {
+      "path": "frontend/src/hooks/useSessionBoundary.tsx",
+      "sha256": "ec49ae4226058cf95fe5ef95456a0306533d5c8d30055a87588dab43517d8f14"
+    },
+    {
+      "path": "frontend/src/hooks/useTasks.ts",
+      "sha256": "a148e8cd481ce52e551d15f7fc9f66b4d530b0f9718fa4a5ce9fb67da9567739"
+    },
+    {
+      "path": "frontend/src/hooks/useUnsavedChanges.tsx",
+      "sha256": "383cb707c1e7181fbe4cf6eeabd136d817a041ef5c32bb4e055f61b91f4f620d"
+    },
+    {
+      "path": "frontend/src/lib/api.test.ts",
+      "sha256": "eba2b137264bf564a80bf234b045a875a78cad879c7416a38bace1249fc191e0"
+    },
+    {
+      "path": "frontend/src/lib/api.ts",
+      "sha256": "4342396dcac05b3afe90688bcf008e8c31bf5a723f2763888c5af6130d8c7a6b"
+    },
+    {
+      "path": "frontend/src/lib/appVersion.test.ts",
+      "sha256": "6b9930ad23073d945b22a8d5862438643ee406a474d735938bd70fc69a736bb0"
+    },
+    {
+      "path": "frontend/src/lib/appVersion.ts",
+      "sha256": "cfacf5a977c83a5cfc4df6b23a3ede335df7eb0449b03d6bd01d85ce20d8218d"
+    },
+    {
+      "path": "frontend/src/lib/csvDownload.ts",
+      "sha256": "d69421fc4bb560c5fdd6605963652ad5c3d2de7c290011c262891ee45f084507"
+    },
+    {
+      "path": "frontend/src/lib/date.ts",
+      "sha256": "8da58bc794af5441db533b386a83f223899e1a70f49a874cef7cc3d867ad896c"
+    },
+    {
+      "path": "frontend/src/lib/logoutIntent.ts",
+      "sha256": "78e8fe2db18559a7ba99f2b34ef9c668e1600dc390918ad5e185d51b7bd02d48"
+    },
+    {
+      "path": "frontend/src/lib/submission.ts",
+      "sha256": "501caa491b1c2cd8c37167c5271702c41633df56400ef01beb156f3dc6b3e1d9"
+    },
+    {
+      "path": "frontend/src/lib/taskLedger.test.ts",
+      "sha256": "2b640ad49516c639b01b5d4be3b8487d2a5e3d0d7ea809a821e40d33bf2e1b96"
+    },
+    {
+      "path": "frontend/src/lib/taskLedger.ts",
+      "sha256": "f0d86b237cf802e3df486d40d82a19b5c5b74182df543ba24ebdb47874e9f795"
+    },
+    {
+      "path": "frontend/src/main.tsx",
+      "sha256": "a0d8cf21a990ece4cf836c1a252e0e63e1ffc326ee7f87efce1725b63ef7c8e7"
+    },
+    {
+      "path": "frontend/src/styles.css",
+      "sha256": "112af5d167499fa8bdbd228e6c6f6ec0bdbfa37c6e0e8aaf1732396f0f8ac99b"
+    },
+    {
+      "path": "frontend/src/types.ts",
+      "sha256": "ac7a5b1fe83826fb1f1813c180ce2b04b51b6ca3612dd049c92772df29dbcc16"
+    },
+    {
+      "path": "frontend/src/vite-env.d.ts",
+      "sha256": "65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5"
+    },
+    {
+      "path": "frontend/tsconfig.app.json",
+      "sha256": "ca79f7e83afc848d5fd980462555ceeadea6dbe21bb48abe1dc700898267a85f"
+    },
+    {
+      "path": "frontend/tsconfig.json",
+      "sha256": "3a11d1d758b82ceae1687b3b3b673d98febb16b81305239be576b6aa30148fed"
+    },
+    {
+      "path": "frontend/tsconfig.node.json",
+      "sha256": "e82d87ed1e0613c7926731d8f54c9a3bbf23c074739e8e84ee50684a95455012"
+    },
+    {
+      "path": "frontend/vite.config.ts",
+      "sha256": "c251479975a905f0765d60d6b0780e1b23587381a4bac84a385c28ba0c392fe0"
+    },
+    {
+      "path": "scripts/count_source_lines.py",
+      "sha256": "d1420217270985668f9f0db26f10d7f448813f4f3b8fd3eb66af3ff5f9414b6b"
+    }
+  ],
+  "quality_review": {
+    "images": 20,
+    "image_dimensions": "2400x1650",
+    "source_snapshot_unchanged": true,
+    "image_hashes_match": true,
+    "browser_runtime_errors": 0,
+    "sensitive_fields_empty": true,
+    "visual_review": "已检查全套缩略图及主要业务画面；重新采集台账、金额追溯和账号安全，确保目标字段与记录可见。",
+    "reviewed_at": "2026-10-19T20:50:46+08:00"
+  }
+}
