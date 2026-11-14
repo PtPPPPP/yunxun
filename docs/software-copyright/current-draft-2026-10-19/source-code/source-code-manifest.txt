@@ -1,0 +1,178 @@
+软件著作权源码材料清单
+========================================================================
+软件全称：云寻智慧农业工作台软件
+软件简称：云寻
+版本号：1.0.0
+生成时间：2026-10-19T17:32:32+08:00
+纳入文件数量：70
+后端源码行数：3898
+前端源码行数（含样式）：5253
+样式代码行数（前端行数的子集）：1081
+有效源码总行数：9151
+材料总页数：184
+分页规则：每页 50 行源码正文，页眉不计入正文行数，末页可不足 50 行。
+
+排除规则
+------------------------------------------------------------------------
+- 依赖与锁文件：node_modules、package-lock.json
+- 测试代码：tests、test、__tests__、test_*.py、*_test.py、*.test.*、*.spec.*
+- 构建与缓存：dist、build、coverage、__pycache__、pytest/mypy/ruff 缓存
+- 环境与工具：.git、虚拟环境、IDE 配置、日志、数据库、上传数据和大型静态资源
+- 自动生成与声明文件：*.d.ts、vite.config.js、vite.config.d.ts
+
+固定排序规则
+------------------------------------------------------------------------
+分类顺序：后端入口 → API → 业务逻辑 → 数据模型/访问 → 核心工具 → 前端入口 → 页面/组件 → 服务/工具 → 样式。
+同一分类内按相对路径字典序排列；相同仓库状态下重复运行顺序一致。
+
+实际纳入文件
+------------------------------------------------------------------------
+01. [后端入口] backend/main.py | 32 行 | 材料行 1-32
+02. [后端应用入口] backend/app/main.py | 88 行 | 材料行 33-120
+03. [后端 API] backend/app/api/deps.py | 20 行 | 材料行 121-140
+04. [后端 API] backend/app/api/routes/__init__.py | 2 行 | 材料行 141-142
+05. [后端 API] backend/app/api/routes/auth.py | 120 行 | 材料行 143-262
+06. [后端 API] backend/app/api/routes/farm.py | 356 行 | 材料行 263-618
+07. [后端 API] backend/app/api/routes/system.py | 33 行 | 材料行 619-651
+08. [后端 API] backend/app/api/routes/tools.py | 66 行 | 材料行 652-717
+09. [后端业务逻辑] backend/app/services/auth.py | 103 行 | 材料行 718-820
+10. [后端业务逻辑] backend/app/services/decision.py | 33 行 | 材料行 821-853
+11. [后端业务逻辑] backend/app/services/exports.py | 103 行 | 材料行 854-956
+12. [后端业务逻辑] backend/app/services/farm.py | 437 行 | 材料行 957-1393
+13. [后端业务逻辑] backend/app/services/system.py | 52 行 | 材料行 1394-1445
+14. [后端业务逻辑] backend/app/services/tools.py | 58 行 | 材料行 1446-1503
+15. [后端数据模型] backend/app/schemas.py | 101 行 | 材料行 1504-1604
+16. [后端数据访问] backend/app/repositories.py | 974 行 | 材料行 1605-2578
+17. [后端核心工具] backend/app/core/audit.py | 32 行 | 材料行 2579-2610
+18. [后端核心工具] backend/app/core/backup.py | 53 行 | 材料行 2611-2663
+19. [后端核心工具] backend/app/core/config.py | 187 行 | 材料行 2664-2850
+20. [后端核心工具] backend/app/core/csrf.py | 16 行 | 材料行 2851-2866
+21. [后端核心工具] backend/app/core/database.py | 496 行 | 材料行 2867-3362
+22. [后端核心工具] backend/app/core/errors.py | 46 行 | 材料行 3363-3408
+23. [后端核心工具] backend/app/core/exceptions.py | 33 行 | 材料行 3409-3441
+24. [后端核心工具] backend/app/core/pagination.py | 21 行 | 材料行 3442-3462
+25. [后端核心工具] backend/app/core/rate_limit.py | 87 行 | 材料行 3463-3549
+26. [后端核心工具] backend/app/core/request_context.py | 15 行 | 材料行 3550-3564
+27. [后端核心工具] backend/app/core/runtime_status.py | 42 行 | 材料行 3565-3606
+28. [后端核心工具] backend/app/core/security.py | 24 行 | 材料行 3607-3630
+29. [后端核心工具] backend/app/core/time.py | 6 行 | 材料行 3631-3636
+30. [后端其他源码] backend/app/__init__.py | 1 行 | 材料行 3637-3637
+31. [后端其他源码] backend/app/repositories_account.py | 41 行 | 材料行 3638-3678
+32. [后端其他源码] backend/app/repositories_onboarding.py | 91 行 | 材料行 3679-3769
+33. [后端其他源码] backend/app/repositories_trash.py | 129 行 | 材料行 3770-3898
+34. [前端入口] frontend/src/main.tsx | 9 行 | 材料行 3899-3907
+35. [前端主页面] frontend/src/App.tsx | 441 行 | 材料行 3908-4348
+36. [前端组件] frontend/src/components/AccountSecurity.tsx | 115 行 | 材料行 4349-4463
+37. [前端组件] frontend/src/components/AuthScreen.tsx | 127 行 | 材料行 4464-4590
+38. [前端组件] frontend/src/components/ConfirmDialog.tsx | 43 行 | 材料行 4591-4633
+39. [前端组件] frontend/src/components/CsvExportButton.tsx | 30 行 | 材料行 4634-4663
+40. [前端组件] frontend/src/components/DecisionWorkspace.tsx | 140 行 | 材料行 4664-4803
+41. [前端组件] frontend/src/components/EconomicsPanel.tsx | 189 行 | 材料行 4804-4992
+42. [前端组件] frontend/src/components/FarmRecordForm.tsx | 411 行 | 材料行 4993-5403
+43. [前端组件] frontend/src/components/GuestAccountPanel.tsx | 100 行 | 材料行 5404-5503
+44. [前端组件] frontend/src/components/HomeWorkspace.tsx | 60 行 | 材料行 5504-5563
+45. [前端组件] frontend/src/components/LedgerWorkspace.tsx | 295 行 | 材料行 5564-5858
+46. [前端组件] frontend/src/components/OnboardingPanel.tsx | 92 行 | 材料行 5859-5950
+47. [前端组件] frontend/src/components/PlotsWorkspace.tsx | 413 行 | 材料行 5951-6363
+48. [前端组件] frontend/src/components/Sidebar.tsx | 48 行 | 材料行 6364-6411
+49. [前端组件] frontend/src/components/StatsWorkspace.tsx | 182 行 | 材料行 6412-6593
+50. [前端组件] frontend/src/components/TasksWorkspace.tsx | 229 行 | 材料行 6594-6822
+51. [前端组件] frontend/src/components/TopBar.tsx | 79 行 | 材料行 6823-6901
+52. [前端组件] frontend/src/components/TrashWorkspace.tsx | 69 行 | 材料行 6902-6970
+53. [前端 Hooks] frontend/src/hooks/useAccountGuard.ts | 8 行 | 材料行 6971-6978
+54. [前端 Hooks] frontend/src/hooks/useAsyncGuard.ts | 20 行 | 材料行 6979-6998
+55. [前端 Hooks] frontend/src/hooks/useAuthSession.ts | 203 行 | 材料行 6999-7201
+56. [前端 Hooks] frontend/src/hooks/useDialogFocus.ts | 38 行 | 材料行 7202-7239
+57. [前端 Hooks] frontend/src/hooks/usePlots.ts | 122 行 | 材料行 7240-7361
+58. [前端 Hooks] frontend/src/hooks/useSeasons.ts | 130 行 | 材料行 7362-7491
+59. [前端 Hooks] frontend/src/hooks/useSessionBoundary.tsx | 30 行 | 材料行 7492-7521
+60. [前端 Hooks] frontend/src/hooks/useTasks.ts | 142 行 | 材料行 7522-7663
+61. [前端 Hooks] frontend/src/hooks/useUnsavedChanges.tsx | 57 行 | 材料行 7664-7720
+62. [前端服务与 API] frontend/src/lib/api.ts | 93 行 | 材料行 7721-7813
+63. [前端工具] frontend/src/lib/appVersion.ts | 5 行 | 材料行 7814-7818
+64. [前端工具] frontend/src/lib/csvDownload.ts | 34 行 | 材料行 7819-7852
+65. [前端工具] frontend/src/lib/date.ts | 18 行 | 材料行 7853-7870
+66. [前端工具] frontend/src/lib/logoutIntent.ts | 10 行 | 材料行 7871-7880
+67. [前端工具] frontend/src/lib/submission.ts | 8 行 | 材料行 7881-7888
+68. [前端工具] frontend/src/lib/taskLedger.ts | 24 行 | 材料行 7889-7912
+69. [前端其他源码] frontend/src/types.ts | 158 行 | 材料行 7913-8070
+70. [前端核心样式] frontend/src/styles.css | 1081 行 | 材料行 8071-9151
+
+源码快照
+------------------------------------------------------------------------
+Git HEAD：931206089ed38432e6b792e73c013830a183ae3d
+范围：当前工作区产品源码，非历史标签；沿用既有筛选与排序规则。
+Word 模板：docs/software-copyright/yunxun-project-source-code.docx
+模板 SHA-256：58380e49883bb689999a9696d2abab6b5fa75891fa9cc12a547a6f45cf53b98d
+
+原始文件 SHA-256
+9c3e3b82b63f9fe5e2e702802796840aaa6dcf7f4ee047aa7e30e1d221a2969a  backend/main.py
+0cdb46dce8f9f81a8dca260f9a47761945151aa3a185c14c46c633c9b62447c4  backend/app/main.py
+126cd3bbaff34099dec100752ac7b5c36895e8968af8d881aec0f6da1646e2c7  backend/app/api/deps.py
+8420fd3b396a9f95ec9e1b6b84ba361b72cae4ee607bb3040b0d9641908ce983  backend/app/api/routes/__init__.py
+76564351b3adf8cc414518a545f53a11f8cb781a2cd8c4022964d77dc118daca  backend/app/api/routes/auth.py
+6169e38d802f940ad0ad3ebf4d4874d4edd8d8b957f231ea2ca05c971c90ddf4  backend/app/api/routes/farm.py
+f8b8737d1afeee69f6cd7f60021cff1d339604dc3675d9c65eb0b7934128f527  backend/app/api/routes/system.py
+29e9cdbcac2e3fa923dccd1ce00bba235ab00b25a3df4fb41d36d67668c6f495  backend/app/api/routes/tools.py
+12fc9eb099bb7b9e1765af11031745a77a5fdaad787d2696b71e5ba161293f22  backend/app/services/auth.py
+3694b9d0c84b84c00fe4e30e544c220f178bd190053a69911307b4c5433ff155  backend/app/services/decision.py
+0d369c86fd1b5dc42f566121deee2f2880b9708399e1845778dacc755ced1a42  backend/app/services/exports.py
+690f6d399691d597a76c61a4f7a1a3a476a92332e70e0d7308700b67488064af  backend/app/services/farm.py
+d28d585df8e0456eb3dbba126e357fbcdd61c40da3a5fe00f569ddc7046e93b2  backend/app/services/system.py
+6a6ee53796e7497c9489f1648ef1047fb3c3a272fcc97252988e8b31584341b5  backend/app/services/tools.py
+b3c6e523897cf7e1cf7e5e77fea434dfc17fbf4a617e05352d1b1648a4a73082  backend/app/schemas.py
+f92ed8bc6329d9ce795cc6ad8e14e552aa0345d4ed5d0f5bf41271536a333941  backend/app/repositories.py
+2495eb1835fdb16d8c79b3dab9d04b69e971c18e071c7973e8c93c865ec2fb48  backend/app/core/audit.py
+85e0d24bb4a8390ac176dd88af8e9fe999c930f8a71a3cb9163e2968dcdb49cc  backend/app/core/backup.py
+677372ed248d1dd4390e5a0bc19edd4ab46d67b2792899978e9c676c9cd921db  backend/app/core/config.py
+9426e803355439e795295f2097f514ea5d005b4b62f7d425abbb8c78bf44b7e5  backend/app/core/csrf.py
+9119e77d2cbc7c34018769fd549a5c87c4ce1e5fe41aec2876884526f9a46e5f  backend/app/core/database.py
+6f64177ce25626d53201c1f8ef968306b681c9b99e5d009a49b2f3e9981ac606  backend/app/core/errors.py
+52e5bfc838fac8b75fda10003aef4a9577bede081e1f9decf862b9199f8a5722  backend/app/core/exceptions.py
+b767c8b0d5da45b05753a91ae6fdfab1ac56b0616ccdb5cb1de9774365a9eb97  backend/app/core/pagination.py
+9eee20661ff9af9773aa6d49496ecff2706c69dbf606f0463c49b3bedb6c6c61  backend/app/core/rate_limit.py
+e2cadcf32e6ce12dd8a863f8d17c5f95ed5d7cd187072648135a1cdd8ed9e4f5  backend/app/core/request_context.py
+2a5817a9de0e5cc8a4fc4995fcf53937659c525913bb7230268644c01b561a40  backend/app/core/runtime_status.py
+4d0e1a2754e616b97b15863ef1149f3c6cde52e67d2e84b065b0153c4cda3c5a  backend/app/core/security.py
+f8127f6efbb027475262e231424bb4705850912a4097423d12ba6fee99920790  backend/app/core/time.py
+fe6c47976573e99d2ca655ddbb7248eac8cb2ef05c09abd4521f47d96d48a61a  backend/app/__init__.py
+bd37ed8df4e7cca892868286e41f8c307656c3542bc3f8f484704f511d2bedec  backend/app/repositories_account.py
+fee5f72b6e499c5837bb3553a3d84082b8464abf7946fc11ca4f90d342f98b66  backend/app/repositories_onboarding.py
+c05de1223f7c8b661b86717c6feba632841285032632b5352a300a2bb02d2325  backend/app/repositories_trash.py
+a0d8cf21a990ece4cf836c1a252e0e63e1ffc326ee7f87efce1725b63ef7c8e7  frontend/src/main.tsx
+e2de009d2f50581abebd45c36ea472e7c0fe9ad202c980573c14be19213f328c  frontend/src/App.tsx
+47039dd7fd0ba9b1cbc37f3859e8daae9682ece85f9a75acce13638781e58063  frontend/src/components/AccountSecurity.tsx
+f67255a45336953ece20524b50ad91916448f214d4541ca9b345fb6feea154f4  frontend/src/components/AuthScreen.tsx
+1d347c964ec761e6b7a63581d03adbf527d9cc358278a23b544ef984d2c4b952  frontend/src/components/ConfirmDialog.tsx
+c6c98886a02c59f762d2b8f1710f478bdb1c7f5ed7f3dcbf8986f9735e61886d  frontend/src/components/CsvExportButton.tsx
+d68db528be00b7644c40e8e621cbb54412823992f35255defe7960dd2443c2aa  frontend/src/components/DecisionWorkspace.tsx
+514116c30c68bd28eaf975047bf1aafbcdce5818331c9f1134ba21485ae4dcbf  frontend/src/components/EconomicsPanel.tsx
+b6ee41377ad46923e3cfa338d22ab60d13f1341ec59548a70a1e3e93f168d223  frontend/src/components/FarmRecordForm.tsx
+99afeaf3fb92365b5295b352e1e0be3d100bd57369a3112b0d76d2b86bf95668  frontend/src/components/GuestAccountPanel.tsx
+3d54cec9ce8ffb39314f8a016085c4021dc9f34976697d05ddd7466c7c3ff910  frontend/src/components/HomeWorkspace.tsx
+70f2f0fa9a846cd3e43a21f3d3a81d301d592e45e4052160f5c8c9a924ee838c  frontend/src/components/LedgerWorkspace.tsx
+d3e1f3e8cfcb6414669cbc670355c6ac3b966136cb4a3dbb41b7a7d027faf043  frontend/src/components/OnboardingPanel.tsx
+d553f45570fd6c1735e3ff48dd496dd06250dead34c5e9ab2d87b9efb6e0cd23  frontend/src/components/PlotsWorkspace.tsx
+9cdb57dc1c425715976ca61abf58f39fe1316098a4a91ddfc980c2174f712365  frontend/src/components/Sidebar.tsx
+63635d916097a6fc0fbc21f1e9c35bb88f8fd5dae2f6a51835df617212937d64  frontend/src/components/StatsWorkspace.tsx
+d1f41c47690bac3c47efaea0bf2d2ab902f8663c595ec7b10c33796e80dde1ad  frontend/src/components/TasksWorkspace.tsx
+68f266e21eb4a92bbeed3a56f2e134bceca32fdc455bef3987b28a357c7042c8  frontend/src/components/TopBar.tsx
+6cc17ee2cfca4a4e8e8895e72c68db4a2e61c11e467d8b7f595786a3d113a915  frontend/src/components/TrashWorkspace.tsx
+2164b2aeb4dc8d9a6f0f6b86c5f327d52ba0b2ab30067a8c12f4ebb50d043378  frontend/src/hooks/useAccountGuard.ts
+fe8d8ce41329c36e90ea02654c396478f365bfb439b871b7daddb5e78a88ad73  frontend/src/hooks/useAsyncGuard.ts
+ae195d323d5b86b46d33eeb2333456044eafe8781931cae53994ca35d145e98a  frontend/src/hooks/useAuthSession.ts
+47ed110475ad07da4c13b76bac77aa7f67c4548580c754f8da10eda6390c4fac  frontend/src/hooks/useDialogFocus.ts
+eed23ff1099f7a5a4588955ab7f51a0b25c2e11ba1d557f5eee6536faf999de9  frontend/src/hooks/usePlots.ts
+41aee9f25a99e1e7bcdbf022ba220e5401d04c91e835ac5e4e110ec4e85cf245  frontend/src/hooks/useSeasons.ts
+ec49ae4226058cf95fe5ef95456a0306533d5c8d30055a87588dab43517d8f14  frontend/src/hooks/useSessionBoundary.tsx
+a148e8cd481ce52e551d15f7fc9f66b4d530b0f9718fa4a5ce9fb67da9567739  frontend/src/hooks/useTasks.ts
+383cb707c1e7181fbe4cf6eeabd136d817a041ef5c32bb4e055f61b91f4f620d  frontend/src/hooks/useUnsavedChanges.tsx
+4342396dcac05b3afe90688bcf008e8c31bf5a723f2763888c5af6130d8c7a6b  frontend/src/lib/api.ts
+cfacf5a977c83a5cfc4df6b23a3ede335df7eb0449b03d6bd01d85ce20d8218d  frontend/src/lib/appVersion.ts
+d69421fc4bb560c5fdd6605963652ad5c3d2de7c290011c262891ee45f084507  frontend/src/lib/csvDownload.ts
+8da58bc794af5441db533b386a83f223899e1a70f49a874cef7cc3d867ad896c  frontend/src/lib/date.ts
+78e8fe2db18559a7ba99f2b34ef9c668e1600dc390918ad5e185d51b7bd02d48  frontend/src/lib/logoutIntent.ts
+501caa491b1c2cd8c37167c5271702c41633df56400ef01beb156f3dc6b3e1d9  frontend/src/lib/submission.ts
+f0d86b237cf802e3df486d40d82a19b5c5b74182df543ba24ebdb47874e9f795  frontend/src/lib/taskLedger.ts
+ac7a5b1fe83826fb1f1813c180ce2b04b51b6ca3612dd049c92772df29dbcc16  frontend/src/types.ts
+112af5d167499fa8bdbd228e6c6f6ec0bdbfa37c6e0e8aaf1732396f0f8ac99b  frontend/src/styles.css
