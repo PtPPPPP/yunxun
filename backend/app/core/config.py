@@ -113,16 +113,12 @@ class Settings:
     log_level: str = "INFO"
     cookie_secure: bool = False
     cookie_same_site: str = "lax"
-    # 认证单独限流：比通用接口更严以对抗口令爆破，但必须可配置，
-    # 否则端到端测试里连续多次访客登录会被自己的限流挡住。
     auth_requests_per_minute: int = 20
     auth_window_seconds: int = 60
 
     @property
     def allowed_origins(self) -> list[str]:
-        # 统一转小写再比较：浏览器发来的 Origin 里主机名一律是小写（主机名本就不区分
-        # 大小写），而 CORS 匹配是逐字符比较的。否则配置里写成
-        # https://PtPPPPP.github.io 就会让所有请求被浏览器拦掉，且很难看出原因。
+        # 浏览器把主机名转为小写，CORS 中间件按字符串精确匹配。
         return [origin.lower() for origin in _parse_csv(
             "YUNXUN_ALLOWED_ORIGINS",
             self.allowed_origins_raw,
@@ -211,8 +207,6 @@ def get_settings() -> Settings:
             "Authorization,Content-Type,X-CSRF-Token",
         ),
         requests_per_minute=_parse_int("YUNXUN_REQUESTS_PER_MINUTE", _getenv("YUNXUN_REQUESTS_PER_MINUTE"), default=20, minimum=1, maximum=600),
-        # 认证单独限流：比通用接口更严，防止口令爆破，但必须可配置，
-        # 否则端到端测试里连续多次访客登录会被自己的限流挡住。
         auth_requests_per_minute=_parse_int("YUNXUN_AUTH_REQUESTS_PER_MINUTE", _getenv("YUNXUN_AUTH_REQUESTS_PER_MINUTE"), default=20, minimum=1, maximum=2000),
         auth_window_seconds=_parse_int("YUNXUN_AUTH_WINDOW_SECONDS", _getenv("YUNXUN_AUTH_WINDOW_SECONDS"), default=60, minimum=1, maximum=3600),
         token_hours=token_hours,

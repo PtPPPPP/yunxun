@@ -33,16 +33,14 @@ interface DeleteResponse {
 
 interface UsePlotsOptions {
   onError: (message: string) => void;
-  /** 未登录时不拉取，避免登录页弹出 401 错误横幅。 */
-  enabled: boolean;
   accountId: string | null;
 }
 
-export function usePlots({ onError, enabled, accountId }: UsePlotsOptions) {
+export function usePlots({ onError, accountId }: UsePlotsOptions) {
   const [data, setData] = useState({ accountId, items: [] as Plot[] });
   const items = data.accountId === accountId ? data.items : [];
   const [loading, setLoading] = useState(false);
-  const action = useAsyncGuard();
+  const { run: runWrite, busy } = useAsyncGuard();
   const isCurrent = useAccountGuard(accountId);
 
   const refresh = useCallback(async () => {
@@ -58,7 +56,7 @@ export function usePlots({ onError, enabled, accountId }: UsePlotsOptions) {
   }, [onError, accountId, isCurrent]);
 
   useEffect(() => {
-    if (!enabled) {
+    if (accountId === null) {
       setData({ accountId, items: [] });
       return;
     }
@@ -70,12 +68,12 @@ export function usePlots({ onError, enabled, accountId }: UsePlotsOptions) {
     return () => {
       cancelled = true;
     };
-  }, [enabled, refresh, accountId]);
+  }, [refresh, accountId]);
 
   const create = useCallback(
     async (payload: PlotInput) => {
       let created: Plot | undefined;
-      await action.run(async () => {
+      await runWrite(async () => {
         if (!isCurrent()) return;
         try {
           const response = await api.post<PlotResponse>("/api/plots", payload);
@@ -89,13 +87,13 @@ export function usePlots({ onError, enabled, accountId }: UsePlotsOptions) {
       if (created) await refresh();
       return isCurrent() ? created : undefined;
     },
-    [action, onError, refresh, isCurrent],
+    [runWrite, onError, refresh, isCurrent],
   );
 
   const update = useCallback(
     async (plotId: string, payload: PlotInput) => {
       let updated: Plot | undefined;
-      await action.run(async () => {
+      await runWrite(async () => {
         if (!isCurrent()) return;
         try {
           const response = await api.patch<PlotResponse>(`/api/plots/${plotId}`, payload);
@@ -109,13 +107,13 @@ export function usePlots({ onError, enabled, accountId }: UsePlotsOptions) {
       if (updated) await refresh();
       return isCurrent() ? updated : undefined;
     },
-    [action, onError, refresh, isCurrent],
+    [runWrite, onError, refresh, isCurrent],
   );
 
   const remove = useCallback(
     async (plotId: string, expectedRevision?: string) => {
       let removedRecords: number | undefined;
-      await action.run(async () => {
+      await runWrite(async () => {
         if (!isCurrent()) return;
         try {
           const response = await api.delete<DeleteResponse>(`/api/plots/${plotId}`, { params: { expected_revision: expectedRevision } });
@@ -129,8 +127,8 @@ export function usePlots({ onError, enabled, accountId }: UsePlotsOptions) {
       if (removedRecords !== undefined) await refresh();
       return isCurrent() ? removedRecords : undefined;
     },
-    [action, onError, refresh, isCurrent],
+    [runWrite, onError, refresh, isCurrent],
   );
 
-  return { items, loading, busy: action.busy, refresh, create, update, remove };
+  return { items, loading, busy, refresh, create, update, remove };
 }

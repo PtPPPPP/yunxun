@@ -348,6 +348,18 @@ def get_plot(plot_id: str) -> dict[str, Any] | None:
     return _fetchone("SELECT * FROM plots WHERE id = ? AND deleted_at IS NULL", (plot_id,))
 
 
+def _check_plot_reference(conn: sqlite3.Connection, user_id: str, plot_id: str | None) -> None:
+    """调用方持有写锁，防止校验后地块被移入回收站。"""
+    if not plot_id:
+        return
+    plot = conn.execute(
+        "SELECT 1 FROM plots WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
+        (plot_id, user_id),
+    ).fetchone()
+    if plot is None:
+        raise conflict("关联地块已变化，请刷新后重新选择。")
+
+
 def list_plots(user_id: str, *, reference_date: str | None = None) -> list[dict[str, Any]]:
     """地块列表，附带作业记录条数与最近一次打药的安全期状态。
 
@@ -425,7 +437,7 @@ def update_plot_with_active_season(
     """兼容旧地块编辑：地块与当前茬次同改同回滚，不使用锁外的当前茬次快照。"""
     with get_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        _validate_farm_links(conn, user_id, plot_id)
+        _check_plot_reference(conn, user_id, plot_id)
         plot = _update_plot_row(conn, plot_id, name, area_mu, soil_type, irrigation, notes)
         if crop:
             active = conn.execute("SELECT * FROM plot_seasons WHERE plot_id=? AND user_id=? AND ended_on IS NULL",
@@ -475,7 +487,7 @@ def create_farm_task(
     created_at = now_iso()
     with get_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        _validate_farm_links(conn, user_id, plot_id)
+        _check_plot_reference(conn, user_id, plot_id)
         conn.execute(
             """
             INSERT INTO farm_tasks (id, user_id, plot_id, title, due_on, done_at, notes, created_at)
@@ -526,7 +538,7 @@ def update_farm_task(
         current = conn.execute(FARM_TASK_SELECT + " WHERE t.id = ? AND " + TASK_VISIBLE, (task_id,)).fetchone()
         if current is None:
             raise not_found("待办事项不存在或已被删除。")
-        _validate_farm_links(conn, current["user_id"], plot_id)
+        _check_plot_reference(conn, current["user_id"], plot_id)
         # 只在完成状态真正变化时改写完成时间，避免每次保存都刷新「完成于」。
         was_done = current["done_at"] is not None
         done_at = current["done_at"] if was_done == done else (now_iso() if done else None)
@@ -574,7 +586,7 @@ def _insert_season(
 ) -> dict[str, Any]:
     season_id = uuid.uuid4().hex
     timestamp = now_iso()
-    _validate_farm_links(conn, user_id, plot_id)
+    _check_plot_reference(conn, user_id, plot_id)
     try:
         conn.execute(
             """INSERT INTO plot_seasons
@@ -648,7 +660,7 @@ def _update_season_row(
     current = conn.execute("SELECT * FROM plot_seasons WHERE id=?", (season_id,)).fetchone()
     if not current:
         raise not_found("茬次不存在。")
-    _validate_farm_links(conn, current["user_id"], current["plot_id"])
+    _check_plot_reference(conn, current["user_id"], current["plot_id"])
     _validate_season_record_dates(conn, season_id, started_on, ended_on)
     try:
         conn.execute(
@@ -677,14 +689,13 @@ def delete_season(season_id: str) -> None:
         current = conn.execute("SELECT * FROM plot_seasons WHERE id=?", (season_id,)).fetchone()
         if not current:
             raise not_found("茬次不存在。")
-        _validate_farm_links(conn, current["user_id"], current["plot_id"])
+        _check_plot_reference(conn, current["user_id"], current["plot_id"])
         if conn.execute("SELECT 1 FROM farm_records WHERE season_id=? AND deleted_at IS NOT NULL LIMIT 1", (season_id,)).fetchone():
             raise conflict("该茬次关联回收站台账，请先恢复或最终删除这些台账。")
         conn.execute("UPDATE farm_records SET season_id = NULL WHERE season_id = ?", (season_id,))
         conn.execute("DELETE FROM plot_seasons WHERE id = ?", (season_id,))
 
 
-# 台账查询统一带出地块名称与茬次作物，接口因此自解释。
 FARM_RECORD_SELECT = """
     SELECT r.*, COALESCE(p.name, '') AS plot_name, COALESCE(s.crop, '') AS season_crop
     FROM farm_records r
@@ -722,35 +733,37 @@ def public_farm_record(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _validate_farm_links(conn: sqlite3.Connection, user_id: str, plot_id: str | None, season_id: str | None = None) -> None:
-    """持有写锁后再核对引用，防止清空演示与保存交错产生已失效的茬次引用。"""
-    if plot_id and not conn.execute("SELECT 1 FROM plots WHERE id=? AND user_id=? AND deleted_at IS NULL", (plot_id, user_id)).fetchone():
-        raise conflict("关联地块已变化，请刷新后重新选择。")
-    if season_id and not conn.execute("SELECT 1 FROM plot_seasons WHERE id=? AND plot_id=? AND user_id=?", (season_id, plot_id, user_id)).fetchone():
-        raise conflict("关联茬次已变化，请刷新后重新选择。")
-
-
 def _resolve_record_season(
     conn: sqlite3.Connection, user_id: str, plot_id: str, season_id: str | None,
     happened_on: str, auto_select_season: bool,
 ) -> sqlite3.Row | None:
-    """调用方已持有写锁；与茬次改期串行决定最终日期、归茬与默认作物。"""
-    _validate_farm_links(conn, user_id, plot_id, season_id)
+    """在台账写事务内选茬，避免并发改期后写入越界日期。"""
+    _check_plot_reference(conn, user_id, plot_id)
     if season_id is not None:
-        season = conn.execute("SELECT * FROM plot_seasons WHERE id=? AND plot_id=? AND user_id=?",
-                              (season_id, plot_id, user_id)).fetchone()
+        season = conn.execute(
+            "SELECT * FROM plot_seasons WHERE id = ? AND plot_id = ? AND user_id = ?",
+            (season_id, plot_id, user_id),
+        ).fetchone()
+        if season is None:
+            raise conflict("关联茬次已变化，请刷新后重新选择。")
         if ((season["started_on"] and happened_on < season["started_on"])
                 or (season["ended_on"] and happened_on > season["ended_on"])):
             raise HTTPException(status_code=422, detail="作业日期不在所选茬次的起止日期内。")
         return season
     if not auto_select_season:
         return None
-    candidates = conn.execute("""SELECT * FROM plot_seasons WHERE user_id=? AND plot_id=?
-        AND (started_on IS NULL OR started_on<=?) AND (ended_on IS NULL OR ended_on>=?)""",
-        (user_id, plot_id, happened_on, happened_on)).fetchall()
-    if len(candidates) > 1 or (candidates and not candidates[0]["started_on"]):
+    matches = conn.execute(
+        """SELECT * FROM plot_seasons
+           WHERE user_id = ? AND plot_id = ?
+             AND (started_on IS NULL OR started_on <= ?)
+             AND (ended_on IS NULL OR ended_on >= ?)""",
+        (user_id, plot_id, happened_on, happened_on),
+    ).fetchall()
+    if not matches:
+        return None
+    if len(matches) > 1 or not matches[0]["started_on"]:
         raise HTTPException(status_code=422, detail="无法按日期唯一确定茬次，请选择具体茬次或明确选择未归茬。")
-    return candidates[0] if candidates else None
+    return matches[0]
 
 
 def create_farm_record(
@@ -984,7 +997,6 @@ def list_harvest_safety(user_id: str, *, reference_date: str) -> list[dict[str, 
                 "safe_days": safe_days,
                 "earliest_harvest_on": earliest,
                 "days_remaining": days_remaining,
-                # 剩余天数 > 0 表示用户登记的间隔期尚未结束。
                 "in_safe_window": days_remaining is not None and days_remaining > 0,
             }
         )
@@ -992,7 +1004,6 @@ def list_harvest_safety(user_id: str, *, reference_date: str) -> list[dict[str, 
 
 
 def _economics_row(row: dict[str, Any]) -> dict[str, Any]:
-    """把一条汇总行补齐亩均指标。面积异常时亩均给 None，而不是让查询报除零。"""
     area = float(row["area_mu"])
     total_cost = float(row["total_cost"])
     total_yield = float(row["total_yield_kg"])
@@ -1025,15 +1036,9 @@ def _economics_row(row: dict[str, Any]) -> dict[str, Any]:
 def summarize_farm_economics(
     user_id: str, *, plot_id: str | None = None, season_id: str | None = None, year: int | None = None, data_scope: str = "all",
 ) -> list[dict[str, Any]]:
-    """按茬次汇总投入与产出，未归茬的记录单独成行。
-
-    升级前是按地块汇总的；有了茬次就按茬次算——否则种第二茬之后，上一茬的
-    化肥钱会和这一茬的收成混在一起。明确未归茬或无法确定归属的记录单独
-    分组，不丢数据。年度仅按作业日期过滤，金额字段保持数字并由完整度计数
-    表达缺失，页面据此区分待补录与有效零值。
-    """
+    """已归茬的按茬次汇总，未归茬的按地块单列。"""
     conditions, params = _farm_record_conditions(user_id, plot_id=plot_id, season_id=season_id, year=year, data_scope=data_scope)
-    cte = "WITH filtered_records AS (SELECT r.* FROM farm_records r WHERE " + " AND ".join(conditions) + ") "
+    filtered_records_sql = f"WITH filtered_records AS (SELECT r.* FROM farm_records r WHERE {' AND '.join(conditions)})"
     season_conditions = ["s.user_id = ?", "p.deleted_at IS NULL"]
     season_params: list[Any] = [user_id]
     if plot_id:
@@ -1048,19 +1053,25 @@ def summarize_farm_economics(
         # 真实台账可能新增在演示茬次下；按记录来源筛金额，不能因此漏掉它。
         season_conditions.append("(s.is_demo = ? OR EXISTS (SELECT 1 FROM filtered_records f WHERE f.season_id = s.id AND f.plot_id = s.plot_id))")
         season_params.append(int(data_scope == "demo"))
+    # 按年查看时略过空茬次，单独选中的茬次仍显示零条记录。
+    having_records = "HAVING COUNT(r.id) > 0" if year is not None and not season_id else ""
     # LEFT JOIN 的空行不计入缺失数。0 是有效填写值，只有 NULL 才是未填。
-    quality_columns = """
+    totals_sql = """
         COUNT(r.cost) AS recorded_cost_count,
         SUM(CASE WHEN r.id IS NOT NULL AND r.cost IS NULL THEN 1 ELSE 0 END) AS missing_cost_count,
         SUM(CASE WHEN r.kind = '采收' THEN 1 ELSE 0 END) AS harvest_count,
         SUM(CASE WHEN r.kind = '采收' AND r.yield_kg IS NOT NULL AND r.unit_price IS NOT NULL THEN 1 ELSE 0 END) AS complete_harvest_count,
         SUM(CASE WHEN r.kind = '采收' AND (r.yield_kg IS NULL OR r.unit_price IS NULL) THEN 1 ELSE 0 END) AS incomplete_harvest_count,
         SUM(CASE WHEN r.kind = '采收' AND r.yield_kg IS NOT NULL THEN 1 ELSE 0 END) AS recorded_yield_count,
+        COUNT(r.id) AS record_count,
+        COALESCE(SUM(r.cost), 0) AS total_cost,
+        COALESCE(SUM(CASE WHEN r.kind = '采收' THEN r.yield_kg END), 0) AS total_yield_kg,
+        COALESCE(SUM(CASE WHEN r.kind = '采收' THEN r.yield_kg * r.unit_price END), 0) AS total_revenue
     """
     with get_connection() as conn:
         conn.execute("BEGIN")
         season_rows = conn.execute(
-            cte + """
+            f"""{filtered_records_sql}
             SELECT
                 s.id AS season_id,
                 s.is_demo AS is_demo,
@@ -1070,21 +1081,19 @@ def summarize_farm_economics(
                 p.id AS plot_id,
                 p.name AS plot_name,
                 p.area_mu AS area_mu,
-                """ + quality_columns + """ COUNT(r.id) AS record_count,
-                COALESCE(SUM(r.cost), 0) AS total_cost,
-                COALESCE(SUM(CASE WHEN r.kind = '采收' THEN r.yield_kg END), 0) AS total_yield_kg,
-                COALESCE(SUM(CASE WHEN r.kind = '采收' THEN r.yield_kg * r.unit_price END), 0) AS total_revenue
+                {totals_sql}
             FROM plot_seasons s
             JOIN plots p ON p.id = s.plot_id AND p.user_id = s.user_id
             LEFT JOIN filtered_records r ON r.season_id = s.id AND r.plot_id = p.id
-            WHERE """ + " AND ".join(season_conditions) + """
+            WHERE {' AND '.join(season_conditions)}
             GROUP BY s.id, s.crop, s.started_on, s.ended_on, p.id, p.name, p.area_mu
-            """ + (" HAVING COUNT(r.id) > 0 " if year is not None and not season_id else "")
-            + " ORDER BY s.started_on DESC, s.id DESC",
+            {having_records}
+            ORDER BY s.started_on DESC, s.id DESC
+            """,
             tuple(params + season_params),
         ).fetchall()
         unassigned_rows = conn.execute(
-            cte + """
+            f"""{filtered_records_sql}
             SELECT
                 NULL AS season_id,
                 p.is_demo AS is_demo,
@@ -1094,10 +1103,7 @@ def summarize_farm_economics(
                 p.id AS plot_id,
                 p.name AS plot_name,
                 p.area_mu AS area_mu,
-                """ + quality_columns + """ COUNT(r.id) AS record_count,
-                COALESCE(SUM(r.cost), 0) AS total_cost,
-                COALESCE(SUM(CASE WHEN r.kind = '采收' THEN r.yield_kg END), 0) AS total_yield_kg,
-                COALESCE(SUM(CASE WHEN r.kind = '采收' THEN r.yield_kg * r.unit_price END), 0) AS total_revenue
+                {totals_sql}
             FROM filtered_records r
             JOIN plots p ON p.id = r.plot_id AND p.user_id = r.user_id
             WHERE r.season_id IS NULL
@@ -1107,7 +1113,7 @@ def summarize_farm_economics(
             tuple(params),
         ).fetchall()
 
-    return [_economics_row(dict(row)) for row in list(season_rows) + list(unassigned_rows)]
+    return [_economics_row(dict(row)) for row in season_rows + unassigned_rows]
 
 
 def list_farm_record_years(user_id: str, data_scope: str = "all") -> list[int]:

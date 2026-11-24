@@ -39,6 +39,16 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+async function fetchRecordPage(filters: FarmRecordFilters, cursor?: string) {
+  const params: Record<string, string | number> = { limit: PAGE_SIZE };
+  for (const [name, value] of Object.entries(filters)) {
+    if (value) params[name] = value;
+  }
+  if (cursor) params.cursor = cursor;
+  const response = await api.get<RecordsResponse>("/api/farm-records", { params });
+  return response.data;
+}
+
 export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRecordsChanged, onQuickTask }: LedgerWorkspaceProps) {
   const recordForm = useRef<FarmRecordFormHandle>(null);
   const [filters, setFilters] = useState<FarmRecordFilters>(() => ({
@@ -53,21 +63,9 @@ export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRec
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<FarmRecord | null>(null);
-  const action = useAsyncGuard();
+  const writes = useAsyncGuard();
   const requestLeave = useRequestLeave();
   const sessionCurrent = useSessionGuard();
-  const loadRecords = useCallback(
-    async (cursor: string | null, recordFilters: FarmRecordFilters) => {
-      const params: Record<string, string | number> = { limit: PAGE_SIZE };
-      for (const [key, value] of Object.entries(recordFilters)) {
-        if (value) params[key] = value;
-      }
-      if (cursor) params.cursor = cursor;
-      const response = await api.get<RecordsResponse>("/api/farm-records", { params });
-      return response.data;
-    },
-    [],
-  );
 
   const refreshRecords = useCallback(async () => {
     if (!sessionCurrent()) return;
@@ -76,7 +74,7 @@ export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRec
     setPagination(emptyPagination);
     setLoading(true);
     try {
-      const data = await loadRecords(null, filters);
+      const data = await fetchRecordPage(filters);
       if (version !== listVersion.current || !sessionCurrent()) return;
       setRecords(data.records);
       setPagination(data.pagination);
@@ -85,7 +83,7 @@ export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRec
     } finally {
       if (version === listVersion.current && sessionCurrent()) setLoading(false);
     }
-  }, [loadRecords, filters, onError, sessionCurrent]);
+  }, [filters, onError, sessionCurrent]);
 
   useEffect(() => {
     void refreshRecords();
@@ -106,7 +104,7 @@ export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRec
     loadMoreInFlight.current = true;
     setLoadingMore(true);
     try {
-      const data = await loadRecords(pagination.next_cursor, filters);
+      const data = await fetchRecordPage(filters, pagination.next_cursor);
       if (version !== listVersion.current || !sessionCurrent()) return;
       setRecords((current) => [...current, ...data.records]);
       setPagination(data.pagination);
@@ -120,7 +118,7 @@ export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRec
 
   async function confirmDelete() {
     if (!pendingDelete || !sessionCurrent()) return;
-    await action.run(async () => {
+    await writes.run(async () => {
       try {
         await api.delete(`/api/farm-records/${pendingDelete.id}`);
         if (!sessionCurrent()) return;
@@ -153,7 +151,7 @@ export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRec
 
   return (
     <section className="workspace-grid">
-      <FarmRecordForm ref={recordForm} plots={plots} seasons={seasons} action={action}
+      <FarmRecordForm ref={recordForm} plots={plots} seasons={seasons} writeGuard={writes}
         initialPlotId={initialFilters?.plot_id} initialSeasonId={initialFilters?.season_id}
         onError={onError} onQuickTask={onQuickTask}
         onRecordsChanged={async () => { await onRecordsChanged(); await refreshRecords(); }} />
@@ -166,14 +164,14 @@ export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRec
         </div>
         <div className="field-grid">
           <label className="field"><span>台账数据来源</span><div className="field-control field-control--select">
-            <select value={filters.data_scope ?? "all"} onChange={(event) => handleFilterChange("data_scope", event.target.value)} disabled={action.busy}>
+            <select value={filters.data_scope ?? "all"} onChange={(event) => handleFilterChange("data_scope", event.target.value)} disabled={writes.busy}>
               <option value="all">全部记录</option><option value="real">真实记录</option><option value="demo">演示记录</option>
             </select>
           </div></label>
           <label className="field">
             <span>按地块筛选</span>
             <div className="field-control field-control--select">
-              <select value={filters.plot_id} disabled={action.busy} onChange={(event) => handleFilterChange("plot_id", event.target.value)}>
+              <select value={filters.plot_id} disabled={writes.busy} onChange={(event) => handleFilterChange("plot_id", event.target.value)}>
                 <option value="">全部地块</option>
                 {plots.map((plot) => (
                   <option key={plot.id} value={plot.id}>
@@ -186,7 +184,7 @@ export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRec
           <label className="field">
             <span>按作业类型筛选</span>
             <div className="field-control field-control--select">
-              <select value={filters.kind} disabled={action.busy} onChange={(event) => handleFilterChange("kind", event.target.value)}>
+              <select value={filters.kind} disabled={writes.busy} onChange={(event) => handleFilterChange("kind", event.target.value)}>
                 <option value="">全部作业类型</option>
                 {recordKinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
               </select>
@@ -195,7 +193,7 @@ export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRec
           <label className="field">
             <span>按茬次筛选</span>
             <div className="field-control field-control--select">
-              <select value={filters.season_id} disabled={action.busy} onChange={(event) => handleFilterChange("season_id", event.target.value)}>
+              <select value={filters.season_id} disabled={writes.busy} onChange={(event) => handleFilterChange("season_id", event.target.value)}>
                 <option value="">全部茬次</option>
                 <option value="unassigned">未归茬</option>
                 {seasons.filter((season) => !filters.plot_id || season.plot_id === filters.plot_id).map((season) => (
@@ -209,7 +207,7 @@ export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRec
           <label className="field">
             <span>账目范围</span>
             <div className="field-control field-control--select">
-              <select value={filters.economics_scope} disabled={action.busy} onChange={(event) => handleFilterChange("economics_scope", event.target.value as EconomicsScope)}>
+              <select value={filters.economics_scope} disabled={writes.busy} onChange={(event) => handleFilterChange("economics_scope", event.target.value as EconomicsScope)}>
                 <option value="all">全部账目</option>
                 <option value="cost">已记录支出</option>
                 <option value="revenue">已完整记录收入</option>
@@ -220,12 +218,12 @@ export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRec
           </label>
           <label className="field">
             <span>筛选开始日期</span>
-            <div className="field-control"><input type="date" value={filters.date_from} disabled={action.busy}
+            <div className="field-control"><input type="date" value={filters.date_from} disabled={writes.busy}
               onChange={(event) => handleFilterChange("date_from", event.target.value)} /></div>
           </label>
           <label className="field">
             <span>筛选结束日期</span>
-            <div className="field-control"><input type="date" value={filters.date_to} disabled={action.busy}
+            <div className="field-control"><input type="date" value={filters.date_to} disabled={writes.busy}
               onChange={(event) => handleFilterChange("date_to", event.target.value)} /></div>
           </label>
         </div>
@@ -267,7 +265,7 @@ export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRec
                     type="button"
                     aria-label={`编辑 ${record.kind} 记录`}
                     onClick={() => requestLeave(() => recordForm.current?.edit(record))}
-                    disabled={action.busy}
+                    disabled={writes.busy}
                   >
                     <Pencil size={15} />编辑
                   </button>
@@ -276,7 +274,7 @@ export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRec
                     type="button"
                     aria-label={`删除 ${record.kind} 记录`}
                     onClick={() => setPendingDelete(record)}
-                    disabled={action.busy}
+                    disabled={writes.busy}
                   >
                     <Trash2 size={15} />
                     删除
@@ -289,7 +287,7 @@ export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRec
         )}
 
         {pagination.has_more && (
-          <button className="secondary-button" type="button" onClick={() => void handleLoadMore()} disabled={loadingMore || action.busy}>
+          <button className="secondary-button" type="button" onClick={() => void handleLoadMore()} disabled={loadingMore || writes.busy}>
             {loadingMore ? "加载中…" : "加载更多"}
           </button>
         )}
@@ -304,7 +302,7 @@ export function LedgerWorkspace({ plots, seasons, initialFilters, onError, onRec
             : ""
         }
         confirmLabel="确认删除"
-        busy={action.busy}
+        busy={writes.busy}
         onConfirm={() => void confirmDelete()}
         onCancel={() => setPendingDelete(null)}
       />

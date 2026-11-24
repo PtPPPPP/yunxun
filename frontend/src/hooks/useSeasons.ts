@@ -31,18 +31,15 @@ interface SeasonResponse {
 
 interface UseSeasonsOptions {
   onError: (message: string) => void;
-  /** 未登录时不拉取，避免登录页弹出 401 错误横幅。 */
-  enabled: boolean;
   accountId: string | null;
-  /** 茬次变化会改动地块上的当前作物与本季计数，通知外层顺手刷新地块。 */
   onChanged: () => void;
 }
 
-export function useSeasons({ onError, enabled, accountId, onChanged }: UseSeasonsOptions) {
+export function useSeasons({ onError, accountId, onChanged }: UseSeasonsOptions) {
   const [data, setData] = useState({ accountId, items: [] as PlotSeason[] });
   const items = data.accountId === accountId ? data.items : [];
   const [loading, setLoading] = useState(false);
-  const action = useAsyncGuard();
+  const { run: runWrite, busy } = useAsyncGuard();
   const isCurrent = useAccountGuard(accountId);
 
   const refresh = useCallback(async () => {
@@ -58,7 +55,7 @@ export function useSeasons({ onError, enabled, accountId, onChanged }: UseSeason
   }, [onError, accountId, isCurrent]);
 
   useEffect(() => {
-    if (!enabled) {
+    if (accountId === null) {
       setData({ accountId, items: [] });
       return;
     }
@@ -70,12 +67,12 @@ export function useSeasons({ onError, enabled, accountId, onChanged }: UseSeason
     return () => {
       cancelled = true;
     };
-  }, [enabled, refresh, accountId]);
+  }, [refresh, accountId]);
 
   const create = useCallback(
     async (payload: SeasonInput) => {
       let created: PlotSeason | undefined;
-      await action.run(async () => {
+      await runWrite(async () => {
         if (!isCurrent()) return;
         try {
           const response = await api.post<SeasonResponse>("/api/seasons", payload);
@@ -92,13 +89,13 @@ export function useSeasons({ onError, enabled, accountId, onChanged }: UseSeason
       }
       return isCurrent() ? created : undefined;
     },
-    [action, onChanged, onError, refresh, isCurrent],
+    [runWrite, onChanged, onError, refresh, isCurrent],
   );
 
   const update = useCallback(
     async (seasonId: string, payload: SeasonUpdateInput) => {
       let updated: PlotSeason | undefined;
-      await action.run(async () => {
+      await runWrite(async () => {
         if (!isCurrent()) return;
         try {
           const response = await api.patch<SeasonResponse>(`/api/seasons/${seasonId}`, payload);
@@ -115,13 +112,13 @@ export function useSeasons({ onError, enabled, accountId, onChanged }: UseSeason
       }
       return isCurrent() ? updated : undefined;
     },
-    [action, onChanged, onError, refresh, isCurrent],
+    [runWrite, onChanged, onError, refresh, isCurrent],
   );
 
   const remove = useCallback(
     async (seasonId: string) => {
       let removed = false;
-      await action.run(async () => {
+      await runWrite(async () => {
         if (!isCurrent()) return;
         try {
           await api.delete(`/api/seasons/${seasonId}`);
@@ -138,8 +135,8 @@ export function useSeasons({ onError, enabled, accountId, onChanged }: UseSeason
       }
       return isCurrent() && removed;
     },
-    [action, onChanged, onError, refresh, isCurrent],
+    [runWrite, onChanged, onError, refresh, isCurrent],
   );
 
-  return { items, loading, busy: action.busy, refresh, create, update, remove };
+  return { items, loading, busy, refresh, create, update, remove };
 }

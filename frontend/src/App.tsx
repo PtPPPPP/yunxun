@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useMemo, useRef, useState } from "react";
 
 import { AuthScreen } from "./components/AuthScreen";
+import { AppInfoDialog } from "./components/AppInfoDialog";
 import { AccountSecurity, PasswordRecovery } from "./components/AccountSecurity";
 import { TrashWorkspace } from "./components/TrashWorkspace";
 import { Sidebar } from "./components/Sidebar";
@@ -18,7 +19,7 @@ import { usePlots } from "./hooks/usePlots";
 import { useSeasons } from "./hooks/useSeasons";
 import { useTasks } from "./hooks/useTasks";
 import { api, getErrorMessage } from "./lib/api";
-import { formatAppVersion } from "./lib/appVersion";
+import { matchRecordSeason } from "./lib/recordSeason";
 import { todayIso } from "./lib/date";
 import { LedgerDraft, taskLedgerDraft } from "./lib/taskLedger";
 import { newSubmissionId } from "./lib/submission";
@@ -62,7 +63,7 @@ function AppContent() {
   const [error, setError] = useState("");
   const [activeFeature, setActiveFeature] = useState<FeatureKey>("home");
   const [completedTask, setCompletedTask] = useState<FarmTask | null>(null);
-  const [recordDraft, setRecordDraft] = useState<{ key: string; draft: LedgerDraft; task?: FarmTask } | null>(null);
+  const [quickEntry, setQuickEntry] = useState<{ key: string; draft: LedgerDraft; task?: FarmTask } | null>(null);
   const [notice, setNotice] = useState("");
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [plotRequest, setPlotRequest] = useState<{ key: number; seasonPlotId?: string }>({ key: 0 });
@@ -70,7 +71,7 @@ function AppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [infoPanel, setInfoPanel] = useState<"help" | "about" | null>(null);
   const recordDialog = useRef<HTMLElement>(null);
-  useDialogFocus(recordDialog, recordDraft !== null, () => requestLeave(() => { setRecordDraft(null); setError(""); }));
+  useDialogFocus(recordDialog, quickEntry !== null, () => requestLeave(closeQuickEntry));
   const navigate = (feature: FeatureKey) => {
     if (feature === activeFeature) return;
     requestLeave(() => { setActiveFeature(feature); setSidebarOpen(false); setError(""); });
@@ -103,7 +104,7 @@ function AppContent() {
     resetDecisionView();
     setSidebarOpen(false);
     setCompletedTask(null);
-    setRecordDraft(null);
+    setQuickEntry(null);
     if (reason !== "expired") setEconomicsFilters({ plot_id: "", season_id: "", year: "", data_scope: "real" });
     if (reason === "login") {
       setPlotRequest({ key: 0 });
@@ -118,17 +119,11 @@ function AppContent() {
     settingsName, setSettingsName, settingsBusy, handleSaveSettings, handleLogout,
     recovering, startRecovery, returnToLogin, acceptGuestUpgrade,
   } = useAuthSession({ onError: setError, onNotice: setNotice, onSessionReset: resetWorkspace });
-  const accountCurrent = useAccountGuard(user?.id ?? null);
-  const handleError = useCallback((message: string) => setError(message), []);
-  const plots = usePlots({ onError: handleError, enabled: user !== null, accountId: user?.id ?? null });
-  const tasks = useTasks({ onError: handleError, enabled: user !== null, accountId: user?.id ?? null, onChanged: plots.refresh });
-  // 茬次变化会改动地块上的当前作物与本季计数，所以顺手刷新地块列表。
-  const seasons = useSeasons({
-    onError: handleError,
-    enabled: user !== null,
-    accountId: user?.id ?? null,
-    onChanged: () => void plots.refresh(),
-  });
+  const accountId = user?.id ?? null;
+  const accountCurrent = useAccountGuard(accountId);
+  const plots = usePlots({ accountId, onError: setError });
+  const tasks = useTasks({ accountId, onError: setError, onChanged: plots.refresh });
+  const seasons = useSeasons({ accountId, onError: setError, onChanged: plots.refresh });
 
   const taskSummary = useMemo(() => {
     const today = todayIso();
@@ -153,10 +148,15 @@ function AppContent() {
   function openTaskRecord(task: FarmTask) {
     if (!task.done) return;
     setError("");
-    setRecordDraft({ key: newSubmissionId(), draft: taskLedgerDraft(task, seasons.items), task });
+    setQuickEntry({ key: newSubmissionId(), draft: taskLedgerDraft(task, seasons.items), task });
   }
 
-  function openHomeRecord(plotId = "", seasonId?: string) {
+  function closeQuickEntry() {
+    setQuickEntry(null);
+    setError("");
+  }
+
+  function openQuickRecord(plotId = "", seasonId?: string) {
     setError("");
     setNotice("");
     if (plots.items.length === 0) {
@@ -164,16 +164,21 @@ function AppContent() {
       setNotice("请先登记地块，再记一笔农活。");
       return;
     }
-    const today = todayIso();
-    const candidates = seasons.items.filter((season) => season.plot_id === plotId
-      && (!season.started_on || season.started_on <= today) && (!season.ended_on || today <= season.ended_on));
-    const applicableId = seasonId ?? (candidates.length === 1 && candidates[0].started_on ? candidates[0].id : undefined);
-    requestLeave(() => setRecordDraft({ key: newSubmissionId(), draft: { plot_id: plotId, happened_on: today, kind: "施肥", detail: "", ...(applicableId ? { season_id: applicableId } : {}) } }));
+    const recordDate = todayIso();
+    const draftSeasonId = seasonId ?? matchRecordSeason(seasons.items, plotId, recordDate).season?.id;
+    const draft: LedgerDraft = {
+      plot_id: plotId,
+      happened_on: recordDate,
+      kind: "施肥",
+      detail: "",
+      ...(draftSeasonId ? { season_id: draftSeasonId } : {}),
+    };
+    requestLeave(() => setQuickEntry({ key: newSubmissionId(), draft }));
   }
 
   function handleFirstStep(step: "plot" | "season" | "record", plotId: string | null) {
     if (step === "record" && plotId) {
-      openHomeRecord(plotId);
+      openQuickRecord(plotId);
       return;
     }
     const needsSeason = step === "season" && plotId && !seasons.items.some((season) => season.plot_id === plotId);
@@ -186,7 +191,7 @@ function AppContent() {
   async function handleDemoChanged(loaded: boolean) {
     setPlotRequest({ key: 0 });
     setCompletedTask(null);
-    setRecordDraft(null);
+    setQuickEntry(null);
     invalidateDecision();
     setSelectedPlotId("");
     setEconomicsFilters({ plot_id: "", season_id: "", year: "", data_scope: loaded ? "demo" : "real" });
@@ -331,7 +336,7 @@ function AppContent() {
 
         {activeFeature === "home" && <section className="panel home-actions home-quick-entry">
           <div><h3>今天的农活</h3><p>完成待办只更新清单，实际农活由你确认记账。</p></div>
-          <button className="primary-button" type="button" onClick={() => openHomeRecord()}>记一笔农活</button>
+          <button className="primary-button" type="button" onClick={() => openQuickRecord()}>记一笔农活</button>
         </section>}
         {user.is_guest && <GuestAccountPanel user={user}
           onSaved={acceptGuestUpgrade}
@@ -349,7 +354,7 @@ function AppContent() {
 
         {activeFeature === "home" && <HomeWorkspace tasks={tasks.items} plots={plots.items}
           loading={plots.loading || tasks.loading} busy={tasks.busy} onNavigate={navigate}
-          onComplete={handleToggleTask} onRecord={openHomeRecord} />}
+          onComplete={handleToggleTask} onRecord={openQuickRecord} />}
 
         {activeFeature === "decision" && (
           <Suspense fallback={<div className="panel panel--loading">正在加载今日农活模块...</div>}>
@@ -380,7 +385,7 @@ function AppContent() {
               key={`${user.id}:${workspaceRevision}`}
               plots={plots.items}
               seasons={seasons.items}
-              onError={handleError}
+              onError={setError}
               onRecordsChanged={plots.refresh}
               onQuickTask={tasks.create}
             />
@@ -402,7 +407,7 @@ function AppContent() {
                 const result = await withSeasonRefresh(() => plots.remove(plotId, revision));
                 if (result !== undefined) {
                   await tasks.refresh();
-                  setCompletedTask(null); setRecordDraft(null); invalidateDecision(); setSelectedPlotId("");
+                  setCompletedTask(null); setQuickEntry(null); invalidateDecision(); setSelectedPlotId("");
                   setEconomicsFilters({ plot_id: "", season_id: "", year: "", data_scope: "real" });
                   setDecisionForm((current) => ({ ...current, crop: "玉米" }));
                   setNotice("地块已移入回收站，茬次、台账和待办完整保留，可从回收站恢复。");
@@ -415,7 +420,7 @@ function AppContent() {
                 return result;
               }}
               onUpdateSeason={seasons.update}
-              onRecord={openHomeRecord}
+              onRecord={openQuickRecord}
             />
           </Suspense>
         )}
@@ -440,7 +445,7 @@ function AppContent() {
 
         {activeFeature === "trash" && <TrashWorkspace onChanged={async () => {
           setNotice("");
-          setCompletedTask(null); setRecordDraft(null); invalidateDecision(); setSelectedPlotId("");
+          setCompletedTask(null); setQuickEntry(null); invalidateDecision(); setSelectedPlotId("");
           setDecisionForm((current) => ({ ...current, crop: "玉米" }));
           setEconomicsFilters({ plot_id: "", season_id: "", year: "", data_scope: "real" });
           await Promise.all([plots.refresh(), seasons.refresh(), tasks.refresh()]);
@@ -448,7 +453,7 @@ function AppContent() {
         }} />}
         {activeFeature === "stats" && (
           <Suspense fallback={<div className="panel panel--loading">正在加载统计面板...</div>}>
-            <StatsWorkspace key={workspaceRevision} onError={handleError} plots={plots.items} seasons={seasons.items}
+            <StatsWorkspace key={workspaceRevision} onError={setError} plots={plots.items} seasons={seasons.items}
               filters={economicsFilters} onFiltersChange={setEconomicsFilters}
               onRecordsChanged={plots.refresh} onQuickTask={tasks.create} />
           </Suspense>
@@ -456,21 +461,62 @@ function AppContent() {
 
       </main>
 
-      {recordDraft && <div className="dialog-backdrop"><section ref={recordDialog} tabIndex={-1} className="record-dialog" role="dialog" aria-modal="true" aria-labelledby="record-dialog-title">
-        <h3 id="record-dialog-title">{recordDraft.task ? "从已完成待办记账" : "记一笔农活"}</h3>
-        {recordDraft.task && <p>来自「{recordDraft.task.title}」。日期取实际完成日；请核对作业类型、日期和内容。{!recordDraft.task.plot_id && "这条是杂事，请先选择地块。"}取消或保存失败不会重新打开待办。</p>}
-        {error && <p className="form-warning" role="alert">{error}</p>}
-        {plots.items.length === 0 ? <><p>农事台账需要关联地块，请先登记一块地。</p><button className="primary-button" type="button" onClick={() => { setRecordDraft(null); setActiveFeature("plots"); }}>登记地块</button><button className="ghost-button" type="button" onClick={() => setRecordDraft(null)}>取消记账</button></> :
-          <Suspense fallback={<p>正在加载记账表单...</p>}><section className="workspace-grid"><FarmRecordForm key={recordDraft.key}
-            plots={plots.items} seasons={seasons.items} initialDraft={recordDraft.draft} compact
-            initialSubmissionId={recordDraft.task?.id}
-            onError={handleError} onRecordsChanged={plots.refresh} onQuickTask={tasks.create}
-            onCancel={() => { setRecordDraft(null); setError(""); }}
-            onSaved={() => { setRecordDraft(null); setCompletedTask(null); setNotice("已记入台账，可到统计面板查看收支。"); }} />
-          </section></Suspense>}
-      </section></div>}
+      {quickEntry && (
+        <div className="dialog-backdrop">
+          <section
+            ref={recordDialog}
+            tabIndex={-1}
+            className="record-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="record-dialog-title"
+          >
+            <h3 id="record-dialog-title">{quickEntry.task ? "从已完成待办记账" : "记一笔农活"}</h3>
+            {quickEntry.task && (
+              <p>来自「{quickEntry.task.title}」。日期取实际完成日；请核对作业类型、日期和内容。{!quickEntry.task.plot_id && "这条是杂事，请先选择地块。"}取消或保存失败不会重新打开待办。</p>
+            )}
+            {error && <p className="form-warning" role="alert">{error}</p>}
+            {plots.items.length === 0 ? (
+              <>
+                <p>农事台账需要关联地块，请先登记一块地。</p>
+                <button className="primary-button" type="button" onClick={() => { setQuickEntry(null); setActiveFeature("plots"); }}>登记地块</button>
+                <button className="ghost-button" type="button" onClick={() => setQuickEntry(null)}>取消记账</button>
+              </>
+            ) : (
+              <Suspense fallback={<p>正在加载记账表单...</p>}>
+                <section className="workspace-grid">
+                  <FarmRecordForm
+                    key={quickEntry.key}
+                    compact
+                    plots={plots.items}
+                    seasons={seasons.items}
+                    initialDraft={quickEntry.draft}
+                    initialSubmissionId={quickEntry.task?.id}
+                    onError={setError}
+                    onRecordsChanged={plots.refresh}
+                    onQuickTask={tasks.create}
+                    onCancel={closeQuickEntry}
+                    onSaved={() => {
+                      setQuickEntry(null);
+                      setCompletedTask(null);
+                      setNotice("已记入台账，可到统计面板查看收支。");
+                    }}
+                  />
+                </section>
+              </Suspense>
+            )}
+          </section>
+        </div>
+      )}
 
-      {infoPanel && <div className="dialog-backdrop" role="presentation" onMouseDown={() => setInfoPanel(null)}><section className="confirm-dialog info-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="ghost-button info-dialog__close" type="button" onClick={() => setInfoPanel(null)} aria-label="关闭">关闭</button>{infoPanel === "help" ? <><h3>使用帮助</h3><p>注册、登录或使用访客模式后，可以登记地块、记录农事并生成当天农活建议。</p><ul><li>首页和地块卡片可直接记一笔农活，补录日期会重新匹配茬次。费用等可选信息可稍后编辑补全。</li><li>记账失败保留填写内容，请检查网络后重试。未保存离开时可选择继续填写；草稿只在当前页面内，退出或确认放弃后不保留。</li><li>完成待办后可选择顺便记入台账，核对实际日期和内容后保存；取消不会撤销完成。</li><li>地块档案登记面积、土壤和灌溉条件，每块地按茬次记录当季作物。</li><li>结束一茬后可以开始新茬，投入产出按茬次分开算，不混季。</li><li>农事台账按地块记录每次作业的日期、用量、费用，采收还能记产量和单价。</li><li>采收提醒按同一地块全部相关登记施药记录取最晚日期，换茬不会解除未结束的提醒。仅核对登记日期和天数，请以具体产品标签为准。</li><li>农事待办把接下来要做的事排好，逾期会在顶栏标红。</li><li>地块或台账删除后可到回收站恢复；地块关联的茬次、台账和待办一起保留。回收站没有自动清理，最终删除后不能恢复。</li><li>今日农活可选地块带入当季作物。降雨概率、土壤湿度、气温和生长期由你填写或估计，没有自动天气或传感器数据。提示仅按降雨概率和土壤湿度分支，作物、生长期和气温只作记录，不是综合风险评估或用药依据；实际农事请结合现场情况核对。修改任一条件后旧建议清除，须重新生成才能存为待办；保存期间暂不能修改条件。</li><li>每茬收支差额等于已记录收入减已记录支出，不自动包含未登记的人工、地租。费用未填与 0 元分别提示，采收收入仅包含产量和单价均完整的记录。</li><li>统计年度按作业日期划分，跨年茬次只计所选年份；点击金额或待补录数量可追溯台账，返回保留筛选。</li><li>访客可保存为正式账号，原数据保留。演示资料有明确标识，可单独清空；新注册账号默认没有演示资料。</li><li>台账和每茬收支可按当前筛选导出 CSV，包含全部匹配记录。CSV 用于留档和分析，不能作为完整数据库恢复备份。</li><li>显示名称可以随时在个人设置里修改。</li><li>正式账号可在「账号安全」验证原密码后改密，或生成本人离线保管的一次性恢复码。改密或重置会退出全部设备，需重新生成恢复码。</li><li>忘记密码可在登录页使用恢复码；没有恢复码时请联系部署者线下核验身份后辅助恢复，无法核验时不能恢复。访客须先保存账号。</li></ul></> : <><h3>关于软件</h3><p>软件全称：{health.app_name}</p><p>软件简称：云寻</p><p>软件版本：{formatAppVersion(health.app_version)}</p><p>主要功能：首页、地块与茬次档案、农事台账与待办、每茬已记录收支及追溯、CSV 导出、回收站、账号安全与本机农活建议。</p></>}</section></div>}
+      {infoPanel && (
+        <AppInfoDialog
+          page={infoPanel}
+          appName={health.app_name}
+          appVersion={health.app_version}
+          onClose={() => setInfoPanel(null)}
+        />
+      )}
     </div>
   );
 }

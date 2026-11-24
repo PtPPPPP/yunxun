@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { taskLedgerDraft } from "./taskLedger";
 import { FarmTask, PlotSeason } from "../types";
 
-const task: FarmTask = { id: "task", plot_id: "plot", plot_name: "东田", title: "追肥复查", due_on: "2025-04-01", done: true, done_at: "2026-10-19T12:00:00Z", notes: "记录长势", created_at: "" };
+const task: FarmTask = {
+  id: "task", plot_id: "plot", plot_name: "东田", title: "追肥复查",
+  due_on: "2025-04-01", done: true, done_at: new Date("2026-10-19T12:00:00").toISOString(),
+  notes: "记录长势", created_at: "",
+};
 const season: PlotSeason = { id: "season", plot_id: "plot", crop: "玉米", started_on: "2026-10-01", ended_on: null, active: true, notes: "", created_at: "", updated_at: "" };
 
 describe("待办记账草稿", () => {
@@ -20,6 +24,13 @@ describe("待办记账草稿", () => {
     expect(taskLedgerDraft(task, [{ ...season, plot_id: "another" }]).season_id).toBeUndefined();
     expect(taskLedgerDraft(task, [{ ...season, ended_on: "2026-10-18" }]).season_id).toBeUndefined();
   });
+  it("开始日和结束日都可记账，两茬在同一天交接时留给用户选", () => {
+    const previous = { ...season, id: "previous", ended_on: "2026-10-19" };
+    const next = { ...season, id: "next", started_on: "2026-10-19" };
+    expect(taskLedgerDraft(task, [previous]).season_id).toBe(previous.id);
+    expect(taskLedgerDraft(task, [next]).season_id).toBe(next.id);
+    expect(taskLedgerDraft(task, [previous, next]).season_id).toBeUndefined();
+  });
   it("杂事不默认选择地块，长备注遵循台账字段长度", () => {
     const draft = taskLedgerDraft({ ...task, plot_id: null, notes: "长".repeat(1000) }, [season]);
     expect(draft.plot_id).toBe("");
@@ -27,9 +38,10 @@ describe("待办记账草稿", () => {
     expect(draft.detail.length).toBe(300);
   });
   it("历史完成日匹配历史茬次，不取当前进行中茬次", () => {
-    const old = { ...season, id: "old", started_on: "2026-04-01", ended_on: "2026-05-31", active: false };
-    const draft = taskLedgerDraft({ ...task, done_at: "2026-04-30T12:00:00Z" }, [season, old]);
-    expect(draft.season_id).toBe("old");
+    const springSeason = { ...season, id: "spring", started_on: "2026-04-01", ended_on: "2026-05-31", active: false };
+    const completedAt = new Date("2026-04-30T12:00:00").toISOString();
+    const draft = taskLedgerDraft({ ...task, done_at: completedAt }, [season, springSeason]);
+    expect(draft.season_id).toBe(springSeason.id);
     expect(draft.happened_on).toBe("2026-04-30");
   });
 });

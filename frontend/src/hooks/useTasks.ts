@@ -26,17 +26,15 @@ interface TaskResponse {
 interface UseTasksOptions {
   onError: (message: string) => void;
   onChanged?: () => Promise<void>;
-  /** 未登录时不拉取，避免登录页弹出 401 错误横幅。 */
-  enabled: boolean;
   accountId: string | null;
 }
 
-export function useTasks({ onError, enabled, accountId, onChanged }: UseTasksOptions) {
+export function useTasks({ onError, accountId, onChanged }: UseTasksOptions) {
   const [data, setData] = useState({ accountId, items: [] as FarmTask[], recentDone: [] as FarmTask[] });
   const items = data.accountId === accountId ? data.items : [];
   const recentDone = data.accountId === accountId ? data.recentDone : [];
   const [loading, setLoading] = useState(false);
-  const action = useAsyncGuard();
+  const { run: runWrite, busy } = useAsyncGuard();
   const isCurrent = useAccountGuard(accountId);
 
   const refresh = useCallback(async () => {
@@ -52,7 +50,7 @@ export function useTasks({ onError, enabled, accountId, onChanged }: UseTasksOpt
   }, [onError, accountId, isCurrent]);
 
   useEffect(() => {
-    if (!enabled) {
+    if (accountId === null) {
       setData({ accountId, items: [], recentDone: [] });
       return;
     }
@@ -64,12 +62,17 @@ export function useTasks({ onError, enabled, accountId, onChanged }: UseTasksOpt
     return () => {
       cancelled = true;
     };
-  }, [enabled, refresh, accountId]);
+  }, [refresh, accountId]);
+
+  const refreshAfterWrite = useCallback(async () => {
+    await refresh();
+    if (isCurrent()) await onChanged?.();
+  }, [refresh, isCurrent, onChanged]);
 
   const create = useCallback(
     async (payload: TaskInput) => {
       let created: FarmTask | undefined;
-      await action.run(async () => {
+      await runWrite(async () => {
         if (!isCurrent()) return;
         try {
           const response = await api.post<TaskResponse>("/api/farm-tasks", payload);
@@ -80,16 +83,16 @@ export function useTasks({ onError, enabled, accountId, onChanged }: UseTasksOpt
           if (isCurrent()) onError(getErrorMessage(error));
         }
       });
-      if (created) { await refresh(); if (isCurrent()) await onChanged?.(); }
+      if (created) await refreshAfterWrite();
       return isCurrent() ? created : undefined;
     },
-    [action, onError, refresh, onChanged, isCurrent],
+    [runWrite, onError, refreshAfterWrite, isCurrent],
   );
 
   const update = useCallback(
     async (taskId: string, payload: TaskInput, done: boolean) => {
       let updated: FarmTask | undefined;
-      await action.run(async () => {
+      await runWrite(async () => {
         if (!isCurrent()) return;
         try {
           const response = await api.patch<TaskResponse>(`/api/farm-tasks/${taskId}`, { ...payload, done });
@@ -100,42 +103,21 @@ export function useTasks({ onError, enabled, accountId, onChanged }: UseTasksOpt
           if (isCurrent()) onError(getErrorMessage(error));
         }
       });
-      if (updated) { await refresh(); if (isCurrent()) await onChanged?.(); }
+      if (updated) await refreshAfterWrite();
       return isCurrent() ? updated : undefined;
     },
-    [action, onError, refresh, onChanged, isCurrent],
+    [runWrite, onError, refreshAfterWrite, isCurrent],
   );
 
-  const toggle = useCallback(
-    async (task: FarmTask) => {
-      let updated: FarmTask | undefined;
-      await action.run(async () => {
-        if (!isCurrent()) return;
-        try {
-          const response = await api.patch<TaskResponse>(`/api/farm-tasks/${task.id}`, {
-            plot_id: task.plot_id,
-            title: task.title,
-            due_on: task.due_on,
-            notes: task.notes,
-            done: !task.done,
-          });
-          if (!isCurrent()) return;
-          updated = response.data.task;
-          onError("");
-        } catch (error) {
-          if (isCurrent()) onError(getErrorMessage(error));
-        }
-      });
-      if (updated) { await refresh(); if (isCurrent()) await onChanged?.(); }
-      return isCurrent() ? updated : undefined;
-    },
-    [action, onError, refresh, onChanged, isCurrent],
-  );
+  function toggle(task: FarmTask) {
+    const { plot_id, title, due_on, notes } = task;
+    return update(task.id, { plot_id, title, due_on, notes }, !task.done);
+  }
 
   const remove = useCallback(
     async (taskId: string) => {
       let removed = false;
-      await action.run(async () => {
+      await runWrite(async () => {
         if (!isCurrent()) return;
         try {
           await api.delete(`/api/farm-tasks/${taskId}`);
@@ -146,11 +128,11 @@ export function useTasks({ onError, enabled, accountId, onChanged }: UseTasksOpt
           if (isCurrent()) onError(getErrorMessage(error));
         }
       });
-      if (removed) { await refresh(); if (isCurrent()) await onChanged?.(); }
+      if (removed) await refreshAfterWrite();
       return isCurrent() && removed;
     },
-    [action, onError, refresh, onChanged, isCurrent],
+    [runWrite, onError, refreshAfterWrite, isCurrent],
   );
 
-  return { items, recentDone, loading, busy: action.busy, refresh, create, update, toggle, remove };
+  return { items, recentDone, loading, busy, refresh, create, update, toggle, remove };
 }

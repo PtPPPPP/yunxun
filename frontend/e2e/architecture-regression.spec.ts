@@ -81,6 +81,23 @@ test("手机独立记账不查询台账列表，嵌套放弃确认保留输入�
   expect(listRequests).toBe(0);
 });
 
+test("只改归茬选择会提示未保存，改回自动匹配后可以直接离开", async ({ page }) => {
+  await setup(page);
+  const nav = page.getByRole("navigation", { name: "功能菜单" });
+  await nav.getByRole("button", { name: "农事台账", exact: true }).click();
+  const season = page.locator("#ledger-record-form").getByLabel("所属茬次");
+  await season.selectOption("unassigned");
+  await nav.getByRole("button", { name: "首页", exact: true }).click();
+  const discard = page.getByRole("dialog", { name: "放弃未保存的农活？" });
+  await discard.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(season).toHaveValue("unassigned");
+
+  await season.selectOption("");
+  await nav.getByRole("button", { name: "首页", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "首页", exact: true })).toBeVisible();
+  await expect(discard).toHaveCount(0);
+});
+
 test("删除当前编辑记录时共用写操作互斥，并复位编辑器而不保存未提交修改", async ({ page }) => {
   const plot = await setup(page);
   const { record } = await write(page, "/farm-records", {

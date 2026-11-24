@@ -38,12 +38,16 @@ test("建议会写入统计面板的历史记录与趋势", async ({ page }) => 
 
 test("帮助与关于软件使用去 AI 后的名称", async ({ page }) => {
   await guestLogin(page);
-  await page.getByRole("button", { name: "使用帮助" }).click();
+  const help = page.getByRole("button", { name: "使用帮助" });
+  await help.click();
   await expect(page.getByRole("dialog")).toContainText("使用帮助");
   await expect(page.getByRole("dialog")).toContainText("费用未填与 0 元分别提示");
   await expect(page.getByRole("dialog")).toContainText("统计年度按作业日期划分");
   await expect(page.getByRole("dialog")).toContainText("回收站没有自动清理");
-  await page.getByRole("button", { name: "关闭" }).click();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("dialog").getByRole("button", { name: "关闭" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(help).toBeFocused();
 
   await page.getByRole("button", { name: "关于软件" }).click();
   const about = page.getByRole("dialog");
