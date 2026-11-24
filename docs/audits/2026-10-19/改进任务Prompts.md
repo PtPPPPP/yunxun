@@ -7,7 +7,7 @@
 先发送下面这段；如果在新的 Codex 对话中执行某条任务，请把它与该任务一起发送。
 
 ```text
-你在 C:\program1\coding\yunxun 项目中工作。先阅读 AGENTS.md、README、docs/ARCHITECTURE.md，以及 docs/audits/2026-10-19/审计报告.md，检查 Git 状态后再修改。以当前代码为准，确认问题是否仍存在，不覆盖已有未提交工作。
+你在仓库根目录工作。先阅读 AGENTS.md、README、docs/ARCHITECTURE.md，以及 docs/audits/2026-10-19/审计报告.md，检查 Git 状态后再修改。以当前代码为准，确认问题是否仍存在，不覆盖已有未提交工作。
 
 直接完成当前任务的实现和验证。保持 FastAPI + React/Vite + SQLite；以最少的概念完整表达业务规则，避免无关重构或新增框架。作物仍由 plot_seasons 承载，不往 plots 增加作物字段，不恢复任何 AI 能力。
 
